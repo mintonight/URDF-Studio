@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildResult,
+  buildPuppeteerLaunchArgs,
+  getPreferredRuntimeSnapshot,
   isIgnorableBrowserConsoleWarning,
   summarizePostReadyHistoryDelta,
 } from './run_unitree_browser_regression.mjs';
@@ -88,4 +91,45 @@ test('isIgnorableBrowserConsoleWarning suppresses known browser/loader noise onl
   );
   assert.equal(isIgnorableBrowserConsoleWarning('RGBELoader has been deprecated.'), true);
   assert.equal(isIgnorableBrowserConsoleWarning('USD parser warning: missing material'), false);
+});
+
+test('buildPuppeteerLaunchArgs opts into software WebGL for headless fixture runs', () => {
+  const args = buildPuppeteerLaunchArgs();
+  assert.ok(args.includes('--no-sandbox'));
+  assert.ok(args.includes('--disable-setuid-sandbox'));
+  assert.ok(args.includes('--enable-unsafe-swiftshader'));
+});
+
+test('buildResult prefers primary runtime when reporting runtime presence', () => {
+  const snapshot = {
+    selectedFile: { name: 'robot.usd' },
+    runtime: null,
+    primaryRuntime: {
+      name: 'main-runtime',
+      linkCount: 3,
+      jointCount: 2,
+      visualMeshes: [],
+    },
+  };
+
+  assert.equal(getPreferredRuntimeSnapshot(snapshot)?.name, 'main-runtime');
+
+  const result = buildResult(
+    'robot',
+    'robot.usd',
+    {
+      response: { loaded: true },
+      snapshot,
+      documentLoadState: { status: 'ready', fileName: 'robot.usd' },
+      usdStageLoadDebugHistory: [],
+    },
+    null,
+    null,
+    [],
+    [],
+    [],
+  );
+
+  assert.equal(result.runtimePresent, true);
+  assert.equal(result.snapshot.primaryRuntime.name, 'main-runtime');
 });

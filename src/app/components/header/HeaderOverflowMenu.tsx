@@ -10,6 +10,7 @@ import {
   Sun,
   Undo,
 } from 'lucide-react';
+import { IconButton } from '@/shared/components/ui';
 import { HeaderMenuOverlay } from './HeaderMenuOverlay';
 import { HeaderMenuItem, HeaderMenuSeparator } from './HeaderMenuItem';
 import type { HeaderOverflowMenuProps } from './types';
@@ -50,21 +51,20 @@ export function HeaderOverflowMenu({
 
   return (
     <div className={`relative ${className}`.trim()}>
-      <button
+      <IconButton
         type="button"
         onClick={() => setActiveMenu(activeMenu === 'more' ? null : 'more')}
-        className={`relative z-50 flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
-          activeMenu === 'more'
-            ? 'bg-element-bg dark:bg-element-active text-text-primary dark:text-white'
-            : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg'
-        }`}
+        variant="toolbar"
+        size="md"
+        isActive={activeMenu === 'more'}
+        className="relative z-50 h-7 w-7"
         title={t.more}
         aria-label={t.more}
         aria-haspopup="menu"
         aria-expanded={activeMenu === 'more'}
       >
         <MoreHorizontal className="w-4 h-4" />
-      </button>
+      </IconButton>
       {activeMenu === 'more' && (
         <>
           <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />

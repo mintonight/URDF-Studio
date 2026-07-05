@@ -5,8 +5,7 @@ import React, { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { OptionsPanel } from './OptionsPanel';
-import { useSelectionStore } from '@/store/selectionStore';
+import { OptionsPanel, PanelOverlayToggleButton } from './OptionsPanel';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -40,20 +39,7 @@ function installDom() {
   return dom;
 }
 
-function resetSelectionStore() {
-  const state = useSelectionStore.getState();
-  state.setInteractionGuard(null);
-  state.setHoverFrozen(false);
-  while (useSelectionStore.getState().hoverBlockCount > 0) {
-    useSelectionStore.getState().endHoverBlock();
-  }
-  state.clearHover();
-  state.setHoveredSelection({ type: null, id: null });
-}
-
 test('OptionsPanel can transition from hidden to visible without changing hook order', async () => {
-  resetSelectionStore();
-
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -98,8 +84,6 @@ test('OptionsPanel can transition from hidden to visible without changing hook o
 });
 
 test('OptionsPanel uses a slimmer shared header by default', async () => {
-  resetSelectionStore();
-
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -137,8 +121,6 @@ test('OptionsPanel uses a slimmer shared header by default', async () => {
 });
 
 test('OptionsPanel uses a slightly smaller shared corner radius by default', async () => {
-  resetSelectionStore();
-
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -172,8 +154,6 @@ test('OptionsPanel uses a slightly smaller shared corner radius by default', asy
 });
 
 test('OptionsPanel applies dynamic z-index and activates on pointer or keyboard focus', async () => {
-  resetSelectionStore();
-
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -216,6 +196,45 @@ test('OptionsPanel applies dynamic z-index and activates on pointer or keyboard 
       button.dispatchEvent(new dom.window.Event('focusin', { bubbles: true }));
     });
     assert.equal(activateCount, 2);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('PanelOverlayToggleButton exposes a shared toolbar toggle contract', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  let clickCount = 0;
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(PanelOverlayToggleButton, {
+          active: true,
+          label: 'Always on top',
+          onClick: () => {
+            clickCount += 1;
+          },
+        }),
+      );
+    });
+
+    const button = container.querySelector('button[aria-label="Always on top"]');
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+    assert.match(button.className, /\bbg-system-blue\/10\b/);
+    assert.doesNotMatch(button.className, /slate/);
+
+    await act(async () => {
+      button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(clickCount, 1);
   } finally {
     await act(async () => {
       root.unmount();

@@ -45,6 +45,12 @@ const DEFAULT_EXECUTABLE_CANDIDATES = [
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
 ].filter(Boolean);
+const PUPPETEER_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--enable-unsafe-swiftshader',
+];
 
 export function fail(message) {
   throw new Error(message);
@@ -328,7 +334,7 @@ export async function launchBrowser(options = {}) {
   return puppeteer.launch({
     headless: options.headed ? false : true,
     executablePath: executablePath ?? undefined,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    args: buildBrowserLaunchArgs(),
     defaultViewport: { width: 1600, height: 1000, deviceScaleFactor: 1 },
     // Several regression helpers await heavy in-page work inside a single
     // page.evaluate (loadRobotByName / addComponent trigger USD hydration).
@@ -337,6 +343,10 @@ export async function launchBrowser(options = {}) {
     // enough headroom to finish a cold load/hydrate.
     protocolTimeout: 180000,
   });
+}
+
+export function buildBrowserLaunchArgs() {
+  return [...PUPPETEER_LAUNCH_ARGS];
 }
 
 function ringBuffer(limit = 100) {

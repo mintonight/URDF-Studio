@@ -679,7 +679,7 @@ export function useWorkspaceSourceSync({
         : null,
     [currentRobotSourceState, isSelectedUsdHydrating, selectedFile?.format, shouldRenderAssembly],
   );
-  const generatedUrdfContent = useGeneratedRobotSource({
+  const _generatedUrdfContent = useGeneratedRobotSource({
     cache: generatedSourceCacheRef,
     cacheKey: generatedUrdfRequest ? `urdf:${currentRobotSourceSnapshot}` : null,
     options: generatedUrdfRequest,
@@ -724,7 +724,12 @@ export function useWorkspaceSourceSync({
       fileContent: selectedFile?.format === 'urdf' ? selectedFile.content : null,
       originalContent: originalUrdfContent,
       generatedContent: viewerGeneratedUrdfContent,
-      hasStoreEdits: isSelectedUrdfSource ? hasSourceStoreEdits : true,
+      // The viewer receives structured RobotData for standalone URDF edits.
+      // Keep the source content pinned to the imported file so property-panel
+      // updates do not switch the renderer to a generated round-trip document
+      // and remount the runtime scene. The generated draft remains available
+      // to the source editor through draftUrdfContent.
+      hasStoreEdits: isSelectedUrdfSource ? false : true,
     });
   }, [
     hasSourceStoreEdits,

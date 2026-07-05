@@ -160,11 +160,6 @@
       "count": 4
     }
   },
-  "src/app/hooks/useWorkspaceSourceSync.ts": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
   "src/app/hooks/workspace-source-sync/useSourceEditBaseline.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -384,16 +379,6 @@
   "src/core/utils/visualMaterialOverrides.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
-    }
-  },
-  "src/features/ai-assistant/components/InspectionReport.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/features/ai-assistant/components/InspectionSetupView.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "src/features/ai-assistant/utils/pdfExport.test.ts": {
@@ -686,11 +671,6 @@
   "src/features/urdf-viewer/utils/robotGeometryVisibilitySync.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
-    }
-  },
-  "src/features/urdf-viewer/utils/robotLoaderGeometryPatch.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 11
     }
   },
   "src/features/urdf-viewer/utils/robotLoaderGeometryPatch.ts": {

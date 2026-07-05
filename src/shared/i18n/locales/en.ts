@@ -6,6 +6,8 @@ import type { TranslationKeys } from '../types';
 import { enWorkflow } from './enWorkflow';
 
 export const en: TranslationKeys = {
+  ...enWorkflow,
+
   // Header
   appName: 'URDF Studio',
   editor: 'Editor',

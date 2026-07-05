@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import puppeteer from 'puppeteer';
+import { buildBrowserLaunchArgs } from '../helpers/browser-helpers.mjs';
 
 const DEFAULT_SITE_URL = 'http://127.0.0.1:4173';
 const DEFAULT_OUTPUT_PATH = path.resolve('tmp/regression/unitree-browser-selected.json');
@@ -284,7 +285,7 @@ async function ensureSite(options) {
 async function openRegressionPage(options) {
   const browser = await puppeteer.launch({
     headless: options.headed ? false : true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: buildPuppeteerLaunchArgs(),
     protocolTimeout: Math.max(options.timeoutMs * 2, 600_000),
   });
   const page = await browser.newPage();
@@ -339,6 +340,10 @@ async function openRegressionPage(options) {
     page,
     pageErrors,
   };
+}
+
+export function buildPuppeteerLaunchArgs() {
+  return buildBrowserLaunchArgs();
 }
 
 export function isIgnorableBrowserConsoleWarning(text) {
@@ -1421,7 +1426,11 @@ function compareCanvasLumaSamples(beforeSample, afterSample) {
   };
 }
 
-function buildResult(
+export function getPreferredRuntimeSnapshot(snapshot) {
+  return snapshot?.primaryRuntime ?? snapshot?.runtime ?? null;
+}
+
+export function buildResult(
   modelKey,
   targetFileName,
   evaluation,
@@ -1433,6 +1442,7 @@ function buildResult(
 ) {
   const response = evaluation?.response ?? null;
   const snapshot = evaluation?.snapshot ?? response?.snapshot ?? null;
+  const runtime = getPreferredRuntimeSnapshot(snapshot);
   const selectedFileName =
     evaluation?.snapshot?.selectedFile?.name ??
     response?.snapshot?.selectedFile?.name ??
@@ -1451,7 +1461,7 @@ function buildResult(
     targetFileName,
     selectedFileName,
     loaded: response?.loaded === true || evaluation?.documentLoadState?.status === 'ready',
-    runtimePresent: Boolean(snapshot?.runtime),
+    runtimePresent: Boolean(runtime),
     workerResolveEntry: stageInfo.workerResolveEntry,
     runtimeResolveEntry: stageInfo.runtimeResolveEntry,
     stageReady: stageInfo.stageReady,
@@ -1656,10 +1666,24 @@ async function collectLoadEvaluation(page) {
       : snapshot?.store?.joints && typeof snapshot.store.joints === 'object'
         ? Object.values(snapshot.store.joints)
         : [];
+    const summarizeRuntimeSnapshot = (runtime) =>
+      runtime
+        ? {
+            name: runtime.name ?? null,
+            linkCount:
+              runtime.linkCount ?? (Array.isArray(runtime.links) ? runtime.links.length : null),
+            jointCount:
+              runtime.jointCount ?? (Array.isArray(runtime.joints) ? runtime.joints.length : null),
+            visualMeshes: Array.isArray(runtime.visualMeshes)
+              ? runtime.visualMeshes.slice(0, 256).map(summarizeRuntimeVisualMesh)
+              : [],
+          }
+        : null;
     const summarizedSnapshot = snapshot
       ? {
           timestamp: snapshot.timestamp ?? null,
           runtimeRevision: snapshot.runtimeRevision ?? null,
+          primaryRuntimeRevision: snapshot.primaryRuntimeRevision ?? null,
           availableFiles: Array.isArray(snapshot.availableFiles)
             ? snapshot.availableFiles.map((file) => ({
                 name: file.name ?? null,
@@ -1687,20 +1711,8 @@ async function collectLoadEvaluation(page) {
                 highlightMode: snapshot.viewer.highlightMode ?? null,
               }
             : null,
-          runtime: snapshot.runtime
-            ? {
-                name: snapshot.runtime.name ?? null,
-                linkCount:
-                  snapshot.runtime.linkCount ??
-                  (Array.isArray(snapshot.runtime.links) ? snapshot.runtime.links.length : null),
-                jointCount:
-                  snapshot.runtime.jointCount ??
-                  (Array.isArray(snapshot.runtime.joints) ? snapshot.runtime.joints.length : null),
-                visualMeshes: Array.isArray(snapshot.runtime.visualMeshes)
-                  ? snapshot.runtime.visualMeshes.slice(0, 256).map(summarizeRuntimeVisualMesh)
-                  : [],
-              }
-            : null,
+          runtime: summarizeRuntimeSnapshot(snapshot.runtime),
+          primaryRuntime: summarizeRuntimeSnapshot(snapshot.primaryRuntime),
         }
       : null;
 

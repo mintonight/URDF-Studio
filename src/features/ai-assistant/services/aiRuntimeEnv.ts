@@ -1,4 +1,5 @@
 interface AiRuntimeEnvSource {
+  [key: string]: string | undefined;
   VITE_API_KEY?: string;
   VITE_OPENAI_API_KEY?: string;
   VITE_GEMINI_API_KEY?: string;

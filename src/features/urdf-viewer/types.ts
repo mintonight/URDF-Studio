@@ -30,7 +30,7 @@ import type {
 } from './utils/measurements';
 import type { MeasureSelectionLike } from './utils/measureTargetResolvers';
 import type { ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
-import type { ViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import type { ViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
 import type {
   ToolMode,
   ViewerHelperKind,
@@ -55,7 +55,7 @@ export type {
   ViewerRuntimeStageBridge,
   ViewerSceneMode,
 } from '@/shared/components/3d/viewerInteractionTypes';
-export type { ViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+export type { ViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
 export type {
   MeasureAnchorMode,
   MeasureGroup,

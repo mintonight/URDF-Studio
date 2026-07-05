@@ -55,10 +55,13 @@ import {
   resolveRuntimeSceneLinkMetadataState,
 } from '../utils/runtimeSceneMetadata';
 import { resolveSelectedIkDragLinkId } from '../utils/selectedIkDragLink';
-import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import { resolveViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
-import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
+import {
+  setRegressionPrimaryRuntimeRobot,
+  setRegressionRuntimeRobot,
+} from '@/shared/debug/regressionState';
 
 const EMPTY_ROBOT_FILES: RobotFile[] = [];
 const RUNTIME_IK_ANCHOR_EPSILON_SQ = 1e-12;
@@ -398,6 +401,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       }
 
       return () => {
+        setRegressionPrimaryRuntimeRobot(null);
         setRegressionRuntimeRobot(null);
       };
     }, [regressionRuntimeScopeKey]);
@@ -407,6 +411,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         return;
       }
 
+      setRegressionPrimaryRuntimeRobot(robot);
       setRegressionRuntimeRobot(robot);
     }, [regressionRuntimeScopeKey, robot]);
     useEffect(() => {

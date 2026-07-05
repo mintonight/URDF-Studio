@@ -27,7 +27,7 @@ const GITHUB = 'https://github.com/enkeebot/URDF-Studio';
 const seoContent = {
   en: {
     ogLocale: 'en_US',
-    title: 'URDF Studio — URDF, MJCF, USD & SDF Robot Model Editor',
+    title: 'URDF Studio - Professional Robot Design & Visualization Tool',
     description:
       'Free in-browser editor and viewer for robot models: URDF, MJCF, USD, SDF and Xacro. ' +
       'Edit kinematics, optimize collisions, assemble modules and convert formats.',
@@ -52,7 +52,7 @@ const seoContent = {
   },
   zh: {
     ogLocale: 'zh_CN',
-    title: 'URDF Studio — 在线机器人模型编辑与可视化（URDF·MJCF·USD·SDF）',
+    title: 'URDF Studio - 专业机器人设计与可视化工具',
     description:
       '免费的浏览器端机器人模型编辑与可视化工作站，支持 URDF、MJCF、USD、SDF、Xacro 的导入、编辑与转换，' +
       '提供运动学编辑、碰撞优化、模块组装与 AI 审阅。',
@@ -87,6 +87,33 @@ function escAttr(value) {
 
 function renderHead(lang) {
   const c = seoContent[lang];
+  const earlyTitleSync = [
+    `    <script>`,
+    `(function () {`,
+    `  var titles = {`,
+    `    en: ${JSON.stringify(seoContent.en.title)},`,
+    `    zh: ${JSON.stringify(seoContent.zh.title)}`,
+    `  };`,
+    `  var lang = 'en';`,
+    `  try {`,
+    `    if (/^\\/zh(?:\\/|$)/.test(window.location.pathname)) {`,
+    `      lang = 'zh';`,
+    `    } else {`,
+    `      var saved = window.localStorage && window.localStorage.getItem('language');`,
+    `      if (saved === 'en' || saved === 'zh') {`,
+    `        lang = saved;`,
+    `      } else {`,
+    `        var browserLang = window.navigator.language || window.navigator.userLanguage || '';`,
+    `        lang = browserLang.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';`,
+    `      }`,
+    `    }`,
+    `    document.title = titles[lang] || titles.en;`,
+    `  } catch (_error) {`,
+    `    document.title = titles.en;`,
+    `  }`,
+    `})();`,
+    `    </script>`,
+  ].join('\n');
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
@@ -104,6 +131,7 @@ function renderHead(lang) {
 
   return [
     `    <title>${escHtml(c.title)}</title>`,
+    earlyTitleSync,
     `    <meta name="description" content="${escAttr(c.description)}">`,
     `    <link rel="canonical" href="${c.url}">`,
     `    <meta property="og:url" content="${c.url}">`,

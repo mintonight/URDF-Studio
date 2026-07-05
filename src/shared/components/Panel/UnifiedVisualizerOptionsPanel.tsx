@@ -12,6 +12,7 @@ import {
   OptionsPanelContainer,
   OptionsPanelContent,
   OptionsPanelHeader,
+  PanelOverlayToggleButton,
   ToggleSliderOption,
 } from './OptionsPanel';
 
@@ -53,34 +54,6 @@ interface UnifiedVisualizerOptionsPanelProps {
   setGroundPlaneOffset: (value: number) => void;
   zIndex?: number;
   onActivate?: () => void;
-}
-
-interface OverlayToggleButtonProps {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}
-
-function OverlayToggleButton({ active, label, onClick }: OverlayToggleButtonProps) {
-  return (
-    <button
-      type="button"
-      className={`rounded p-0.5 transition-colors ${active ? 'bg-system-blue/10 text-system-blue dark:bg-system-blue/20' : 'text-text-tertiary hover:text-text-secondary'}`}
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-    >
-      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-        />
-      </svg>
-    </button>
-  );
 }
 
 export const UnifiedVisualizerOptionsPanel = forwardRef<
@@ -128,7 +101,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
     const isEnglish = lang === 'en';
     const englishCheckboxLabelClassName = isEnglish ? 'text-[10px]' : '';
     const englishSliderLabelClassName = isEnglish ? 'text-[9px]' : '';
-    const detailOptionIconClassName = 'w-3 h-3 text-slate-500';
+    const detailOptionIconClassName = 'w-3 h-3 text-text-tertiary';
 
     return (
       <div
@@ -184,7 +157,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
                 rowClassName="pr-1"
                 trailingControl={
                   showCollision ? (
-                    <OverlayToggleButton
+                    <PanelOverlayToggleButton
                       active={showCollisionAlwaysOnTop}
                       label={t.alwaysOnTop}
                       onClick={() => setShowCollisionAlwaysOnTop(!showCollisionAlwaysOnTop)}

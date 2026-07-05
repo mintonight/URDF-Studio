@@ -13,7 +13,6 @@ import {
 } from '@/features/file-io/utils/generatePdfFromHtml';
 import { __setInspectionOpenAIClientFactoryForTests } from '../services/aiService';
 import { INSPECTION_PROFILE_DEFINITIONS } from '../config/inspectionProfiles';
-import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
 import { buildNormalInspectionPlan } from '../utils/inspectionNormalPlan';
 import { GeometryType, JointType, type RobotState } from '@/types';
 
@@ -180,17 +179,6 @@ const createHumanoidMeshRobotFixture = (): RobotState => {
   return robot;
 };
 
-function getProfileItemCount(profileIds: string[]) {
-  return INSPECTION_PROFILE_DEFINITIONS.filter((profile) => profileIds.includes(profile.id)).reduce(
-    (sum, profile) => sum + profile.items.length,
-    0,
-  );
-}
-
-function getRecommendedSelectedItemCount(robot: RobotState = createRobotFixture()) {
-  return getProfileItemCount(buildInspectionProfileRecommendation(robot).profileIds);
-}
-
 function getNormalPlanSelectedItemCount(robot: RobotState = createRobotFixture()) {
   return Object.values(buildNormalInspectionPlan({ robot }).selectedProfiles).reduce(
     (sum, itemIds) => sum + itemIds.size,
@@ -198,12 +186,21 @@ function getNormalPlanSelectedItemCount(robot: RobotState = createRobotFixture()
   );
 }
 
-function getNormalProfileRow(container: Element, index = 0): HTMLButtonElement | null {
+function getSetupModeButton(container: Element, label: string): HTMLButtonElement | null {
   return (
-    Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[data-inspection-normal-profile-row]'),
-    )[index] ?? null
+    Array.from(container.querySelectorAll<HTMLButtonElement>(
+      '[data-inspection-setup-mode-switcher] button',
+    )).find((button) => button.textContent?.trim() === label) ?? null
   );
+}
+
+async function switchInspectionSetupMode(container: Element, dom: JSDOM, label: string) {
+  const modeButton = getSetupModeButton(container, label);
+  assert.ok(modeButton, `expected setup mode button "${label}" to render`);
+
+  await act(async () => {
+    modeButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  });
 }
 
 test('transparent AI inspection backdrop does not intercept pointer events', async () => {
@@ -256,6 +253,11 @@ test('AIInspectionModal moves to the front when activated', async () => {
     useUIStore.setState({
       managedWindowOrder: [...DEFAULT_MANAGED_WINDOW_ORDER],
     });
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+        useUIStore.getState().getManagedWindowZIndex('aiInspection'),
+      'source code should sit above AI inspection in the default order before the modal opens',
+    );
 
     await act(async () => {
       root.render(
@@ -277,9 +279,9 @@ test('AIInspectionModal moves to the front when activated', async () => {
     assert.ok(windowRoot, 'inspection window should render with dynamic z-index');
     assert.equal(windowRoot.className.includes('z-[100]'), false);
     assert.ok(
-      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
-        useUIStore.getState().getManagedWindowZIndex('aiInspection'),
-      'source code should start above AI inspection in the default order',
+      useUIStore.getState().getManagedWindowZIndex('aiInspection') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'opened AI inspection window should move above source code',
     );
 
     await act(async () => {
@@ -597,8 +599,6 @@ test('confirming regenerate returns to setup and preserves the prior mode and se
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const t = translations.zh;
@@ -708,8 +708,6 @@ test('inspection setup keeps selected checks in sync with updated recommended pr
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -1028,8 +1026,6 @@ test('professional setup preserves manual selected checks across selection-only 
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const t = translations.zh;
@@ -1058,6 +1054,8 @@ test('professional setup preserves manual selected checks across selection-only 
         />,
       );
     });
+
+    await switchInspectionSetupMode(container, dom, t.inspectionAdvancedMode);
 
     const getBadge = () =>
       container.querySelector<HTMLButtonElement>(
@@ -1105,12 +1103,10 @@ test('professional setup preserves manual selected checks across selection-only 
   }
 });
 
-test('inspection setup restores the saved normal mode and keeps selection in sync with advanced mode', async () => {
+test('inspection setup starts in normal mode and keeps selection in sync with professional mode', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -1137,7 +1133,7 @@ test('inspection setup restores the saved normal mode and keeps selection in syn
     assert.equal(
       container.textContent?.includes(t.inspectionRecommendedPlan),
       true,
-      'expected the saved normal mode to render the simplified setup heading',
+      'expected normal mode to render the simplified setup heading',
     );
     assert.equal(
       container.textContent?.includes(t.inspectionRunSummary),
@@ -1311,8 +1307,6 @@ test('professional setup sidebar is collapsed by default during selection', asyn
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const robot = createRobotFixture();
@@ -1335,6 +1329,8 @@ test('professional setup sidebar is collapsed by default during selection', asyn
         />,
       );
     });
+
+    await switchInspectionSetupMode(container, dom, translations.zh.inspectionAdvancedMode);
 
     assert.equal(
       container.querySelector('[data-inspection-setup-sidebar-collapsed]'),
@@ -1370,8 +1366,6 @@ test('professional setup edits the current plan through a draft plan editor', as
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const addedProfile = INSPECTION_PROFILE_DEFINITIONS.find(
@@ -1394,6 +1388,8 @@ test('professional setup edits the current plan through a draft plan editor', as
         />,
       );
     });
+
+    await switchInspectionSetupMode(container, dom, translations.zh.inspectionAdvancedMode);
 
     assert.equal(
       container.querySelector('[data-inspection-current-plan-profile="morph.humanoid"]'),
@@ -1626,8 +1622,6 @@ test('inspection setup normal mode shows the inline selection summary and page-l
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const t = translations.zh;
@@ -1680,8 +1674,6 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -1747,8 +1739,6 @@ test('inspection setup normal mode uses a scan queue layout aligned with antivir
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -1974,8 +1964,6 @@ test('inspection setup normal mode exposes correction controls through a low-pri
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
 
@@ -2021,8 +2009,6 @@ test('inspection setup normal mode footer uses a compact aligned count treatment
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -2126,8 +2112,6 @@ test('inspection setup highlights the run inspection action from the window cent
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -2235,8 +2219,6 @@ test('inspection setup replays the run inspection cue when switching modes befor
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
-
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const t = translations.zh;
@@ -2295,12 +2277,13 @@ test('inspection setup replays the run inspection cue when switching modes befor
   }
 });
 
-test('inspection setup persists the last selected mode across remounts', async () => {
+test('inspection setup does not restore or persist the selected mode across remounts', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
-  dom.window.localStorage.removeItem('urdf-studio.ai-inspection.setup-mode');
+  const setupModeStorageKey = 'urdf-studio.ai-inspection.setup-mode';
+  dom.window.localStorage.setItem(setupModeStorageKey, 'advanced');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -2325,6 +2308,18 @@ test('inspection setup persists the last selected mode across remounts', async (
       );
     });
 
+    assert.ok(
+      container.querySelector('[data-inspection-normal-summary]'),
+      'expected stale saved professional mode to be ignored on first open',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-recognition-panel="true"]'),
+      null,
+      'expected first open to skip the professional setup even when old storage says advanced',
+    );
+
+    dom.window.localStorage.setItem(setupModeStorageKey, 'legacy-stale');
+
     const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
     assert.ok(advancedModeButton, 'expected the advanced mode toggle to render');
 
@@ -2332,10 +2327,14 @@ test('inspection setup persists the last selected mode across remounts', async (
       advancedModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
 
+    assert.ok(
+      container.querySelector('[data-inspection-recognition-panel="true"]'),
+      'expected the current session to switch to professional mode',
+    );
     assert.equal(
-      dom.window.localStorage.getItem('urdf-studio.ai-inspection.setup-mode'),
-      'advanced',
-      'expected mode changes to persist into local storage',
+      dom.window.localStorage.getItem(setupModeStorageKey),
+      'legacy-stale',
+      'expected mode changes not to write the retired setup-mode storage key',
     );
 
     await act(async () => {
@@ -2358,20 +2357,19 @@ test('inspection setup persists the last selected mode across remounts', async (
         );
       });
 
-      assert.equal(
-        container.textContent?.includes(t.inspectionRunDetails),
-        true,
-        'expected the remounted setup to restore the last selected professional mode',
+      assert.ok(
+        container.querySelector('[data-inspection-normal-summary]'),
+        'expected remounting the setup to return to normal mode',
       );
       assert.equal(
-        container.textContent?.includes(t.inspectionRecommendationBaseline),
-        true,
-        'expected the remounted professional setup to still show the recommendation baseline',
+        container.querySelector('[data-inspection-recognition-panel="true"]'),
+        null,
+        'expected remounting not to restore the previous professional-mode session state',
       );
       assert.equal(
-        container.textContent?.includes(t.inspectionCurrentPlan),
-        true,
-        'expected the remounted professional setup to still show the editable current plan',
+        dom.window.localStorage.getItem(setupModeStorageKey),
+        'legacy-stale',
+        'expected remounting not to write the retired setup-mode storage key',
       );
     } finally {
       await act(async () => {
@@ -2572,12 +2570,10 @@ test('inspection setup header uses the same maximize and restore icons as AI con
   }
 });
 
-test('advanced setup summary chip uses content-based width instead of stretching across the footer', async () => {
+test('professional setup summary chip uses content-based width instead of stretching across the footer', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
-
-  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
@@ -2596,17 +2592,19 @@ test('advanced setup summary chip uses content-based width instead of stretching
       );
     });
 
+    await switchInspectionSetupMode(container, dom, translations.zh.inspectionAdvancedMode);
+
     const summaryChip = container.querySelector<HTMLElement>('[data-inspection-setup-summary]');
-    assert.ok(summaryChip, 'expected the advanced setup footer to render a summary chip wrapper');
+    assert.ok(summaryChip, 'expected the professional setup footer to render a summary chip wrapper');
     assert.equal(
       summaryChip.className.includes('inline-flex'),
       true,
-      'expected the advanced setup summary chip to size to its content',
+      'expected the professional setup summary chip to size to its content',
     );
     assert.equal(
       summaryChip.className.includes('w-fit'),
       true,
-      'expected the advanced setup summary chip to stop expanding toward the footer actions',
+      'expected the professional setup summary chip to stop expanding toward the footer actions',
     );
   } finally {
     await act(async () => {

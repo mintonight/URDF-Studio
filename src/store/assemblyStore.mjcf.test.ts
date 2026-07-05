@@ -4,16 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
 
-import { detectImportFormat } from '@/app/utils/importPreparation';
-import { buildWorkspaceViewerRobotData } from '@/app/hooks/workspaceSourceSyncUtils.ts';
+import { detectRobotDefinitionFormat } from '@/core/parsers/format_detection';
 import { generateSDF, generateURDF, parseSDF, parseURDF } from '@/core/parsers';
 import { generateMujocoXML } from '@/core/parsers/mjcf/mjcfGenerator.ts';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import { resolveJointKey } from '@/core/robot/identity';
-import {
-  createMemoizedRendererBackendLoadScopeKey,
-  type RendererBackendLoadScopeKeyMemo,
-} from '@/features/urdf-viewer/utils/rendererBackendLoadScope.ts';
 import type { RobotFile } from '@/types';
 import { JointType } from '@/types';
 import { useRobotStore } from './robotStore.ts';
@@ -68,7 +63,7 @@ function loadImportableRobotFilesFromDirectory(relativeDir: string): RobotFile[]
         lowerPath.endsWith('.urdf.xacro')
       ) {
         const content = fs.readFileSync(fullPath, 'utf8');
-        const format = detectImportFormat(content, relativePath);
+        const format = detectRobotDefinitionFormat(content, relativePath);
         return format ? [createRobotFile(relativePath, format, content)] : [];
       }
       if (lowerPath.endsWith('.stl') || lowerPath.endsWith('.obj') || lowerPath.endsWith('.dae')) {
@@ -236,10 +231,6 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
 
   assert.deepEqual(graphRoots, [go2Component.robot.rootLinkId]);
   assert.equal(merged.rootLinkId, go2Component.robot.rootLinkId);
-
-  const workspaceViewerRobot = buildWorkspaceViewerRobotData(merged);
-  assert.equal(workspaceViewerRobot.rootLinkId, go2Component.robot.rootLinkId);
-  assert.ok(!workspaceViewerRobot.links.__workspace_world__);
 });
 
 test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation', () => {
@@ -260,50 +251,6 @@ test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation'
       `<joint name="${piperJoint8Name}_mimic" joint1="${piperJoint8Name}" joint2="${piperJoint7Name}" polycoef="0 -1 0 0 0" \\/>`,
     ),
   );
-});
-
-test('T1 plus PiPER assembly viewer load key stays stable during joint motion', () => {
-  const { piperComponent } = buildT1PiperAssemblyExportRobot();
-  const merged = useRobotStore.getState().getMergedRobotData();
-  assert.ok(merged, 'expected merged robot data after adding the bridge');
-
-  const piperJoint2Key = resolveJointKey(merged.joints, `${piperComponent.name}_joint2`);
-  assert.ok(piperJoint2Key, 'expected merged PiPER joint2');
-
-  const sourceFile: RobotFile = {
-    name: 't1-piper-assembly.mjcf',
-    format: 'mjcf',
-    content: '<mujoco model="t1-piper-assembly" />',
-  };
-  const memo: RendererBackendLoadScopeKeyMemo = {};
-  const baselineKey = createMemoizedRendererBackendLoadScopeKey(
-    {
-      sourceFile,
-      assets: {},
-      robotData: merged,
-    },
-    memo,
-  );
-  const movedMerged = {
-    ...merged,
-    joints: {
-      ...merged.joints,
-      [piperJoint2Key]: {
-        ...merged.joints[piperJoint2Key],
-        angle: 0.75,
-      },
-    },
-  };
-  const movedKey = createMemoizedRendererBackendLoadScopeKey(
-    {
-      sourceFile,
-      assets: {},
-      robotData: movedMerged,
-    },
-    memo,
-  );
-
-  assert.equal(movedKey, baselineKey);
 });
 
 test('URDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {

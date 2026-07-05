@@ -39,7 +39,19 @@ test('shared visual mesh shadow policy keeps G1-class meshes in the shadow pass'
   assert.equal(g1ScaleMesh.receiveShadow, true);
 });
 
-test('shared visual mesh shadow policy removes extremely dense meshes from the shadow pass', () => {
+test('shared visual mesh shadow policy keeps Go2 ROS base meshes in the shadow pass', () => {
+  const go2BaseMesh = createIndexedTriangleMesh(77928);
+
+  assert.equal(getVisualMeshTriangleCount(go2BaseMesh), 77928);
+  assert.equal(shouldVisualMeshParticipateInShadows(go2BaseMesh), true);
+
+  applyVisualMeshShadowPolicy(go2BaseMesh);
+
+  assert.equal(go2BaseMesh.castShadow, true);
+  assert.equal(go2BaseMesh.receiveShadow, true);
+});
+
+test('shared visual mesh shadow policy skips extremely dense meshes', () => {
   const hugeMesh = createIndexedTriangleMesh(86240);
 
   assert.equal(getVisualMeshTriangleCount(hugeMesh), 86240);

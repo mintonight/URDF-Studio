@@ -205,8 +205,8 @@
 }
 
 .urdf-studio-canvas :where(button, input, select, textarea):focus-visible {
-  outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 30%, transparent);
+  outline: none;
 }
 
 .urdf-studio-canvas .text-xs {
@@ -270,8 +270,8 @@
 }
 
 .urdf-studio-canvas ::-webkit-scrollbar {
-  width: 6px;
   height: 6px;
+  width: 6px;
 }
 
 .urdf-studio-canvas ::-webkit-scrollbar-track {

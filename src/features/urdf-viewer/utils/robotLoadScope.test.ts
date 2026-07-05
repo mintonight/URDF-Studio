@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GeometryType, JointType, type UrdfJoint, type UrdfLink } from '@/types';
+import { GeometryType, JointType, type RobotData, type UrdfJoint, type UrdfLink } from '@/types';
 
 import { createViewerRobotLoadInputSignature } from './robotLoadScope';
 
@@ -176,6 +176,61 @@ test('createViewerRobotLoadInputSignature detects structured geometry edits', ()
     robotLinks: editedLinks,
     robotJoints: joints,
     hasStructuredRobotState: true,
+  });
+
+  assert.notEqual(baseline, edited);
+});
+
+test('createViewerRobotLoadInputSignature detects runtime-build metadata edits', () => {
+  const links = createLinks();
+  const joints = createJoints();
+  const baselineInspectionContext: RobotData['inspectionContext'] = {
+    sourceFormat: 'mjcf',
+    mjcf: {
+      siteCount: 2,
+      tendonCount: 1,
+      tendonActuatorCount: 0,
+      bodiesWithSites: [],
+      tendons: [
+        {
+          name: 'cable',
+          type: 'spatial',
+          width: 0.01,
+          rgba: [1, 0, 0, 1],
+          attachmentRefs: ['site_a', 'site_b'],
+          attachments: [],
+          actuatorNames: [],
+        },
+      ],
+    },
+  };
+  const editedInspectionContext = structuredClone(baselineInspectionContext);
+  editedInspectionContext!.mjcf!.tendons[0]!.width = 0.02;
+  editedInspectionContext!.mjcf!.tendons[0]!.rgba = [0, 1, 0, 1];
+
+  const baseline = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: joints,
+    hasStructuredRobotState: true,
+    robotName: 'demo',
+    rootLinkId: 'base_link',
+    robotMaterials: {
+      shell: { color: '#808080' },
+    },
+    inspectionContext: baselineInspectionContext,
+  });
+  const edited = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: joints,
+    hasStructuredRobotState: true,
+    robotName: 'demo',
+    rootLinkId: 'base_link',
+    robotMaterials: {
+      shell: { color: '#12ab34' },
+    },
+    inspectionContext: editedInspectionContext,
   });
 
   assert.notEqual(baseline, edited);

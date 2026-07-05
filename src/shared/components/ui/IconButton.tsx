@@ -3,7 +3,7 @@ import { Tooltip } from './Tooltip';
 
 type IconButtonVariant = 'ghost' | 'close' | 'toolbar' | 'solid';
 type IconButtonTone = 'neutral' | 'danger' | 'success';
-type IconButtonSize = 'sm' | 'md';
+type IconButtonSize = 'xs' | 'sm' | 'md';
 
 interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: IconButtonVariant;
@@ -13,6 +13,7 @@ interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 }
 
 const SIZE_CLASSES: Record<IconButtonSize, string> = {
+  xs: 'p-0.5',
   sm: 'p-1',
   md: 'p-1.5',
 };
@@ -43,8 +44,8 @@ export const IconButton: React.FC<IconButtonProps> = ({
     variantClasses = 'text-text-tertiary hover:bg-danger hover:text-white active:bg-danger-hover';
   } else if (variant === 'toolbar') {
     variantClasses = isActive
-      ? 'bg-system-blue/10 text-system-blue ring-1 ring-system-blue/20 dark:bg-system-blue/15 dark:text-slate-100 dark:ring-system-blue/30'
-      : 'text-text-tertiary hover:bg-slate-100/70 hover:text-text-primary dark:hover:bg-element-bg dark:hover:text-slate-100';
+      ? 'bg-system-blue/10 text-system-blue ring-1 ring-system-blue/20 dark:bg-system-blue/15 dark:text-text-primary dark:ring-system-blue/30'
+      : 'text-text-tertiary hover:bg-element-hover hover:text-text-primary';
   } else if (variant === 'solid') {
     variantClasses = SOLID_TONE_CLASSES[tone];
   } else {

@@ -20,6 +20,7 @@ import path from 'node:path';
 const MODELS = [
   { key: 'Go2', label: 'Go2 USD' },
 ];
+const USD_IMPORT_TIMEOUT_MS = 180_000;
 
 const USDA_FIXTURES = [
   {
@@ -72,9 +73,9 @@ async function main() {
     for (const { key, label } of MODELS) {
       console.log(`\n── ${label} ──`);
       try {
-        await importUnitreeModel(session.page, key);
-        await waitForReady(session.page);
-        await waitForUsdRuntimeTransforms(session.page);
+        await importUnitreeModel(session.page, key, USD_IMPORT_TIMEOUT_MS);
+        await waitForReady(session.page, USD_IMPORT_TIMEOUT_MS);
+        await waitForUsdRuntimeTransforms(session.page, USD_IMPORT_TIMEOUT_MS);
         const topo = await getTopology(session.page);
         const { runtimeTransforms, state } = await getUsdLoadSignals(session.page);
 

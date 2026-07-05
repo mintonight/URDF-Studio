@@ -2,7 +2,7 @@ import { unstable_batchedUpdates } from 'react-dom';
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
 import { resolveAppModeAfterRobotContentChange } from './contentChangeAppMode';
-import { autoSeedAssembly } from './autoSeedAssembly';
+import { autoSeedAssembly } from '@/core/robot/auto_seed_assembly';
 import type { AppMode, AssemblyState, RobotData, RobotFile } from '@/types';
 
 type CommitResolvedRobotLoadResult = Extract<

@@ -1,6 +1,6 @@
 # Editor / Viewer 子域
 
-> 最后更新：2026-05-01 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
+> 最后更新：2026-07-05 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
 > 交叉引用：[architecture.md](architecture.md)、[file-io.md](file-io.md)、[style-guide.md](style-guide.md)、[wasm-build.md](wasm-build.md)
 
 ## 1. 单模式 Editor
@@ -23,7 +23,13 @@ features/urdf-viewer/
     ViewerToolbar.tsx         # 顶部工具条
     ViewerLoadingHud.tsx      # loading 状态 HUD
   hooks/                      # React hooks
-  utils/                      # 适配层 & 工具
+  renderers/                  # viewer backend 生命周期与 Three.js backend 适配
+    ThreeJsBackend.ts         # legacy Three.js backend implementation
+    createRendererBackend.ts  # source format -> backend factory
+    loadedRobotSceneSync.ts   # runtime scene graph 同步
+    sourceFormat.ts           # viewer source format 判定
+    types.ts                  # renderer backend contract
+  utils/                      # 交互、USD adapter、load key、可视化与 patch 工具
   types.ts                    # 共享类型收口
   runtime/                    # vendored usd-viewer runtime
     embed/                    # 嵌入适配
@@ -41,7 +47,7 @@ features/urdf-viewer/
 - `useMouseInteraction`：鼠标交互处理
 - `useHoverDetection`：悬停检测
 - `useVisualizationEffects`：惯性、质心、原点等辅助可视化
-- `useRendererBackend`：统一模型加载与格式后端生命周期
+- `useRendererBackend`：统一模型加载与格式后端生命周期，backend 实现在 `features/urdf-viewer/renderers/`
 - `useRobotLoader`：旧 Three.js 路径的加载工具，保留给兼容/迁移场景
 - `useHighlightManager`：高亮管理
 
@@ -52,6 +58,7 @@ features/urdf-viewer/
 - 新能力优先放入 hooks 或新增组件，不要恢复双壳并存
 - 保持 `RobotNode <-> JointNode` 交替递归渲染模式
 - 材质必须通过 `materials.ts` / `urdfMaterials.ts` 复用，不在高频路径直接 `new`
+- viewer backend / load scene sync 归 `features/urdf-viewer/renderers/`；`shared/components/3d/renderers/` 只保留 STL/OBJ/DAE/GLTF 等纯 mesh renderer 组件
 - 使用 `RobotState` 等共享类型，避免 `any`
 - TransformControls 引用注册必须完整、可追踪
 - Props 与共享类型统一收口到 `types.ts`
@@ -111,3 +118,14 @@ features/urdf-viewer/
 | `runtimeSceneMetadata.ts`                | runtime scene metadata 标准化读模型       |
 | `visualizationFactories.ts`              | 辅助可视化对象创建                        |
 | `dispose.ts`                             | THREE 资源清理                            |
+
+## 9. Renderer Backend 职责速查
+
+| 文件 | 职责 |
+| ---- | ---- |
+| `renderers/createRendererBackend.ts` | 根据 source format 创建 viewer backend |
+| `renderers/ThreeJsBackend.ts` | legacy Three.js 机器人加载、patch、scene 同步 |
+| `renderers/loadedRobotSceneSync.ts` | loaded scene 与 runtime robot data 的结构同步 |
+| `renderers/robotLoaderSourceMetadata.ts` | loader source metadata 标准化 |
+| `renderers/sourceFormat.ts` | viewer source format 分类 |
+| `renderers/urdfXmlFallbackPolicy.ts` | URDF XML fallback 策略 |

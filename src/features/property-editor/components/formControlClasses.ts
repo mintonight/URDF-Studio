@@ -33,9 +33,9 @@ export const PROPERTY_EDITOR_SECTION_HEADER_CLASS =
 export const PROPERTY_EDITOR_LINK_CLASS =
   'inline-flex items-center gap-1 text-[10px] font-medium text-system-blue hover:text-system-blue-hover transition-colors';
 export const PROPERTY_EDITOR_PRIMARY_BUTTON_CLASS =
-  'inline-flex h-[22px] items-center justify-center gap-1 rounded-md bg-system-blue-solid px-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-system-blue-hover';
+  'inline-flex h-[22px] items-center justify-center gap-1 rounded-md border border-transparent bg-system-blue-solid px-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-system-blue-hover active:bg-system-blue-active focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50';
 export const PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS =
-  'inline-flex h-[22px] items-center justify-center gap-1 rounded-md border border-border-strong bg-panel-bg px-1.5 text-[10px] font-medium text-text-secondary shadow-sm transition-colors cursor-pointer hover:border-border-black hover:bg-element-hover hover:text-text-primary active:bg-element-active focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/25 disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex h-[22px] cursor-pointer items-center justify-center gap-1 rounded-md border border-border-strong bg-panel-bg px-1.5 text-[10px] font-medium text-text-secondary shadow-sm transition-colors hover:border-border-black hover:bg-element-hover hover:text-text-primary active:bg-element-active focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50';
 export const PROPERTY_EDITOR_ICON_SEGMENTED_GROUP_CLASS =
   'grid gap-0.5 rounded-md border border-border-strong bg-element-bg/70 p-0.5';
 export const PROPERTY_EDITOR_ICON_SEGMENTED_BUTTON_CLASS =

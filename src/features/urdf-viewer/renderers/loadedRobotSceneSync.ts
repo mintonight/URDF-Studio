@@ -8,17 +8,20 @@ import {
   enhanceMaterials,
   resolveCollisionRenderOrder,
   syncCollisionBaseMaterialPriority,
-} from '../materials';
-import { disposeReplacedMaterials } from '../materialDisposal';
+} from '@/shared/components/3d/materials';
+import { disposeReplacedMaterials } from '@/shared/components/3d/materialDisposal';
 import {
   applyURDFMaterials,
   collectURDFMaterialsFromLinks,
   collectURDFMaterialsFromVisualGeometry,
   type URDFMaterialInfo,
-} from '../urdfMaterials';
+} from '@/shared/components/3d/urdfMaterials';
 import { applyVisualMeshShadowPolicy } from '@/core/utils/visualMeshShadowPolicy';
-import { getGeometryObjectIndexUserDataKey } from '../runtimeGeometrySelection';
-import { asRuntimeObject3D, asRuntimeRobotObject } from '../runtimeRobotTypes';
+import { getGeometryObjectIndexUserDataKey } from '@/shared/components/3d/runtimeGeometrySelection';
+import {
+  asRuntimeObject3D,
+  asRuntimeRobotObject,
+} from '@/shared/components/3d/runtimeRobotTypes';
 
 export interface SyncLoadedRobotSceneOptions {
   robot: THREE.Object3D;
@@ -141,11 +144,19 @@ function resolveScopedURDFMaterialsForVisualMesh({
 }
 
 function assignSemanticGeometryMetadata(
-  target: THREE.Object3D,
-  semanticLinkName: string,
-  runtimeLinkName: string,
-  subType: 'visual' | 'collision',
-  objectIndex: number,
+  {
+    target,
+    semanticLinkName,
+    runtimeLinkName,
+    subType,
+    objectIndex,
+  }: {
+    target: THREE.Object3D;
+    semanticLinkName: string;
+    runtimeLinkName: string;
+    subType: 'visual' | 'collision';
+    objectIndex: number;
+  },
 ): boolean {
   const objectIndexKey = getGeometryObjectIndexUserDataKey(subType);
   let changed = false;
@@ -555,24 +566,24 @@ export function syncLoadedRobotScene({
       }
 
       if (
-        assignSemanticGeometryMetadata(
-          geometryRoot,
+        assignSemanticGeometryMetadata({
+          target: geometryRoot,
           semanticLinkName,
-          parentLink.name,
-          'collision',
-          collisionObjectIndex,
-        )
+          runtimeLinkName: parentLink.name,
+          subType: 'collision',
+          objectIndex: collisionObjectIndex,
+        })
       ) {
         changed = true;
       }
       if (
-        assignSemanticGeometryMetadata(
-          mesh,
+        assignSemanticGeometryMetadata({
+          target: mesh,
           semanticLinkName,
-          parentLink.name,
-          'collision',
-          collisionObjectIndex,
-        )
+          runtimeLinkName: parentLink.name,
+          subType: 'collision',
+          objectIndex: collisionObjectIndex,
+        })
       ) {
         changed = true;
       }
@@ -672,25 +683,25 @@ export function syncLoadedRobotScene({
     }
 
     if (
-      assignSemanticGeometryMetadata(
-        geometryRoot,
+      assignSemanticGeometryMetadata({
+        target: geometryRoot,
         semanticLinkName,
-        parentLink.name,
-        'visual',
-        visualObjectIndex,
-      )
+        runtimeLinkName: parentLink.name,
+        subType: 'visual',
+        objectIndex: visualObjectIndex,
+      })
     ) {
       changed = true;
     }
 
     if (
-      assignSemanticGeometryMetadata(
-        mesh,
+      assignSemanticGeometryMetadata({
+        target: mesh,
         semanticLinkName,
-        parentLink.name,
-        'visual',
-        visualObjectIndex,
-      ) ||
+        runtimeLinkName: parentLink.name,
+        subType: 'visual',
+        objectIndex: visualObjectIndex,
+      }) ||
       mesh.userData?.isVisualMesh !== true ||
       mesh.userData?.isCollisionMesh === true ||
       mesh.visible !== isVisible

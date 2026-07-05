@@ -3,11 +3,10 @@
  * Detect robot file format from content and filename
  */
 
-import { isMJCF } from '@/core/parsers/mjcf';
-import { looksLikeMJCFSourceDocument } from '@/core/parsers/mjcf/mjcfXml';
-import { isSDF } from '@/core/parsers/sdf/sdfParser';
-import { isUSDA } from '@/core/parsers/usd';
-import { isXacro } from '@/core/parsers/xacro';
+import {
+  detectRobotDefinitionFormat,
+  isRobotDefinitionPath,
+} from '@/core/parsers/format_detection';
 import { isMotorLibraryDataFilePath } from '@/shared/data/motorLibrary';
 import type { FileFormat } from '../types';
 
@@ -18,56 +17,14 @@ import type { FileFormat } from '../types';
  * @returns Detected format or null if unknown
  */
 export function detectFormat(content: string, filename: string): FileFormat | null {
-  const lowerName = filename.toLowerCase();
-
-  // Check by extension first (fastest)
-  if (lowerName.endsWith('.xacro') || lowerName.endsWith('.urdf.xacro')) return 'xacro';
-  if (lowerName.endsWith('.urdf')) return 'urdf';
-  if (lowerName.endsWith('.sdf')) return 'sdf';
-  if (
-    lowerName.endsWith('.usd') ||
-    lowerName.endsWith('.usda') ||
-    lowerName.endsWith('.usdc') ||
-    lowerName.endsWith('.usdz')
-  )
-    return 'usd';
-
-  // For XML files, check content
-  if (lowerName.endsWith('.xml')) {
-    if (isMJCF(content) || looksLikeMJCFSourceDocument(content)) return 'mjcf';
-    if (isSDF(content)) return 'sdf';
-    // Check for xacro content
-    if (isXacro(content)) return 'xacro';
-    // Could also be URDF (though rare with .xml extension)
-    if (content.includes('<robot')) return 'urdf';
-  }
-
-  // Try content-based detection
-  if (isUSDA(content)) return 'usd';
-  if (isMJCF(content) || looksLikeMJCFSourceDocument(content)) return 'mjcf';
-  if (isSDF(content)) return 'sdf';
-  if (isXacro(content)) return 'xacro';
-  if (content.includes('<robot')) return 'urdf';
-
-  return null;
+  return detectRobotDefinitionFormat(content, filename);
 }
 
 /**
  * Check if file is a robot definition file by extension
  */
 export function isRobotDefinitionFile(filename: string): boolean {
-  const lowerName = filename.toLowerCase();
-  return (
-    lowerName.endsWith('.urdf') ||
-    lowerName.endsWith('.sdf') ||
-    lowerName.endsWith('.xml') ||
-    lowerName.endsWith('.mjcf') ||
-    lowerName.endsWith('.usd') ||
-    lowerName.endsWith('.usda') ||
-    lowerName.endsWith('.usdc') ||
-    lowerName.endsWith('.usdz') ||
-    lowerName.endsWith('.xacro')
-  );
+  return isRobotDefinitionPath(filename);
 }
 
 /**

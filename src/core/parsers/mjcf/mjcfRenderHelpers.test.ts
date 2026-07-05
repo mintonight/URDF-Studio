@@ -39,11 +39,14 @@ test('applyRgbaToMesh keeps G1-class MJCF meshes in the shared shadow pass', () 
   assert.equal(mesh.receiveShadow, true);
 });
 
-test('applyRgbaToMesh still drops extremely dense MJCF meshes out of the shadow pass', () => {
+test('applyRgbaToMesh keeps extremely dense MJCF meshes in the shadow pass', () => {
   const mesh = createIndexedTriangleMesh(70000);
+
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
 
   applyRgbaToMesh(mesh, [0.5, 0.5, 0.5, 1]);
 
-  assert.equal(mesh.castShadow, false);
-  assert.equal(mesh.receiveShadow, false);
+  assert.equal(mesh.castShadow, true);
+  assert.equal(mesh.receiveShadow, true);
 });

@@ -14,7 +14,6 @@ import { useManagedWindowLayer } from '@/store';
 import { runRobotInspection } from '../services/aiService';
 import {
   INSPECTION_PROFILE_DEFINITIONS,
-  getAllInspectionProfileItemCount,
 } from '../config/inspectionProfiles';
 import {
   buildInspectionRunContext,
@@ -29,7 +28,6 @@ import {
   cloneSelectedInspectionProfiles,
   countSelectedInspectionProfileItems,
   countSelectedInspectionProfiles,
-  createProfileScoreMetrics,
   createSelectedInspectionProfilesForProfileIds,
   restoreInspectionProfileSelection,
   toSelectedInspectionProfileMap,
@@ -559,11 +557,6 @@ export function AIInspectionModal({
     [ensureReportProfileExpanded],
   );
 
-  const handleNavigateToSetupItem = useCallback((profileId: string, itemId: string) => {
-    setFocusedProfileId(profileId);
-    setPendingSetupItemScrollTarget({ profileId, itemId });
-  }, []);
-
   useEffect(() => {
     if (!inspectionReport || !pendingReportScrollTarget) {
       return;
@@ -882,10 +875,11 @@ export function AIInspectionModal({
                   { value: 'normal', label: t.inspectionNormalMode },
                   { value: 'advanced', label: t.inspectionAdvancedMode },
                 ]}
-                value={inspectionSetupMode}
-                onChange={setInspectionSetupMode}
-                stretch={false}
-                className="w-full max-w-[300px]"
+	                value={inspectionSetupMode}
+	                onChange={setInspectionSetupMode}
+	                stretch={false}
+	                ariaLabel={t.aiInspection}
+	                className="w-full max-w-[300px]"
                 itemClassName="min-w-[126px]"
               />
             </div>

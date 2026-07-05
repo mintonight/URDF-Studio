@@ -6,7 +6,6 @@ import { createRoot, Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { JointControlItem } from './JointControlItem';
-import { useRobotStore } from '@/store/robotStore';
 
 type RenderOverrides = Partial<React.ComponentProps<typeof JointControlItem>>;
 
@@ -361,18 +360,6 @@ test('advanced limit commit does not leak non-serializable runtime joint fields 
     id: string;
     data: Record<string, unknown>;
   }> = [];
-  const previousJoints = useRobotStore.getState().joints;
-
-  useRobotStore.setState({
-    joints: {
-      FL_hip_joint: {
-        id: 'FL_hip_joint',
-        name: 'FL_hip_joint',
-        jointType: 'revolute',
-        limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
-      } as never,
-    },
-  });
 
   const runtimeJoint = {
     id: 'runtime_fl_hip_joint',
@@ -425,8 +412,6 @@ test('advanced limit commit does not leak non-serializable runtime joint fields 
   assert.equal('runtimeOnly' in (updates[0]?.data ?? {}), false);
   assert.equal('onRotationChange' in (updates[0]?.data ?? {}), false);
   assert.doesNotThrow(() => structuredClone(updates[0]?.data));
-
-  useRobotStore.setState({ joints: previousJoints });
 
   await act(async () => {
     root.unmount();

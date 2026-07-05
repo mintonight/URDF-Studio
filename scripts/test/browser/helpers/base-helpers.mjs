@@ -70,12 +70,23 @@ export async function waitForReady(page, timeoutMs = 120_000) {
         const api = window.__URDF_STUDIO_DEBUG__;
         const snap = api?.getRegressionSnapshot?.();
         const st = api?.getDocumentLoadState?.() ?? null;
+        const runtime = snap?.primaryRuntime ?? snap?.runtime ?? null;
+        const countEntries = (value) =>
+          Array.isArray(value)
+            ? value.length
+            : value && typeof value === 'object'
+              ? Object.keys(value).length
+              : 0;
         return {
           status: st?.status ?? null,
           error: st?.error ?? null,
           fileName: st?.fileName ?? null,
-          hasRuntime: Boolean(snap?.runtime),
-          linkCount: snap?.store?.links ? Object.keys(snap.store.links).length : 0,
+          hasRuntime: Boolean(runtime),
+          runtimeLinkCount:
+            Number(runtime?.linkCount ?? Number.NaN) ||
+            countEntries(runtime?.links) ||
+            countEntries(runtime?.visualMeshes),
+          linkCount: countEntries(snap?.store?.links),
         };
       });
       last = probe;
@@ -87,7 +98,7 @@ export async function waitForReady(page, timeoutMs = 120_000) {
       // with links is the authoritative "loaded" signal (matches the menagerie
       // regression's snapshotWithDebug check).
       if (probe.status === 'ready' || probe.status === 'hydrating') return;
-      if (probe.hasRuntime && probe.linkCount > 0) return;
+      if (probe.hasRuntime && (probe.linkCount > 0 || probe.runtimeLinkCount > 0)) return;
       if (probe.status === 'loading' && probe.fileName && probe.linkCount > 1) return;
     } catch (error) {
       // An import can trigger a one-off SPA navigation that destroys the
@@ -298,6 +309,150 @@ export async function measureInteractionFrames(page, action, options = {}) {
   await delay(50);
   const actionResult = await action();
   const metrics = await probePromise;
+  return { actionResult, metrics };
+}
+
+export async function measureCanvasContinuityDuring(page, action, options = {}) {
+  const durationMs = options.durationMs ?? 1_500;
+  const sampleSize = options.sampleSize ?? 48;
+  const samplerPromise = page.evaluate(
+    ({ durationMs: nextDurationMs, sampleSize: nextSampleSize }) =>
+      new Promise((resolve) => {
+        const samples = [];
+        const start = performance.now();
+
+        const readSample = () => {
+          const snapshot = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.() ?? null;
+          const runtime = snapshot?.primaryRuntime ?? snapshot?.runtime ?? null;
+          const runtimeLinkCount = Number(runtime?.linkCount ?? 0);
+          const runtimeVisualMeshes = Array.isArray(runtime?.visualMeshes)
+            ? runtime.visualMeshes
+            : [];
+          const visibleRuntimeMeshCount = runtimeVisualMeshes.filter(
+            (mesh) => mesh?.visible !== false && mesh?.effectiveVisible !== false,
+          ).length;
+          const hasRenderableRuntime =
+            Boolean(runtime) && runtimeLinkCount > 0 && visibleRuntimeMeshCount > 0;
+          const canvases = [...document.querySelectorAll('canvas')].filter((canvas) => {
+            if (!(canvas instanceof HTMLCanvasElement)) {
+              return false;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const style = window.getComputedStyle(canvas);
+            return (
+              rect.width >= 120 &&
+              rect.height >= 120 &&
+              style.visibility !== 'hidden' &&
+              style.display !== 'none'
+            );
+          });
+          const canvas = canvases[0] ?? null;
+          if (!canvas) {
+	            return {
+	              hasCanvas: false,
+	              hasRuntime: Boolean(runtime),
+	              hasRenderableRuntime,
+	              runtimeLinkCount,
+              visibleRuntimeMeshCount,
+              lumaStdDev: 0,
+              lumaRange: 0,
+              nonBlank: false,
+            };
+          }
+
+          const sampleCanvas = document.createElement('canvas');
+          sampleCanvas.width = nextSampleSize;
+          sampleCanvas.height = nextSampleSize;
+          const context = sampleCanvas.getContext('2d', { willReadFrequently: true });
+          if (!context) {
+	            return {
+	              hasCanvas: true,
+	              hasRuntime: Boolean(runtime),
+	              hasRenderableRuntime,
+	              runtimeLinkCount,
+	              visibleRuntimeMeshCount,
+	              lumaStdDev: null,
+	              lumaRange: null,
+	              nonBlank: false,
+	            };
+          }
+
+          try {
+            context.drawImage(canvas, 0, 0, nextSampleSize, nextSampleSize);
+            const imageData = context.getImageData(0, 0, nextSampleSize, nextSampleSize);
+            let sum = 0;
+            let min = 255;
+            let max = 0;
+            const lumas = [];
+            for (let index = 0; index < imageData.data.length; index += 4) {
+              const r = imageData.data[index] ?? 0;
+              const g = imageData.data[index + 1] ?? 0;
+              const b = imageData.data[index + 2] ?? 0;
+              const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+              lumas.push(luma);
+              sum += luma;
+              min = Math.min(min, luma);
+              max = Math.max(max, luma);
+            }
+            const mean = sum / Math.max(1, lumas.length);
+            const variance =
+              lumas.reduce((acc, value) => acc + (value - mean) ** 2, 0) /
+              Math.max(1, lumas.length);
+            const lumaStdDev = Math.sqrt(variance);
+            const lumaRange = max - min;
+            return {
+	              hasCanvas: true,
+	              hasRuntime: Boolean(runtime),
+	              hasRenderableRuntime,
+	              runtimeLinkCount,
+	              visibleRuntimeMeshCount,
+	              lumaStdDev,
+	              lumaRange,
+	              nonBlank: lumaStdDev > 0.8 || lumaRange > 8,
+	            };
+          } catch (error) {
+            return {
+	              hasCanvas: true,
+	              hasRuntime: Boolean(runtime),
+	              hasRenderableRuntime,
+	              runtimeLinkCount,
+	              visibleRuntimeMeshCount,
+	              lumaStdDev: null,
+	              lumaRange: null,
+	              nonBlank: false,
+	              readError: error instanceof Error ? error.message : String(error),
+            };
+          }
+        };
+
+        const step = () => {
+          samples.push(readSample());
+          if (performance.now() - start >= nextDurationMs) {
+            const blankSamples = samples.filter((sample) => !sample.nonBlank);
+            const missingRuntimeSamples = samples.filter((sample) => !sample.hasRuntime);
+            resolve({
+              sampleCount: samples.length,
+              blankFrameCount: blankSamples.length,
+              missingRuntimeFrameCount: missingRuntimeSamples.length,
+              worstLumaStdDev: Math.min(
+                ...samples
+                  .map((sample) => sample.lumaStdDev)
+                  .filter((value) => Number.isFinite(value)),
+              ),
+              samples,
+            });
+            return;
+          }
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }),
+    { durationMs, sampleSize },
+  );
+
+  await delay(50);
+  const actionResult = await action();
+  const metrics = await samplerPromise;
   return { actionResult, metrics };
 }
 

@@ -41,10 +41,6 @@ function buildXmlTagNamesRegExp(tagNames: string[]): RegExp {
   );
 }
 
-function buildXmlTagRegExp(tagName: string): RegExp {
-  return buildXmlTagNamesRegExp([tagName]);
-}
-
 function findNamedXmlElementByTagNames(
   sourceContent: string,
   tagNames: string[],

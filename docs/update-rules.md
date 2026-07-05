@@ -1,6 +1,6 @@
 # 代码变更 → 文档更新 & 验证映射
 
-> 最后更新：2026-05-26 | 覆盖范围：变更工作流、验证命令、测试样本索引
+> 最后更新：2026-07-05 | 覆盖范围：变更工作流、验证命令、测试样本索引
 > 交叉引用：[architecture.md](architecture.md)、[viewer.md](viewer.md)、[file-io.md](file-io.md)、[testing.md](testing.md)
 
 ## 1. 代码变更工作流
@@ -10,6 +10,14 @@
 1. 定位任务所属模式与模块边界，区分 `app` 编排层 / 单一 `feature` / `shared/core` 通用层
 2. 应用 CLAUDE.md 的红线检查（依赖方向、复用、类型完整性、3D/USD 生命周期）
 3. 做最小必要改动并验证
+
+当前 ownership 速查：
+
+- 格式检测：`core/parsers/format_detection.ts`
+- viewer backend：`features/urdf-viewer/renderers/`
+- source sync 策略：`app/hooks/workspace-source-sync/`
+- workspace mutation：`app/hooks/workspace-mutations/`
+- 纯 mesh renderer 组件：`shared/components/3d/renderers/`
 
 ## 2. 单文件与模块化策略
 
@@ -22,6 +30,7 @@
 - 同时引入"状态 + 视图 + 业务逻辑"
 - 新增可复用逻辑（优先抽为 hook/utils）
 - 文件已明显过大且继续修改会降低可维护性
+- 新增 source sync / viewer backend / 格式检测逻辑时，应落到上面的 canonical ownership，不在 wrapper 文件里复制
 
 ## 3. 验收清单
 
@@ -44,7 +53,7 @@
 
 基础命令（dev / lint / typecheck:quality / typecheck 债务检查 / test / build / verify:fast / verify:full）见 [CLAUDE.md](../CLAUDE.md) §常用命令。本节只列项目特有的回归与构建命令：
 
-测试分层、日常命令选择和新增测试落点见 [testing.md](testing.md)。浏览器测试体系修复交接见 [testing-rebuild-handoff.md](testing-rebuild-handoff.md)。
+测试分层、日常命令选择和新增测试落点见 [testing.md](testing.md)。
 
 ```bash
 # AI / agent 优先入口
@@ -145,9 +154,11 @@ npm run build:package:react-robot-canvas
 | 新增 feature / 拆分 feature 目录 | `CLAUDE.md` §src 目录结构、`architecture.md` §4     |
 | 新增 store                       | `CLAUDE.md` §状态管理、`architecture.md`            |
 | 修改 USD worker / runtime 链路   | `viewer.md` §6-7、`update-rules.md` §5              |
+| 修改 viewer backend / renderers   | `viewer.md` §2、§9、`architecture.md` §6            |
 | 修改导入导出流程                 | `file-io.md` §2                                     |
+| 修改格式检测                     | `CLAUDE.md` §架构红线、`file-io.md` §1-2            |
+| 修改 workspace/source sync 策略   | `file-io.md` §1-3、`architecture.md` §8             |
 | 修改 UI 样式 / 新增语义色 token  | `style-guide.md` §3                                 |
 | 新增架构例外                     | `architecture.md` §3                                |
 | 新增长期稳定测试样本             | `update-rules.md` §5                                |
 | 新增测试入口 / 调整测试分层      | `testing.md`、`CLAUDE.md` §测试分层与 AI 选命令规则 |
-| 浏览器测试体系修复交接状态变化   | `testing-rebuild-handoff.md`、`testing.md`          |

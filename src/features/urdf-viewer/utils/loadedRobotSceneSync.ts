@@ -1,1 +1,1 @@
-export * from '@/shared/components/3d/renderers/loadedRobotSceneSync';
+export * from '@/features/urdf-viewer/renderers/loadedRobotSceneSync';

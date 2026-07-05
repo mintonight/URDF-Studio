@@ -158,3 +158,35 @@ test('Switch enables transitions after a user toggle', async () => {
     dom.window.close();
   }
 });
+
+test('Switch renders labelled toggles as a single interactive target', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const changes: boolean[] = [];
+
+  try {
+    await renderControl(root, {
+      checked: false,
+      label: 'Show grid',
+      ariaLabel: undefined,
+      onChange: (checked) => changes.push(checked),
+    });
+
+    const buttons = Array.from(container.querySelectorAll('button'));
+    assert.equal(buttons.length, 1, 'labelled switches should not render a second label button');
+
+    const toggle = container.querySelector('[role="switch"]') as HTMLButtonElement | null;
+    assert.ok(toggle, 'switch should render one switch button');
+    assert.equal(toggle.getAttribute('aria-labelledby') != null, true);
+    assert.equal(toggle.textContent?.includes('Show grid'), true);
+
+    await act(async () => {
+      toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.deepEqual(changes, [true]);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

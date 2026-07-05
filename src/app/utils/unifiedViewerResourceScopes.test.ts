@@ -56,7 +56,8 @@ test('buildUnifiedViewerResourceScopes preserves the live viewer scope state wit
 
   assert.equal(state.effectiveUrdfContent, '<robot name="go2" />');
   assert.equal(state.effectiveSourceFilePath, 'robots/go2/urdf/go2.urdf');
-  assert.equal(state.effectiveSourceFile, sourceFile);
+  assert.notEqual(state.effectiveSourceFile, sourceFile);
+  assert.deepEqual(state.effectiveSourceFile, sourceFile);
   assert.equal(state.activeViewportFileName, 'robots/go2/urdf/go2.urdf');
   assert.deepEqual(state.viewerResourceScope.assets, {
     'robots/go2/meshes/base.dae': 'blob:go2-base',
@@ -78,6 +79,44 @@ test('buildUnifiedViewerResourceScopes preserves the live viewer scope state wit
     previousViewerResourceScope: state.viewerResourceScope,
   });
 
+  assert.equal(repeated.viewerResourceScope, state.viewerResourceScope);
+});
+
+test('buildUnifiedViewerResourceScopes pins source file content to the stable viewer content', () => {
+  const sourceFile = createSourceFile();
+  const state = buildUnifiedViewerResourceScopes({
+    urdfContent: '<robot name="go2" />',
+    sourceFilePath: 'robots/go2/urdf/go2.urdf',
+    sourceFile,
+    assets: {
+      'robots/go2/meshes/base.dae': 'blob:go2-base',
+    },
+    availableFiles: [],
+    viewerRobotLinks: {
+      base_link: createMeshLink('robots/go2/meshes/base.dae'),
+    },
+    previousViewerResourceScope: null,
+  });
+
+  const generatedSourceFile: RobotFile = {
+    ...sourceFile,
+    content: '<robot name="go2"><!-- generated property edit --></robot>',
+  };
+  const repeated = buildUnifiedViewerResourceScopes({
+    urdfContent: '<robot name="go2" />',
+    sourceFilePath: 'robots/go2/urdf/go2.urdf',
+    sourceFile: generatedSourceFile,
+    assets: {
+      'robots/go2/meshes/base.dae': 'blob:go2-base',
+    },
+    availableFiles: [],
+    viewerRobotLinks: {
+      base_link: createMeshLink('robots/go2/meshes/base.dae'),
+    },
+    previousViewerResourceScope: state.viewerResourceScope,
+  });
+
+  assert.equal(repeated.effectiveSourceFile?.content, '<robot name="go2" />');
   assert.equal(repeated.viewerResourceScope, state.viewerResourceScope);
 });
 

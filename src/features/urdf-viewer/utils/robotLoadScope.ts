@@ -2,13 +2,17 @@ import {
   createStableJsonSnapshot,
   stripTransientJointMotionFromJoint,
 } from '@/shared/utils/robot/semanticSnapshot';
-import type { UrdfJoint, UrdfLink } from '@/types';
+import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 
 interface CreateViewerRobotLoadInputSignatureOptions {
   urdfContent: string;
   hasStructuredRobotState: boolean;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
+  robotName?: string;
+  rootLinkId?: string;
+  robotMaterials?: RobotData['materials'];
+  inspectionContext?: RobotData['inspectionContext'];
 }
 
 function hashStringFNV1a(value: string): string {
@@ -93,9 +97,19 @@ export function createViewerRobotLoadInputSignature({
   hasStructuredRobotState,
   robotLinks,
   robotJoints,
+  robotName,
+  rootLinkId,
+  robotMaterials,
+  inspectionContext,
 }: CreateViewerRobotLoadInputSignatureOptions): string {
   if (hasStructuredRobotState && robotLinks && robotJoints) {
     const structuredSnapshot = createStableJsonSnapshot({
+      runtimeBuildMetadata: {
+        name: robotName ?? null,
+        rootLinkId: rootLinkId ?? null,
+        materials: robotMaterials ?? null,
+        inspectionContext: inspectionContext ?? null,
+      },
       links: stripPatchableRuntimeStateFromLinks(robotLinks),
       joints: stripPatchableRuntimeStateFromJoints(robotJoints),
     });

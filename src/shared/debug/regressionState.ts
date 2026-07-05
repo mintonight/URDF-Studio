@@ -131,6 +131,8 @@ export const regressionDebugState: {
   lastEditableSourceApplyResult: RegressionEditableSourceApplyResult | null;
   runtimeRobot: RuntimeRobotObject | null;
   runtimeRevision: number;
+  primaryRuntimeRobot: RuntimeRobotObject | null;
+  primaryRuntimeRevision: number;
   projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null;
   transformGizmoSummaryProviders: Set<() => RegressionTransformGizmoSummary[]>;
 } = {
@@ -140,6 +142,8 @@ export const regressionDebugState: {
   lastEditableSourceApplyResult: null,
   runtimeRobot: null,
   runtimeRevision: 0,
+  primaryRuntimeRobot: null,
+  primaryRuntimeRevision: 0,
   projectedInteractionTargetsProvider: null,
   transformGizmoSummaryProviders: new Set(),
 };
@@ -167,6 +171,15 @@ export function setRegressionEditableSourceApplyResult(
 export function setRegressionRuntimeRobot(robot: RuntimeRobotObject | null): void {
   regressionDebugState.runtimeRobot = robot;
   regressionDebugState.runtimeRevision += 1;
+}
+
+export function setRegressionPrimaryRuntimeRobot(robot: RuntimeRobotObject | null): void {
+  if (regressionDebugState.primaryRuntimeRobot === robot) {
+    return;
+  }
+
+  regressionDebugState.primaryRuntimeRobot = robot;
+  regressionDebugState.primaryRuntimeRevision += 1;
 }
 
 export function bumpRegressionRuntimeRevision(): void {

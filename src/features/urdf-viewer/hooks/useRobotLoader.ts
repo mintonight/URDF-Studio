@@ -26,19 +26,18 @@ import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
-  areRobotLinkChangesVisibilityOnly,
+  detectGeometryPatches,
   detectJointPatches,
-  detectSingleGeometryPatch,
 } from '../utils/robotLoaderDiff';
-import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
+import { applyGeometryPatchesInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
 import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
-import { syncLoadedRobotScene } from '@/shared/components/3d/renderers/loadedRobotSceneSync';
+import { syncLoadedRobotScene } from '@/features/urdf-viewer/renderers/loadedRobotSceneSync';
 import { shouldMountRobotBeforeAssetsComplete } from '../utils/loadStrategy';
-import { resolveRobotLoaderSourceMetadata } from '@/shared/components/3d/renderers/robotLoaderSourceMetadata';
+import { resolveRobotLoaderSourceMetadata } from '@/features/urdf-viewer/renderers/robotLoaderSourceMetadata';
 import { createViewerRobotLoadInputSignature } from '../utils/robotLoadScope';
-import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
-import { shouldWaitForStructuredUrdfRobotState } from '@/shared/components/3d/renderers/urdfXmlFallbackPolicy';
+import { resolveViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
+import { shouldWaitForStructuredUrdfRobotState } from '@/features/urdf-viewer/renderers/urdfXmlFallbackPolicy';
 import type { ViewerDocumentLoadEvent } from '../types';
 import {
   createAssetScopeKey,
@@ -144,9 +143,9 @@ export function useRobotLoader({
 
   // PERFORMANCE: Pre-built map of linkName -> meshes for O(1) highlight lookup
   const linkMeshMapRef = useRef<Map<string, THREE.Mesh[]>>(new Map());
-  // Track previous link snapshot to detect one-link geometry patches
+  // Track previous link snapshot to detect geometry patches
   const prevRobotLinksRef = useRef<Record<string, UrdfLink> | null>(robotLinks || null);
-  // Track previous joint snapshot to detect one-joint metadata/origin patches
+  // Track previous joint snapshot to detect joint metadata/origin patches
   const prevRobotJointsRef = useRef<Record<string, UrdfJoint> | null>(robotJoints || null);
   // Skip exactly one upcoming urdfContent-driven full reload per successful
   // incremental patch. A counter is more robust than strict content matching
@@ -411,20 +410,14 @@ export function useRobotLoader({
       return;
     }
 
-    const patch = detectSingleGeometryPatch(previousLinks, robotLinks);
-    if (!patch) {
-      if (areRobotLinkChangesVisibilityOnly(previousLinks, robotLinks)) {
-        setRobotVersion((v) => v + 1);
-        setError(null);
-      }
-      return;
-    }
+    const patches = detectGeometryPatches(previousLinks, robotLinks);
+    if (!patches || patches.length === 0) return;
 
     const colladaRootNormalizationHints = buildColladaRootNormalizationHints(robotLinks);
 
-    const applied = applyGeometryPatchInPlace({
+    const applied = applyGeometryPatchesInPlace({
       robotModel: currentRobot,
-      patch,
+      patches,
       assets,
       sourceFileDir,
       colladaRootNormalizationHints,
@@ -435,7 +428,14 @@ export function useRobotLoader({
       isPatchTargetValid: () => isMountedRef.current && robotRef.current === currentRobot,
     });
 
-    if (!applied) return;
+    if (!applied) {
+      const message = 'Failed to apply a runtime geometry patch in place';
+      console.error('[useRobotLoader]', message, patches);
+      skipReloadCountRef.current = 0;
+      completedLoadScopeKeyRef.current = null;
+      setError(message);
+      return;
+    }
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);
@@ -477,7 +477,14 @@ export function useRobotLoader({
     if (!patches || patches.length === 0) return;
 
     const applied = patchJointsInPlace(currentRobot, patches, invalidate);
-    if (!applied) return;
+    if (!applied) {
+      const message = 'Failed to apply a runtime joint patch in place';
+      console.error('[useRobotLoader]', message, patches);
+      skipReloadCountRef.current = 0;
+      completedLoadScopeKeyRef.current = null;
+      setError(message);
+      return;
+    }
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);

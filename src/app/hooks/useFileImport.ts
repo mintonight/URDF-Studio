@@ -51,6 +51,7 @@ import { waitForAnimationFrame } from '@/app/utils/waitForAnimationFrame';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import { logRegressionInfo } from '@/shared/debug/consoleDiagnostics';
 import { clearPreparedUsdStageOpenCache } from '@/features/editor/usd_prewarm';
+import { isRobotDefinitionPath } from '@/core/parsers/format_detection';
 
 export interface ImportPreparationOverlayState {
   label: string;
@@ -78,21 +79,6 @@ interface UseFileImportOptions {
   onImportPreparationStateChange?: (state: ImportPreparationOverlayState | null) => void;
   onProjectImported?: (selectedFile: RobotFile | null) => void;
   projectImporter?: (file: File, lang?: keyof typeof translations) => Promise<ProjectImportResult>;
-}
-
-function isRobotDefinitionFile(filename: string): boolean {
-  const lowerName = filename.toLowerCase();
-  return (
-    lowerName.endsWith('.urdf') ||
-    lowerName.endsWith('.sdf') ||
-    lowerName.endsWith('.xml') ||
-    lowerName.endsWith('.mjcf') ||
-    lowerName.endsWith('.usd') ||
-    lowerName.endsWith('.usda') ||
-    lowerName.endsWith('.usdc') ||
-    lowerName.endsWith('.usdz') ||
-    lowerName.endsWith('.xacro')
-  );
 }
 
 function normalizeImportSourcePath(path: string): string {
@@ -268,7 +254,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
       const inputFiles = candidateInputFiles.length > 0 ? candidateInputFiles : rawInputFiles;
       const isArchiveImport =
         inputFiles.length === 1 && isSupportedArchiveImportFile(inputFiles[0]?.name ?? '');
-      const importsRobotDefinition = inputFiles.some((file) => isRobotDefinitionFile(file.name));
+      const importsRobotDefinition = inputFiles.some((file) => isRobotDefinitionPath(file.name));
       const shouldShowPreparationOverlay =
         inputFiles.length > 1 ||
         inputFiles.some((file) => Boolean(file.webkitRelativePath)) ||

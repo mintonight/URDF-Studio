@@ -12,6 +12,7 @@ import {
   Undo,
   Upload,
 } from 'lucide-react';
+import { Button, IconButton } from '@/shared/components/ui';
 import { ToolboxMenu } from './ToolboxMenu';
 import { HeaderButton } from './HeaderButton';
 import { HeaderMenuOverlay } from './HeaderMenuOverlay';
@@ -304,20 +305,22 @@ export function HeaderMenus({
 
       {showSourceInline && (
         <div className="relative hidden sm:block shrink-0 ml-1">
-          <button
+          <Button
             type="button"
             onClick={onOpenCodeViewer}
             onMouseEnter={onPrefetchCodeViewer}
             onFocus={onPrefetchCodeViewer}
             onPointerDown={onPrefetchCodeViewer}
             data-testid="source-code-open"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md whitespace-nowrap text-xs font-medium transition-colors text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white"
+            variant="ghost"
+            size="xs"
+	            className="whitespace-nowrap px-2.5 text-text-secondary hover:text-text-primary"
             title={t.sourceCode}
             aria-label={t.sourceCode}
           >
             <Code className="w-3.5 h-3.5" />
-            {showSourceText && <span>{t.sourceCode}</span>}
-          </button>
+	            {showSourceText && <span className="whitespace-nowrap">{t.sourceCode}</span>}
+          </Button>
         </div>
       )}
 
@@ -325,36 +328,30 @@ export function HeaderMenus({
 
       {showUndoRedoInline && (
         <div className="items-center gap-0.5 hidden sm:flex">
-          <button
+          <IconButton
             type="button"
             onClick={undo}
             disabled={!canUndo}
             data-testid="history-undo"
-            className={`p-1 rounded-md transition-all ${
-              !canUndo
-                ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white'
-            }`}
+            variant="ghost"
+            size="sm"
             title={`${t.undo} (Ctrl+Z)`}
             aria-label={t.undo}
           >
             <Undo className="w-4 h-4" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
             onClick={redo}
             disabled={!canRedo}
             data-testid="history-redo"
-            className={`p-1 rounded-md transition-all ${
-              !canRedo
-                ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white'
-            }`}
+            variant="ghost"
+            size="sm"
             title={`${t.redo} (Ctrl+Shift+Z)`}
             aria-label={t.redo}
           >
             <Redo className="w-4 h-4" />
-          </button>
+          </IconButton>
         </div>
       )}
     </div>

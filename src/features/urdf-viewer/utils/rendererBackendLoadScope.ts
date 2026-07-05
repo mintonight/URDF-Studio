@@ -10,7 +10,7 @@ import {
 import {
   areRobotLinkChangesVisibilityOnly,
   detectJointPatches,
-  detectSingleGeometryPatch,
+  detectGeometryPatches,
 } from './robotLoaderDiff';
 
 interface CreateRendererBackendLoadScopeKeyOptions {
@@ -34,6 +34,9 @@ export interface RendererBackendLoadScopeKeyMemo {
   lastResolvedRobotLinks?: Record<string, UrdfLink>;
   lastResolvedRobotJoints?: Record<string, UrdfJoint>;
   lastResolvedRobotJointsSignature?: string;
+  lastRuntimeBuildMetadataSignature?: string;
+  lastRuntimeBuildNonPatchableMetadataSignature?: string;
+  lastRuntimePatchAwaitingSourceContent?: boolean;
 }
 
 function hashStringFNV1a(value: string): string {
@@ -47,6 +50,18 @@ function hashStringFNV1a(value: string): string {
 
 function hashStableValue(value: unknown): string {
   return hashStringFNV1a(createStableJsonSnapshot(value));
+}
+
+function cloneMemoSnapshot<T>(value: T): T {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function createAssetSignature(assets: Record<string, string>): string {
@@ -84,19 +99,46 @@ function createSourceFileIdentitySignature(sourceFile: RobotFile | undefined): s
   });
 }
 
+const PATCHABLE_RUNTIME_SOURCE_FORMATS = new Set<RobotFile['format']>([
+  'urdf',
+  'xacro',
+  'sdf',
+  'mjcf',
+]);
+
+function isPatchableRuntimeSourceFile(file: RobotFile | undefined): boolean {
+  return Boolean(file && PATCHABLE_RUNTIME_SOURCE_FORMATS.has(file.format));
+}
+
 function createAvailableFilesRuntimePatchReuseSignature(
   availableFiles: RobotFile[] | undefined,
-  patchableSourceName: string | undefined,
 ): string {
   return hashStableValue(
     (availableFiles ?? [])
+      .filter((file) => !isPatchableRuntimeSourceFile(file))
       .map((file) => ({
         name: file.name,
         format: file.format,
         blobUrl: file.blobUrl ?? null,
-        content: file.name === patchableSourceName
-          ? '<patchable-source-content>'
-          : hashStringFNV1a(file.content ?? ''),
+        content: hashStringFNV1a(file.content ?? ''),
+      }))
+      .sort((left, right) =>
+        `${left.format}:${left.name}`.localeCompare(`${right.format}:${right.name}`),
+      ),
+  );
+}
+
+function createPatchableAvailableFileContentSignature(
+  availableFiles: RobotFile[] | undefined,
+): string {
+  return hashStableValue(
+    (availableFiles ?? [])
+      .filter(isPatchableRuntimeSourceFile)
+      .map((file) => ({
+        name: file.name,
+        format: file.format,
+        blobUrl: file.blobUrl ?? null,
+        content: hashStringFNV1a(file.content ?? ''),
       }))
       .sort((left, right) =>
         `${left.format}:${left.name}`.localeCompare(`${right.format}:${right.name}`),
@@ -112,23 +154,44 @@ function createJointStructureSignature(joints: Record<string, UrdfJoint> | undef
   return hashStableValue(stripPatchableRuntimeStateFromJoints(joints));
 }
 
-function isRuntimePatchableSingleLinkChange(
+function createRuntimeBuildMetadataSignature(robotData: RobotData | null | undefined): string {
+  return hashStableValue({
+    name: robotData?.name ?? null,
+    rootLinkId: robotData?.rootLinkId ?? null,
+    materials: robotData?.materials ?? null,
+    inspectionContext: robotData?.inspectionContext ?? null,
+  });
+}
+
+function createRuntimeBuildNonPatchableMetadataSignature(
+  robotData: RobotData | null | undefined,
+): string {
+  return hashStableValue({
+    name: robotData?.name ?? null,
+    rootLinkId: robotData?.rootLinkId ?? null,
+    inspectionContext: robotData?.inspectionContext ?? null,
+  });
+}
+
+function hasRuntimePatchableGeometryChanges(
   previousLinks: Record<string, UrdfLink>,
   resolvedRobotLinks: Record<string, UrdfLink>,
 ): boolean {
-  const patch = detectSingleGeometryPatch(previousLinks, resolvedRobotLinks);
-  if (!patch) {
+  const patches = detectGeometryPatches(previousLinks, resolvedRobotLinks);
+  if (!patches || patches.length === 0) {
     return false;
   }
 
-  return Boolean(
-    patch.linkNameChanged ||
-      patch.visualChanged ||
-      patch.visualBodiesChanged ||
-      patch.collisionChanged ||
-      patch.collisionBodiesChanged ||
-      patch.inertialChanged ||
-      patch.visibilityChanged,
+  return patches.every((patch) =>
+    Boolean(
+      patch.linkNameChanged ||
+        patch.visualChanged ||
+        patch.visualBodiesChanged ||
+        patch.collisionChanged ||
+        patch.collisionBodiesChanged ||
+        patch.inertialChanged ||
+        patch.visibilityChanged,
+    ),
   );
 }
 
@@ -143,6 +206,17 @@ function areRobotLinksExactlyEqual(
   return hashStableValue(previousLinks) === hashStableValue(resolvedRobotLinks);
 }
 
+function areRobotJointsExactlyEqual(
+  previousJoints: Record<string, UrdfJoint> | undefined,
+  resolvedRobotJoints: Record<string, UrdfJoint> | undefined,
+): boolean {
+  if (!previousJoints || !resolvedRobotJoints) {
+    return false;
+  }
+
+  return hashStableValue(previousJoints) === hashStableValue(resolvedRobotJoints);
+}
+
 function hasRuntimePatchableJointChanges(
   previousJoints: Record<string, UrdfJoint> | undefined,
   resolvedRobotJoints: Record<string, UrdfJoint> | undefined,
@@ -151,19 +225,43 @@ function hasRuntimePatchableJointChanges(
   return Boolean(patches && patches.length > 0);
 }
 
-function canReuseMemoizedKeyForRuntimePatch(
+function hasActiveSourceFileContentChange(
+  previousSourceFile: RobotFile | undefined,
+  sourceFile: RobotFile,
+): boolean {
+  if (!previousSourceFile) {
+    return false;
+  }
+
+  return (previousSourceFile.content ?? '') !== (sourceFile.content ?? '');
+}
+
+function hasPatchableAvailableFileContentChange(
+  previousAvailableFiles: RobotFile[] | undefined,
+  availableFiles: RobotFile[] | undefined,
+): boolean {
+  return (
+    createPatchableAvailableFileContentSignature(previousAvailableFiles) !==
+    createPatchableAvailableFileContentSignature(availableFiles)
+  );
+}
+
+function hasRuntimePatchSourceContentChange(
   options: CreateRendererBackendLoadScopeKeyOptions,
   memo: RendererBackendLoadScopeKeyMemo,
-  resolvedRobotLinks: Record<string, UrdfLink> | undefined,
-  resolvedRobotJoints: Record<string, UrdfJoint> | undefined,
-  nextJointStructureSignature: string,
 ): boolean {
-  if (
-    !memo.lastKey ||
-    !memo.lastSourceFile ||
-    !memo.lastResolvedRobotLinks ||
-    !resolvedRobotLinks
-  ) {
+  return (
+    hasActiveSourceFileContentChange(memo.lastSourceFile, options.sourceFile) ||
+    hasPatchableAvailableFileContentChange(memo.lastAvailableFiles, options.availableFiles)
+  );
+}
+
+function hasCompatibleRuntimePatchReuseScope(
+  options: CreateRendererBackendLoadScopeKeyOptions,
+  memo: RendererBackendLoadScopeKeyMemo,
+  nextRuntimeBuildNonPatchableMetadataSignature: string,
+): boolean {
+  if (!memo.lastKey || !memo.lastSourceFile) {
     return false;
   }
 
@@ -175,7 +273,7 @@ function canReuseMemoizedKeyForRuntimePatch(
     return false;
   }
 
-  if (memo.lastAssets !== options.assets) {
+  if (createAssetSignature(memo.lastAssets ?? {}) !== createAssetSignature(options.assets)) {
     return false;
   }
 
@@ -187,15 +285,81 @@ function canReuseMemoizedKeyForRuntimePatch(
   }
 
   if (
-    createAvailableFilesRuntimePatchReuseSignature(
-      memo.lastAvailableFiles,
-      memo.lastSourceFile.name,
-    ) !==
-    createAvailableFilesRuntimePatchReuseSignature(
-      options.availableFiles,
-      options.sourceFile.name,
+    memo.lastRuntimeBuildNonPatchableMetadataSignature !==
+    nextRuntimeBuildNonPatchableMetadataSignature
+  ) {
+    return false;
+  }
+
+  return (
+    createAvailableFilesRuntimePatchReuseSignature(memo.lastAvailableFiles) ===
+    createAvailableFilesRuntimePatchReuseSignature(options.availableFiles)
+  );
+}
+
+interface RendererBackendLoadScopeMemoContext {
+  options: CreateRendererBackendLoadScopeKeyOptions;
+  memo: RendererBackendLoadScopeKeyMemo;
+  resolvedRobotLinks: Record<string, UrdfLink> | undefined;
+  resolvedRobotJoints: Record<string, UrdfJoint> | undefined;
+  nextJointStructureSignature: string;
+  nextRuntimeBuildMetadataSignature: string;
+  nextRuntimeBuildNonPatchableMetadataSignature: string;
+}
+
+function updateMemoSnapshot(
+  context: RendererBackendLoadScopeMemoContext,
+  awaitingSourceContent: boolean,
+): void {
+  const {
+    options,
+    memo,
+    resolvedRobotLinks,
+    resolvedRobotJoints,
+    nextJointStructureSignature,
+    nextRuntimeBuildMetadataSignature,
+    nextRuntimeBuildNonPatchableMetadataSignature,
+  } = context;
+  memo.lastSourceFile = cloneMemoSnapshot(options.sourceFile);
+  memo.lastAvailableFiles = cloneMemoSnapshot(options.availableFiles);
+  memo.lastAssets = cloneMemoSnapshot(options.assets);
+  memo.lastReloadToken = options.reloadToken ?? 0;
+  memo.lastAllowUrdfXmlFallback = options.allowUrdfXmlFallback ?? false;
+  memo.lastResolvedRobotLinks = cloneMemoSnapshot(resolvedRobotLinks);
+  memo.lastResolvedRobotJoints = cloneMemoSnapshot(resolvedRobotJoints);
+  memo.lastResolvedRobotJointsSignature = nextJointStructureSignature;
+  memo.lastRuntimeBuildMetadataSignature = nextRuntimeBuildMetadataSignature;
+  memo.lastRuntimeBuildNonPatchableMetadataSignature =
+    nextRuntimeBuildNonPatchableMetadataSignature;
+  memo.lastRuntimePatchAwaitingSourceContent = awaitingSourceContent;
+}
+
+function canReuseMemoizedKeyForRuntimePatch({
+  options,
+  memo,
+  resolvedRobotLinks,
+  resolvedRobotJoints,
+  nextJointStructureSignature,
+  nextRuntimeBuildNonPatchableMetadataSignature,
+}: RendererBackendLoadScopeMemoContext): boolean {
+  if (
+    !hasCompatibleRuntimePatchReuseScope(
+      options,
+      memo,
+      nextRuntimeBuildNonPatchableMetadataSignature,
     )
   ) {
+    return false;
+  }
+
+  if (
+    isUsdLikeFormat(options.sourceFile.format) &&
+    hasRuntimePatchSourceContentChange(options, memo)
+  ) {
+    return false;
+  }
+
+  if (!memo.lastResolvedRobotLinks || !resolvedRobotLinks) {
     return false;
   }
 
@@ -204,7 +368,7 @@ function canReuseMemoizedKeyForRuntimePatch(
   }
 
   const linkChangePatchable = Boolean(
-    isRuntimePatchableSingleLinkChange(memo.lastResolvedRobotLinks, resolvedRobotLinks) ||
+    hasRuntimePatchableGeometryChanges(memo.lastResolvedRobotLinks, resolvedRobotLinks) ||
       areRobotLinkChangesVisibilityOnly(memo.lastResolvedRobotLinks, resolvedRobotLinks),
   );
   const jointChangePatchable =
@@ -212,6 +376,129 @@ function canReuseMemoizedKeyForRuntimePatch(
     hasRuntimePatchableJointChanges(memo.lastResolvedRobotJoints, resolvedRobotJoints);
 
   return linkChangePatchable || jointChangePatchable;
+}
+
+function canReuseMemoizedKeyForUnchangedRuntimeState({
+  options,
+  memo,
+  resolvedRobotLinks,
+  resolvedRobotJoints,
+  nextJointStructureSignature,
+  nextRuntimeBuildMetadataSignature,
+  nextRuntimeBuildNonPatchableMetadataSignature,
+}: RendererBackendLoadScopeMemoContext): boolean {
+  if (
+    !hasCompatibleRuntimePatchReuseScope(
+      options,
+      memo,
+      nextRuntimeBuildNonPatchableMetadataSignature,
+    )
+  ) {
+    return false;
+  }
+
+  if (memo.lastRuntimeBuildMetadataSignature !== nextRuntimeBuildMetadataSignature) {
+    return false;
+  }
+
+  if (hasRuntimePatchSourceContentChange(options, memo)) {
+    return false;
+  }
+
+  if (memo.lastResolvedRobotJointsSignature !== nextJointStructureSignature) {
+    return false;
+  }
+
+  return (
+    areRobotLinksExactlyEqual(memo.lastResolvedRobotLinks, resolvedRobotLinks) &&
+    areRobotJointsExactlyEqual(memo.lastResolvedRobotJoints, resolvedRobotJoints)
+  );
+}
+
+function canReuseMemoizedKeyForRuntimeSourcePatchCatchup({
+  options,
+  memo,
+  resolvedRobotLinks,
+  nextJointStructureSignature,
+  nextRuntimeBuildMetadataSignature,
+  nextRuntimeBuildNonPatchableMetadataSignature,
+}: RendererBackendLoadScopeMemoContext): boolean {
+  if (!memo.lastRuntimePatchAwaitingSourceContent || isUsdLikeFormat(options.sourceFile.format)) {
+    return false;
+  }
+
+  if (
+    !hasCompatibleRuntimePatchReuseScope(
+      options,
+      memo,
+      nextRuntimeBuildNonPatchableMetadataSignature,
+    )
+  ) {
+    return false;
+  }
+
+  if (memo.lastRuntimeBuildMetadataSignature !== nextRuntimeBuildMetadataSignature) {
+    return false;
+  }
+
+  if (!hasRuntimePatchSourceContentChange(options, memo)) {
+    return false;
+  }
+
+  if (!memo.lastResolvedRobotLinks || !resolvedRobotLinks) {
+    return false;
+  }
+
+  if (memo.lastResolvedRobotJointsSignature !== nextJointStructureSignature) {
+    return false;
+  }
+
+  return areRobotLinksExactlyEqual(memo.lastResolvedRobotLinks, resolvedRobotLinks);
+}
+
+function canReuseMemoizedKeyForRuntimeSourcePatchAwaitingState({
+  options,
+  memo,
+  resolvedRobotLinks,
+  resolvedRobotJoints,
+  nextJointStructureSignature,
+  nextRuntimeBuildMetadataSignature,
+  nextRuntimeBuildNonPatchableMetadataSignature,
+}: RendererBackendLoadScopeMemoContext): boolean {
+  if (isUsdLikeFormat(options.sourceFile.format)) {
+    return false;
+  }
+
+  if (
+    !hasCompatibleRuntimePatchReuseScope(
+      options,
+      memo,
+      nextRuntimeBuildNonPatchableMetadataSignature,
+    )
+  ) {
+    return false;
+  }
+
+  if (memo.lastRuntimeBuildMetadataSignature !== nextRuntimeBuildMetadataSignature) {
+    return false;
+  }
+
+  if (!hasRuntimePatchSourceContentChange(options, memo)) {
+    return false;
+  }
+
+  if (!memo.lastResolvedRobotLinks || !resolvedRobotLinks) {
+    return false;
+  }
+
+  if (memo.lastResolvedRobotJointsSignature !== nextJointStructureSignature) {
+    return false;
+  }
+
+  return (
+    areRobotLinksExactlyEqual(memo.lastResolvedRobotLinks, resolvedRobotLinks) &&
+    areRobotJointsExactlyEqual(memo.lastResolvedRobotJoints, resolvedRobotJoints)
+  );
 }
 
 function hasStructuredRobotState(
@@ -257,6 +544,10 @@ export function createRendererBackendLoadScopeKey({
           hasStructuredRobotState: structuredRobotStateAvailable,
           robotLinks: resolvedRobotLinks,
           robotJoints: resolvedRobotJoints,
+          robotName: robotData?.name,
+          rootLinkId: robotData?.rootLinkId,
+          robotMaterials: robotData?.materials,
+          inspectionContext: robotData?.inspectionContext,
         });
 
   return hashStableValue({
@@ -277,52 +568,56 @@ export function createMemoizedRendererBackendLoadScopeKey(
   const resolvedRobotLinks = options.robotData?.links ?? options.robotLinks;
   const resolvedRobotJoints = options.robotData?.joints ?? options.robotJoints;
   const nextJointStructureSignature = createJointStructureSignature(resolvedRobotJoints);
+  const nextRuntimeBuildMetadataSignature = createRuntimeBuildMetadataSignature(options.robotData);
+  const nextRuntimeBuildNonPatchableMetadataSignature =
+    createRuntimeBuildNonPatchableMetadataSignature(options.robotData);
+  const memoContext: RendererBackendLoadScopeMemoContext = {
+    options,
+    memo,
+    resolvedRobotLinks,
+    resolvedRobotJoints,
+    nextJointStructureSignature,
+    nextRuntimeBuildMetadataSignature,
+    nextRuntimeBuildNonPatchableMetadataSignature,
+  };
 
-  if (
-    memo.lastKey &&
-    memo.lastSourceFile === options.sourceFile &&
-    memo.lastAvailableFiles === options.availableFiles &&
-    memo.lastAssets === options.assets &&
-    memo.lastReloadToken === (options.reloadToken ?? 0) &&
-    memo.lastAllowUrdfXmlFallback === (options.allowUrdfXmlFallback ?? false) &&
-    memo.lastResolvedRobotLinks === resolvedRobotLinks
-  ) {
-    if (memo.lastResolvedRobotJointsSignature === nextJointStructureSignature) {
-      memo.lastResolvedRobotJoints = resolvedRobotJoints;
-      return memo.lastKey;
-    }
+  if (canReuseMemoizedKeyForUnchangedRuntimeState(memoContext)) {
+    updateMemoSnapshot(
+      memoContext,
+      memo.lastRuntimePatchAwaitingSourceContent === true,
+    );
+    return memo.lastKey!;
   }
 
-  if (
-    canReuseMemoizedKeyForRuntimePatch(
+  if (canReuseMemoizedKeyForRuntimeSourcePatchCatchup(memoContext)) {
+    updateMemoSnapshot(memoContext, false);
+    return memo.lastKey!;
+  }
+
+  if (canReuseMemoizedKeyForRuntimeSourcePatchAwaitingState(memoContext)) {
+    updateMemoSnapshot(memoContext, false);
+    return memo.lastKey!;
+  }
+
+  if (canReuseMemoizedKeyForRuntimePatch(memoContext)) {
+    const sourceContentChangedForRuntimePatch = hasRuntimePatchSourceContentChange(
       options,
       memo,
-      resolvedRobotLinks,
-      resolvedRobotJoints,
-      nextJointStructureSignature,
-    )
-  ) {
-    memo.lastSourceFile = options.sourceFile;
-    memo.lastAvailableFiles = options.availableFiles;
-    memo.lastAssets = options.assets;
-    memo.lastReloadToken = options.reloadToken ?? 0;
-    memo.lastAllowUrdfXmlFallback = options.allowUrdfXmlFallback ?? false;
-    memo.lastResolvedRobotLinks = resolvedRobotLinks;
-    memo.lastResolvedRobotJoints = resolvedRobotJoints;
-    memo.lastResolvedRobotJointsSignature = nextJointStructureSignature;
+    );
+    updateMemoSnapshot(
+      memoContext,
+      !sourceContentChangedForRuntimePatch,
+    );
     return memo.lastKey!;
   }
 
   const nextKey = createRendererBackendLoadScopeKey(options);
+  const keepAwaitingSourceContent =
+    memo.lastRuntimePatchAwaitingSourceContent === true &&
+    memo.lastKey === nextKey &&
+    !hasRuntimePatchSourceContentChange(options, memo);
   memo.lastKey = nextKey;
-  memo.lastSourceFile = options.sourceFile;
-  memo.lastAvailableFiles = options.availableFiles;
-  memo.lastAssets = options.assets;
-  memo.lastReloadToken = options.reloadToken ?? 0;
-  memo.lastAllowUrdfXmlFallback = options.allowUrdfXmlFallback ?? false;
-  memo.lastResolvedRobotLinks = resolvedRobotLinks;
-  memo.lastResolvedRobotJoints = resolvedRobotJoints;
-  memo.lastResolvedRobotJointsSignature = nextJointStructureSignature;
+  updateMemoSnapshot(memoContext, keepAwaitingSourceContent);
 
   return nextKey;
 }

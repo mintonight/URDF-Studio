@@ -173,7 +173,7 @@ function getOptionTrailingButton(
 ): HTMLButtonElement {
   const input = getOptionCheckbox(container, labelText);
   const row = input.closest('label')?.parentElement?.parentElement;
-  const button = row?.querySelector<HTMLButtonElement>(`button[title="${title}"]`);
+  const button = row?.querySelector<HTMLButtonElement>(`button[aria-label="${title}"]`);
   assert.ok(button, `${labelText} trailing "${title}" button should render`);
   return button;
 }
@@ -499,7 +499,7 @@ test('ViewerOptionsPanel header collapse and close controls remain clickable', a
   });
 
   const collapseButton = container.querySelector<HTMLButtonElement>(
-    '.urdf-options-panel button[title="Collapse"]',
+    '.urdf-options-panel button[aria-label="Collapse"]',
   );
   assert.ok(collapseButton, 'detail options collapse button should render');
   await clickElement(collapseButton);

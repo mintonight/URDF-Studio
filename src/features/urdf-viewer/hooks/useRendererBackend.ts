@@ -12,7 +12,7 @@ import {
   createRendererBackend,
   type RobotRendererBackend,
   type RendererSceneProps,
-} from '@/shared/components/3d/renderers';
+} from '@/features/urdf-viewer/renderers';
 import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 import { copyRobotRootTransform } from '@/shared/components/3d/robotPositioning';
 import { buildColladaRootNormalizationHints } from '@/core/loaders';
@@ -24,11 +24,10 @@ import {
   type RendererBackendLoadScopeKeyMemo,
 } from '../utils/rendererBackendLoadScope';
 import {
-  areRobotLinkChangesVisibilityOnly,
+  detectGeometryPatches,
   detectJointPatches,
-  detectSingleGeometryPatch,
 } from '../utils/robotLoaderDiff';
-import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
+import { applyGeometryPatchesInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
 import {
   isSceneCompileWarmupBlocked,
@@ -312,23 +311,15 @@ export function useRendererBackend(
       return;
     }
 
-    const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
-    if (!patch) {
-      if (areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks)) {
-        setResolvedRobotLinks(nextLinks);
-        if (robotData?.rootLinkId) {
-          setResolvedRootLinkId(robotData.rootLinkId);
-        }
-        setRobotVersion((version) => version + 1);
-        setError(null);
-      }
+    const patches = detectGeometryPatches(previousLinks, nextLinks);
+    if (!patches || patches.length === 0) {
       return;
     }
 
     const currentRobot = robotRef.current;
-    const applied = applyGeometryPatchInPlace({
+    const applied = applyGeometryPatchesInPlace({
       robotModel: currentRobot,
-      patch,
+      patches,
       assets,
       sourceFileDir: getSourceFileDirectory(sourceFile.name),
       colladaRootNormalizationHints: buildColladaRootNormalizationHints(nextLinks),
@@ -340,6 +331,9 @@ export function useRendererBackend(
     });
 
     if (!applied) {
+      const message = 'Failed to apply a runtime geometry patch in place';
+      console.error('[useRendererBackend]', message, patches);
+      setError(message);
       setPatchReloadRevision((revision) => revision + 1);
       return;
     }
@@ -383,6 +377,9 @@ export function useRendererBackend(
     const currentRobot = robotRef.current;
     const applied = patchJointsInPlace(currentRobot, patches, invalidate);
     if (!applied) {
+      const message = 'Failed to apply a runtime joint patch in place';
+      console.error('[useRendererBackend]', message, patches);
+      setError(message);
       setPatchReloadRevision((revision) => revision + 1);
       return;
     }

@@ -1,6 +1,6 @@
 # 架构边界详细说明
 
-> 最后更新：2026-04-15 | 覆盖源码：`src/` 全局
+> 最后更新：2026-07-05 | 覆盖源码：`src/` 全局
 > 交叉引用：[viewer.md](viewer.md)、[file-io.md](file-io.md)、[robot-canvas-lib.md](robot-canvas-lib.md)
 
 ## 1. 依赖方向（补充）
@@ -10,6 +10,7 @@
 - `app`：编排 features/store/shared/core/types，不把业务细节反向塞回下层
 - `features`：依赖 store/shared/core/types，禁止依赖 app
 - `store` / `shared`：不应新增对 features 的运行时依赖
+- `core`：纯解析、robot 拓扑、格式检测、runtime patch diff 等，不引入 React / store / feature / shared UI
 - `types`：只提供类型与常量，不回指上层
 
 ## 2. lib / packages 约束
@@ -51,10 +52,26 @@
 
 - 通用 THREE 释放：`src/shared/utils/three/dispose.ts`
 - `src/features/urdf-viewer/utils/dispose.ts`：兼容层 re-export
+- viewer backend lifecycle：`src/features/urdf-viewer/renderers/`，包括 `ThreeJsBackend`、`createRendererBackend`、`loadedRobotSceneSync`、source format / metadata / fallback policy
+- shared mesh renderer：`src/shared/components/3d/renderers/` 只放纯 mesh renderer 组件（STL/OBJ/DAE/GLTF）与 Collada scene helpers，不承载 viewer backend 状态
 - collision overlay material：`src/shared/utils/three/collisionOverlayMaterial.ts`
 - MJCF parser material：`src/core/utils/materialFactory.ts`
 
-## 7. Debuggability First
+## 7. Core Canonical Helpers
+
+- 源文件格式检测 canonical source：`src/core/parsers/format_detection.ts`
+- `app/utils/import-preparation/formatDetection.ts` 与 `features/file-io/utils/formatDetection.ts` 只做 workflow wrapper 或资产/电机文件补充判断
+- 组装 auto seed：`src/core/robot/auto_seed_assembly.ts`；避免 app 与 file-io 测试各自复制 seed 逻辑
+- runtime patch diff：`src/core/robot/runtime_patch_diff.ts`；viewer 可通过 `features/urdf-viewer/utils/robotLoaderDiff.ts` 兼容 re-export
+
+## 8. App Source Sync 模块化
+
+- `src/app/hooks/workspace-source-sync/robot_source_snapshot.ts`：source snapshot 的稳定序列化
+- `src/app/hooks/workspace-source-sync/single_component_reuse.ts`：单组件 workspace/source viewer 复用策略
+- `src/app/hooks/workspace-source-sync/*`：source sync 相关 hook 与策略；新增 source 同步逻辑优先落这里
+- `src/app/hooks/workspace-mutations/*`：workspace 变更操作；不要继续把所有策略塞进 `useWorkspaceSourceSync.ts`
+
+## 9. Debuggability First
 
 默认原则：兜底不是默认美德，silent fallback 会掩盖真实问题、污染状态、拉高排障成本。
 
@@ -71,7 +88,7 @@
 - 不得悄悄改写 source of truth
 - 注释说明为何必须兜底及降级到什么
 
-## 8. Linux 哲学与 Linus taste
+## 10. Linux 哲学与 Linus taste
 
 这是一级工程约束，不是风格建议。
 
@@ -95,14 +112,14 @@
 - 用 silent fallback、隐式同步、魔法默认值维持表面整洁
 - 为避免修改旧代码而额外包适配器
 
-## 9. 内存 / 生命周期约束
+## 11. 内存 / 生命周期约束
 
 - 新增 `ResizeObserver`、全局事件监听、RAF、timer、worker listener、`ImageBitmap`、object URL、THREE 材质/几何体/纹理、OffscreenCanvas 时必须同时实现对称 cleanup
 - shared worker / singleton runtime 必须明确所有者和释放边界
 - 新增 shared worker / singleton runtime 时，评审必须能指出对应 `dispose*` / `reset*` 调用点
 - 临时缓存必须有上限、淘汰策略或显式 dispose/reset 路径
 
-## 10. 依赖检查命令
+## 12. 依赖检查命令
 
 分层红线、`app` feature deep import surface 与 import 循环由 `scripts/tools/dependency_boundaries.mjs` 机器化把关（零依赖，复用 `@/* -> src/*` alias）：
 
@@ -130,9 +147,9 @@ rg -n "#[0-9A-Fa-f]{3,8}" src
 rg -n "#0088FF|#0088ff" src | rg -v "Slider.tsx|styles/index.css"
 ```
 
-## 11. 规模门禁与豁免（Size Budgets & Exemptions）
+## 13. 规模门禁与豁免（Size Budgets & Exemptions）
 
-单文件/函数长度、圈复杂度、参数数、嵌套深度由 `scripts/tools/google_style_audit.mjs` 的 count-based 规则把关，走 `google_style_baseline.json` ratchet（存量 grandfather、仅净新增违规 fail，与 `css-important`、`file-name-snake-case` 同机制）。当前阈值：file warn 500 / hard 800、function warn 150 / hard 200、complexity warn 15 / hard 20、params 4、depth 4（均 skipBlank+skipComments，仅作用 `src/**`，对 `**/*.test.*` / `**/*.spec.*` / `scripts/**` 关闭）。原则：**多数超长解析器/数值求解器是真实领域内聚，禁止为凑行数硬拆**；只对存在"可干净抽离附带膨胀"的文件做定向重构。
+单文件/函数长度、圈复杂度、参数数、嵌套深度由 `scripts/tools/google_style_audit.mjs` 的 count-based 规则把关，走 `google_style_baseline.json` ratchet（存量 grandfather、仅净新增违规 fail；`file-name-snake-case` 已 retired，只报告不阻断）。当前阈值：file hard 800、function hard 200、complexity hard 20、params 4、depth 4（均 skipBlank+skipComments，仅作用 `src/**`，对 `**/*.test.*` / `**/*.spec.*` / `scripts/**` 关闭）。`css-declaration-order` 当前 baseline 为 0，新增乱序会阻断。原则：**多数超长解析器/数值求解器是真实领域内聚，禁止为凑行数硬拆**；只对存在"可干净抽离附带膨胀"的文件做定向重构。
 
 以下文件/目录**有意豁免**所有 JS/TS 行长与复杂度门禁，不计入上述预算：
 

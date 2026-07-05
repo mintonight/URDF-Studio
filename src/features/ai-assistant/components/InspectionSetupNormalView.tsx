@@ -208,7 +208,7 @@ export function InspectionSetupNormalView({
     <div className="space-y-5">
       <section
         data-inspection-profile-recommendation-card
-        className="rounded-xl border border-border-black bg-panel-bg p-4 shadow-sm"
+        className="overflow-hidden rounded-xl border border-border-black bg-panel-bg p-4 shadow-sm"
       >
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">

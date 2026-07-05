@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { JointType, type RobotFile } from '@/types';
-import { autoSeedAssembly } from './autoSeedAssembly';
+import { autoSeedAssembly } from './auto_seed_assembly';
 
 const { window } = new JSDOM();
 

@@ -5,6 +5,7 @@ import {
   OptionsPanelContainer,
   OptionsPanelHeader,
   OptionsPanelContent,
+  PanelOverlayToggleButton,
   ToggleSliderOption,
 } from '@/shared/components/Panel/OptionsPanel';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
@@ -73,34 +74,6 @@ interface ViewerOptionsPanelProps {
   onActivate?: () => void;
 }
 
-interface OverlayToggleButtonProps {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}
-
-function OverlayToggleButton({ active, label, onClick }: OverlayToggleButtonProps) {
-  return (
-    <button
-      type="button"
-      className={`rounded p-0.5 transition-colors ${active ? 'bg-system-blue/10 text-system-blue dark:bg-system-blue/20' : 'text-text-tertiary hover:text-text-secondary'}`}
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-    >
-      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-        />
-      </svg>
-    </button>
-  );
-}
-
 interface OverlayToggleOptionProps {
   checked: boolean;
   className?: string;
@@ -142,7 +115,7 @@ function OverlayToggleOption({
       rowClassName="pr-1"
       trailingControl={
         checked ? (
-          <OverlayToggleButton
+          <PanelOverlayToggleButton
             active={overlayActive}
             label={overlayLabel}
             onClick={onToggleOverlay}
@@ -307,7 +280,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
               rowClassName="pr-1"
               trailingControl={
                 showCollision ? (
-                  <OverlayToggleButton
+                  <PanelOverlayToggleButton
                     active={showCollisionAlwaysOnTop}
                     label={t.alwaysOnTop}
                     onClick={() => setShowCollisionAlwaysOnTop(!showCollisionAlwaysOnTop)}

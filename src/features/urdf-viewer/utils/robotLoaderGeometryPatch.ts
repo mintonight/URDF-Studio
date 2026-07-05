@@ -106,8 +106,12 @@ function patchGeometryCategory({
   }
 
   targetGroup.visible = isCollision ? showCollision : true;
-  clearGroupChildren(targetGroup);
-  applyOriginToGroup(targetGroup, geometry.origin);
+  const defersGroupReplacement =
+    geometry.type === GeometryType.MESH && Boolean(geometry.meshPath);
+  if (!defersGroupReplacement) {
+    clearGroupChildren(targetGroup);
+    applyOriginToGroup(targetGroup, geometry.origin);
+  }
 
   const patchToken = ((targetGroup.userData.__patchToken as number) || 0) + 1;
   targetGroup.userData.__patchToken = patchToken;
@@ -314,6 +318,9 @@ function patchGeometryCategory({
         }
       }
 
+      clearGroupChildren(targetGroup!);
+      applyOriginToGroup(targetGroup!, geometry.origin);
+      targetGroup!.visible = isCollision ? showCollision : true;
       targetGroup!.add(obj);
       rebuildLinkMeshMapForLink(linkMeshMapRef, linkObject, linkName);
       robotModel.updateMatrixWorld(true);
@@ -915,6 +922,10 @@ interface ApplyGeometryPatchOptions {
   isPatchTargetValid?: () => boolean;
 }
 
+interface ApplyGeometryPatchesOptions extends Omit<ApplyGeometryPatchOptions, 'patch'> {
+  patches: GeometryPatchCandidate[];
+}
+
 interface ResolvedPatchTarget {
   linkObject: THREE.Object3D;
   visualTargetGroup?: THREE.Object3D;
@@ -1015,6 +1026,10 @@ function resolvePatchTarget(
   };
 }
 
+function getPatchRuntimeLinkName(patch: GeometryPatchCandidate): string {
+  return patch.linkData.id || patch.previousLinkData.id || patch.linkName;
+}
+
 export function applyGeometryPatchInPlace({
   robotModel,
   patch,
@@ -1027,7 +1042,7 @@ export function applyGeometryPatchInPlace({
   invalidate,
   isPatchTargetValid,
 }: ApplyGeometryPatchOptions): boolean {
-  const linkRuntimeName = patch.linkData.id || patch.previousLinkData.id || patch.linkName;
+  const linkRuntimeName = getPatchRuntimeLinkName(patch);
   const linkDisplayName = patch.linkDisplayName || patch.linkData.name || linkRuntimeName;
   const resolvedPatchTarget = resolvePatchTarget(robotModel, linkRuntimeName);
   if (!resolvedPatchTarget) return false;
@@ -1225,6 +1240,27 @@ export function applyGeometryPatchInPlace({
           isPatchTargetValid,
         });
       }
+    }
+  }
+
+  return true;
+}
+
+export function applyGeometryPatchesInPlace({
+  robotModel,
+  patches,
+  ...options
+}: ApplyGeometryPatchesOptions): boolean {
+  const allPatchTargetsExist = patches.every((patch) =>
+    Boolean(resolvePatchTarget(robotModel, getPatchRuntimeLinkName(patch))),
+  );
+  if (!allPatchTargetsExist) {
+    return false;
+  }
+
+  for (const patch of patches) {
+    if (!applyGeometryPatchInPlace({ ...options, robotModel, patch })) {
+      return false;
     }
   }
 

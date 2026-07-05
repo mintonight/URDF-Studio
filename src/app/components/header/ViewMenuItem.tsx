@@ -15,12 +15,12 @@ export function ViewMenuItem({ checked, label, onClick, disabled = false }: View
       role="menuitemcheckbox"
       aria-checked={checked}
       disabled={disabled}
-      className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center justify-between group disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+      className="group flex w-full items-center justify-between px-3 py-2 text-left text-xs whitespace-nowrap text-text-primary transition-colors hover:bg-element-bg focus:outline-none focus-visible:bg-element-bg focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
     >
       <div className="flex items-center gap-2">
         <div
-          className={`w-4 h-4 flex items-center justify-center rounded border ${
-            checked ? 'bg-system-blue border-system-blue text-white' : 'border-border-strong'
+          className={`flex h-4 w-4 items-center justify-center rounded border ${
+            checked ? 'border-system-blue bg-system-blue text-white' : 'border-border-strong'
           }`}
         >
           {checked && <Check className="w-3 h-3" />}

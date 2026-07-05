@@ -7,7 +7,6 @@ import { JSDOM } from 'jsdom';
 
 import { DraggableWindow } from './DraggableWindow';
 import { APP_HEADER_HEIGHT_PX } from '@/shared/hooks/useDraggableWindow';
-import { useSelectionStore } from '@/store/selectionStore';
 import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
 
 function installDom() {
@@ -42,28 +41,14 @@ function installDom() {
   return dom;
 }
 
-function resetSelectionStore() {
-  const state = useSelectionStore.getState();
-  state.setInteractionGuard(null);
-  state.setHoverFrozen(false);
-  while (useSelectionStore.getState().hoverBlockCount > 0) {
-    useSelectionStore.getState().endHoverBlock();
-  }
-  state.clearHover();
-  state.setHoveredSelection({ type: null, id: null });
-}
-
-test('DraggableWindow freezes shared hover while hovered and releases the block on unmount', async () => {
-  resetSelectionStore();
-
+test('DraggableWindow activates the shared hover block while hovered and releases it on unmount', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
   const root = createRoot(container);
   const windowRef = createRef<HTMLDivElement>();
-
-  useSelectionStore.getState().setHoveredSelection({ type: 'link', id: 'base_link' });
+  const hoverBlockEvents: string[] = [];
 
   try {
     await act(async () => {
@@ -72,9 +57,9 @@ test('DraggableWindow freezes shared hover while hovered and releases the block 
           OverlayHoverBlockProvider,
           {
             value: {
-              beginHoverBlock: useSelectionStore.getState().beginHoverBlock,
-              endHoverBlock: useSelectionStore.getState().endHoverBlock,
-              clearHover: useSelectionStore.getState().clearHover,
+              beginHoverBlock: () => hoverBlockEvents.push('begin'),
+              endHoverBlock: () => hoverBlockEvents.push('end'),
+              clearHover: () => hoverBlockEvents.push('clear'),
             },
             children: React.createElement(DraggableWindow, {
               window: {
@@ -105,17 +90,13 @@ test('DraggableWindow freezes shared hover while hovered and releases the block 
       windowRoot.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     });
 
-    let nextState = useSelectionStore.getState();
-    assert.equal(nextState.hoverFrozen, true);
-    assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+    assert.deepEqual(hoverBlockEvents, ['begin', 'clear']);
 
     await act(async () => {
       root.unmount();
     });
 
-    nextState = useSelectionStore.getState();
-    assert.equal(nextState.hoverFrozen, false);
-    assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+    assert.deepEqual(hoverBlockEvents, ['begin', 'clear', 'end']);
   } finally {
     dom.window.close();
   }

@@ -11,7 +11,7 @@ import {
   type ImportPreparationFileDescriptor,
   type PrepareImportProgress,
 } from './importPreparation.ts';
-import { ensureWorkerXmlDomApis } from '@/app/workers/ensureWorkerXmlDomApis';
+import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 
 ensureWorkerXmlDomApis(globalThis as typeof globalThis);

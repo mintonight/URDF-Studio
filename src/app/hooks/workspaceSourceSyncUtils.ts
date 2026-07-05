@@ -4,7 +4,6 @@ import {
   getVisualGeometryEntries,
   isSyntheticWorldRoot,
   mergeAssembly,
-  prepareAssemblyRobotData,
 } from '@/core/robot';
 import {
   resolveAlignedAssemblyComponentTransformForBridge,
@@ -42,41 +41,17 @@ import {
   type UrdfLink,
 } from '@/types';
 import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
-import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
+import { createRobotSourceSnapshot } from './workspace-source-sync/robot_source_snapshot';
+import { shouldReuseSourceViewerForSingleComponentAssembly } from './workspace-source-sync/single_component_reuse';
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
 
-type JsonLike = null | boolean | number | string | JsonLike[] | { [key: string]: JsonLike };
-
-function sortKeysDeep(value: unknown): JsonLike {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortKeysDeep(item));
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.keys(value)
-      .sort((left, right) => left.localeCompare(right))
-      .reduce<Record<string, JsonLike>>((acc, key) => {
-        const nextValue = (value as Record<string, unknown>)[key];
-        if (nextValue !== undefined) {
-          acc[key] = sortKeysDeep(nextValue);
-        }
-        return acc;
-      }, {});
-  }
-
-  if (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'string'
-  ) {
-    return value as JsonLike;
-  }
-
-  return null;
-}
+export { createRobotSourceSnapshot } from './workspace-source-sync/robot_source_snapshot';
+export {
+  shouldPreviewLibraryRobotLoadFromWorkspace,
+  shouldReseedSingleComponentAssemblyFromActiveFile,
+  shouldReuseSourceViewerForSingleComponentAssembly,
+} from './workspace-source-sync/single_component_reuse';
 
 const GENERATED_WORKSPACE_URDF_FOLDER = 'generated';
 const GENERATED_WORKSPACE_URDF_SUFFIX = '.generated.urdf';
@@ -91,19 +66,6 @@ function sanitizeGeneratedWorkspaceUrdfStem(value: string): string {
     .replace(/^[_./-]+|[_./-]+$/g, '');
 
   return sanitized || 'workspace';
-}
-
-export function createRobotSourceSnapshot(robot: RobotState): string {
-  return JSON.stringify(
-    sortKeysDeep({
-      name: robot.name,
-      rootLinkId: robot.rootLinkId,
-      links: robot.links,
-      joints: robot.joints,
-      materials: robot.materials ?? null,
-      closedLoopConstraints: robot.closedLoopConstraints ?? null,
-    }),
-  );
 }
 
 export function canUseLightweightWorkspaceViewerReloadContent(
@@ -909,201 +871,6 @@ export function normalizeWorkspaceAssemblyViewerDisplayRobotDataForSource(
     ...robot,
     joints,
   };
-}
-
-export function shouldReseedSingleComponentAssemblyFromActiveFile({
-  assemblyState,
-  activeFile,
-}: {
-  assemblyState: AssemblyState | null;
-  activeFile: RobotFile | null;
-}): boolean {
-  if (!activeFile || activeFile.format === 'mesh') {
-    return false;
-  }
-
-  if (!assemblyState) {
-    return true;
-  }
-
-  const components = Object.values(assemblyState.components);
-  if (components.length === 0) {
-    return true;
-  }
-
-  if (components.length !== 1 || Object.keys(assemblyState.bridges).length > 0) {
-    return false;
-  }
-
-  return components[0]?.sourceFile !== activeFile.name;
-}
-
-function sanitizeWorkspaceSeedNameFromFile(fileName: string): string {
-  const base =
-    fileName
-      .split('/')
-      .pop()
-      ?.replace(/\.[^/.]+$/, '') ?? 'robot';
-  const sanitized = base.replace(/[^a-zA-Z0-9_]/g, '_');
-  return sanitized || 'robot';
-}
-
-function parseRobotSourceSnapshot(sourceSnapshot: string | null): RobotData | null {
-  if (!sourceSnapshot) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(sourceSnapshot) as RobotData;
-  } catch (error) {
-    scheduleFailFastInDev(
-      'workspaceSourceSyncUtils:parseRobotSourceSnapshot',
-      new Error('Failed to parse workspace source snapshot.', { cause: error }),
-      'error',
-    );
-    return null;
-  }
-}
-
-function buildAssemblySeedRobotFromSourceBaseline({
-  sourceRobotData,
-  sourceSnapshot,
-  component,
-  sourceFile,
-}: {
-  sourceRobotData?: RobotData | null;
-  sourceSnapshot?: string | null;
-  component: Pick<AssemblyComponent, 'id' | 'name'>;
-  sourceFile: RobotFile | null;
-}): RobotState | null {
-  const parsedSnapshot = sourceRobotData ?? parseRobotSourceSnapshot(sourceSnapshot ?? null);
-
-  if (!parsedSnapshot?.rootLinkId || !parsedSnapshot.links || !parsedSnapshot.joints) {
-    return null;
-  }
-
-  const preparedRobotData = prepareAssemblyRobotData(parsedSnapshot, {
-    componentId: component.id,
-    rootName: component.name,
-    sourceFilePath: sourceFile?.name ?? null,
-    sourceFormat: sourceFile?.format ?? null,
-  });
-
-  return {
-    name: preparedRobotData.name,
-    rootLinkId: preparedRobotData.rootLinkId,
-    links: preparedRobotData.links,
-    joints: preparedRobotData.joints,
-    materials: preparedRobotData.materials,
-    closedLoopConstraints: preparedRobotData.closedLoopConstraints,
-    selection: { type: null, id: null },
-  };
-}
-
-function createSingleComponentAssemblyReuseSnapshot(robot: RobotData | RobotState): string {
-  return createRobotSemanticSnapshot({
-    ...robot,
-    selection: { type: null, id: null },
-  });
-}
-
-export function shouldReuseSourceViewerForSingleComponentAssembly({
-  assemblyState,
-  activeFile,
-  sourceSnapshot,
-  sourceRobotData,
-}: {
-  assemblyState: AssemblyState | null;
-  activeFile: RobotFile | null;
-  sourceSnapshot: string | null;
-  sourceRobotData?: RobotData | null;
-}): boolean {
-  if (!assemblyState || !activeFile || activeFile.format === 'mesh') {
-    return false;
-  }
-
-  const visibleComponents = Object.values(assemblyState.components).filter(
-    (component) => component.visible !== false,
-  );
-
-  if (visibleComponents.length !== 1 || Object.keys(assemblyState.bridges).length > 0) {
-    return false;
-  }
-
-  if (!isIdentityAssemblyTransform(assemblyState.transform)) {
-    return false;
-  }
-
-  const [component] = visibleComponents;
-  const expectedSeedName = sanitizeWorkspaceSeedNameFromFile(activeFile.name);
-
-  if (component.sourceFile !== activeFile.name || component.id !== `comp_${expectedSeedName}`) {
-    return false;
-  }
-
-  if (!sourceSnapshot && !sourceRobotData) {
-    return component.name === expectedSeedName;
-  }
-
-  const baselineRobotData = sourceRobotData ?? parseRobotSourceSnapshot(sourceSnapshot ?? null);
-  if (!baselineRobotData) {
-    return false;
-  }
-
-  const expectedComponentNames = new Set([expectedSeedName]);
-  if (baselineRobotData.name?.trim()) {
-    expectedComponentNames.add(baselineRobotData.name.trim());
-  }
-
-  if (!expectedComponentNames.has(component.name)) {
-    return false;
-  }
-
-  const expectedSeedRobot = buildAssemblySeedRobotFromSourceBaseline({
-    sourceRobotData: baselineRobotData,
-    sourceSnapshot: null,
-    component: { id: component.id, name: expectedSeedName },
-    sourceFile: activeFile,
-  });
-
-  if (!expectedSeedRobot) {
-    return false;
-  }
-
-  return (
-    createSingleComponentAssemblyReuseSnapshot(expectedSeedRobot) ===
-    createSingleComponentAssemblyReuseSnapshot(component.robot)
-  );
-}
-
-export function shouldPreviewLibraryRobotLoadFromWorkspace({
-  assemblyState,
-  activeFile,
-  sourceSnapshot,
-  sourceRobotData,
-}: {
-  assemblyState: AssemblyState | null;
-  activeFile: RobotFile | null;
-  sourceSnapshot: string | null;
-  sourceRobotData?: RobotData | null;
-}): boolean {
-  if (!assemblyState || Object.keys(assemblyState.components).length === 0) {
-    return false;
-  }
-
-  if (
-    Object.keys(assemblyState.components).length <= 1 &&
-    Object.keys(assemblyState.bridges).length === 0
-  ) {
-    return false;
-  }
-
-  return !shouldReuseSourceViewerForSingleComponentAssembly({
-    assemblyState,
-    activeFile,
-    sourceSnapshot,
-    sourceRobotData,
-  });
 }
 
 export function shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({

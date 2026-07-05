@@ -1,4 +1,5 @@
 import { Camera, Globe, Moon, Monitor, Settings, Sun } from 'lucide-react';
+import { Button, IconButton } from '@/shared/components/ui';
 import type { Theme } from '@/types';
 import type {
   HeaderAction,
@@ -43,16 +44,18 @@ function InlineActionButton({ action, show, showLabel }: InlineActionButtonProps
   }
 
   return (
-    <button
+    <Button
       type="button"
       onClick={action.onClick}
-      className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
+      variant="ghost"
+      size="xs"
+	      className="hidden h-7 whitespace-nowrap px-2 text-system-blue hover:bg-system-blue-solid hover:text-white sm:flex"
       title={action.title ?? action.label}
       aria-label={action.title ?? action.label}
     >
       <ActionIcon className="w-4 h-4" />
-      {showLabel ? <span>{action.label}</span> : null}
-    </button>
+	      {showLabel ? <span className="whitespace-nowrap">{action.label}</span> : null}
+    </Button>
   );
 }
 
@@ -70,15 +73,16 @@ function SnapshotButton({
   }
 
   return (
-    <button
+    <IconButton
       type="button"
       onClick={onSnapshot}
-      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-      title={label}
+      variant="ghost"
+      size="md"
+      className="hidden h-7 w-7 sm:flex"
       aria-label={label}
     >
       <Camera className="w-4 h-4" />
-    </button>
+    </IconButton>
   );
 }
 
@@ -98,16 +102,18 @@ function LanguageButton({
   }
 
   return (
-    <button
+    <Button
       type="button"
       onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
-      className="flex items-center justify-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+      variant="ghost"
+      size="xs"
+      className="hidden h-7 px-2 text-text-tertiary hover:text-text-primary sm:flex"
       title={label}
       aria-label={label}
     >
       <Globe className="w-3.5 h-3.5" />
       <span className="text-[10px] font-semibold">{lang === 'en' ? 'EN' : '中'}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -144,15 +150,16 @@ function ThemeButton({
   }
 
   return (
-    <button
+    <IconButton
       type="button"
       onClick={() => setTheme(resolveNextTheme(theme))}
-      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-      title={label}
+      variant="ghost"
+      size="md"
+      className="hidden h-7 w-7 sm:flex"
       aria-label={label}
     >
       <ThemeIcon theme={theme} />
-    </button>
+    </IconButton>
   );
 }
 
@@ -174,15 +181,16 @@ function SettingsButton({
   }
 
   return (
-    <button
+    <IconButton
       type="button"
       onClick={onOpenSettings}
-      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-      title={label}
+      variant="ghost"
+      size="md"
+      className="hidden h-7 w-7 sm:flex"
       aria-label={label}
     >
       <Settings className="w-4 h-4" />
-    </button>
+    </IconButton>
   );
 }
 

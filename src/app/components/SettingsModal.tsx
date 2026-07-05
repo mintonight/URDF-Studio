@@ -251,16 +251,18 @@ function SettingsStepper({
 
   return (
     <div className="inline-flex h-7 items-center overflow-hidden rounded-[6px] border border-border-black bg-panel-bg shadow-sm">
-      <button
+      <IconButton
         type="button"
         data-testid={decreaseTestId}
         aria-label={`${label} -${step}`}
-        className="flex h-full w-7 items-center justify-center text-text-secondary transition-colors hover:bg-settings-muted hover:text-text-primary disabled:opacity-50"
+        variant="ghost"
+        size="md"
+        className="h-full w-7 rounded-none hover:bg-settings-muted"
         onClick={() => adjustValue(-step)}
         disabled={value <= min}
       >
         <Minus className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
-      </button>
+      </IconButton>
       <input
         type="number"
         min={min}
@@ -269,18 +271,20 @@ function SettingsStepper({
         value={value}
         data-testid={inputTestId}
         onChange={handleInputChange}
-        className="h-full w-12 border-x border-border-black/70 bg-transparent px-0 text-center text-[12px] font-medium text-text-primary outline-none"
+        className="h-full w-12 border-x border-border-black/70 bg-transparent px-0 text-center text-[12px] font-medium text-text-primary outline-none focus:ring-2 focus:ring-system-blue/30"
       />
-      <button
+      <IconButton
         type="button"
         data-testid={increaseTestId}
         aria-label={`${label} +${step}`}
-        className="flex h-full w-7 items-center justify-center text-text-secondary transition-colors hover:bg-settings-muted hover:text-text-primary disabled:opacity-50"
+        variant="ghost"
+        size="md"
+        className="h-full w-7 rounded-none hover:bg-settings-muted"
         onClick={() => adjustValue(step)}
         disabled={value >= max}
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -722,12 +726,13 @@ export function SettingsModal() {
                     { value: 'orthographic', label: t.cameraProjectionOrthographic },
                   ]}
                   value={cameraProjection}
-                  onChange={(value) =>
-                    setViewOption('cameraProjection', value as 'perspective' | 'orthographic')
-                  }
-                  size="xs"
-                  stretch={false}
-                />
+	                  onChange={(value) =>
+	                    setViewOption('cameraProjection', value as 'perspective' | 'orthographic')
+	                  }
+	                  size="xs"
+	                  stretch={false}
+	                  ariaLabel={t.cameraProjection}
+	                />
               </SettingsRow>
             </SettingsSection>
             <SettingsSection
@@ -830,11 +835,12 @@ export function SettingsModal() {
                     { value: 'en', label: 'English' },
                     { value: 'zh', label: '中文' },
                   ]}
-                  value={lang}
-                  onChange={(value) => setLang(value as 'en' | 'zh')}
-                  size="xs"
-                  stretch={false}
-                />
+	                  value={lang}
+	                  onChange={(value) => setLang(value as 'en' | 'zh')}
+	                  size="xs"
+	                  stretch={false}
+	                  ariaLabel={t.language}
+	                />
               </SettingsRow>
               <SettingsRow label={t.theme}>
                 <PanelSegmentedControl
@@ -861,11 +867,12 @@ export function SettingsModal() {
                       ),
                     },
                   ]}
-                  value={theme}
-                  onChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
-                  size="xs"
-                  stretch={false}
-                />
+	                  value={theme}
+	                  onChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
+	                  size="xs"
+	                  stretch={false}
+	                  ariaLabel={t.theme}
+	                />
               </SettingsRow>
               <SettingsRow label={t.interfaceFontSize}>
                 <PanelSegmentedControl
@@ -874,11 +881,12 @@ export function SettingsModal() {
                     { value: 'medium', label: t.medium },
                     { value: 'large', label: t.large },
                   ]}
-                  value={fontSize}
-                  onChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}
-                  size="xs"
-                  stretch={false}
-                />
+	                  value={fontSize}
+	                  onChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}
+	                  size="xs"
+	                  stretch={false}
+	                  ariaLabel={t.interfaceFontSize}
+	                />
               </SettingsRow>
               <ToggleRow
                 label={t.importWarning}

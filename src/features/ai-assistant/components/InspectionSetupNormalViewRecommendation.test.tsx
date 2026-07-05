@@ -77,6 +77,11 @@ test('normal setup view shows the profile recommendation card', async () => {
       '[data-inspection-profile-recommendation-card]',
     )
     assert.ok(card, 'expected the recommendation card to render')
+    assert.match(
+      card.className,
+      /\boverflow-hidden\b/,
+      'recommendation card should clip child backgrounds to its rounded corners',
+    )
     assert.match(card.textContent ?? '', /Recommended Plan/)
     assert.match(card.textContent ?? '', /URDF/)
     assert.match(card.textContent ?? '', /Inspection Purpose/)

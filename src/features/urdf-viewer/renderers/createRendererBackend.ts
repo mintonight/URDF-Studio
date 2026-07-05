@@ -7,6 +7,7 @@
 import type { RobotRendererBackend, RendererSceneProps, BackendFactory, BackendRegistry } from './types';
 import { createThreeJsBackend } from './ThreeJsBackend';
 import { isUsdLikeFormat } from '@/core/parsers/usd';
+import type { RobotFile } from '@/types';
 
 const USD_HYDRATION_REQUIRED_MESSAGE = 'USD sources must be hydrated to RobotState before rendering';
 
@@ -77,7 +78,7 @@ export function createRendererBackend(props: RendererSceneProps): RobotRendererB
  */
 export function createRendererBackendForFormat(
   format: string,
-  sourceFile: any,
+  sourceFile: RobotFile,
   assets: Record<string, string>,
   invalidate?: () => void,
 ): RobotRendererBackend {

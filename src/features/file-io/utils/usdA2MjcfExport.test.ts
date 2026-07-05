@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import { autoSeedAssembly } from '@/app/utils/autoSeedAssembly';
+import { autoSeedAssembly } from '@/core/robot/auto_seed_assembly';
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import type { RobotFile, RobotState } from '@/types';

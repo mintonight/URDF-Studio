@@ -44,7 +44,13 @@ export function buildUnifiedViewerResourceScopes({
 }: BuildUnifiedViewerResourceScopesArgs): UnifiedViewerResourceScopesState {
   const effectiveUrdfContent = activePreview ? activePreview.urdfContent : urdfContent;
   const effectiveSourceFilePath = activePreview ? activePreview.fileName : sourceFilePath;
-  const effectiveSourceFile = activePreview ? null : sourceFile;
+  const effectiveSourceFile =
+    activePreview || !sourceFile
+      ? null
+      : {
+          ...sourceFile,
+          content: effectiveUrdfContent,
+        };
   const activeViewportFileName =
     activePreview?.fileName ?? effectiveSourceFile?.name ?? effectiveSourceFilePath ?? null;
 

@@ -21,8 +21,6 @@ interface ToolbarClusterProps {
   setMode: (mode: ToolMode) => void;
   /** Compact = header toolbar sizing; false = touch-friendly bottom bar sizing. */
   compact: boolean;
-  activateHoverBlock: () => void;
-  deactivateHoverBlock: () => void;
 }
 
 function ToolbarCluster({
@@ -30,8 +28,6 @@ function ToolbarCluster({
   activeMode,
   setMode,
   compact,
-  activateHoverBlock,
-  deactivateHoverBlock,
 }: ToolbarClusterProps) {
   const buttonClassName = compact ? 'h-7 w-7 rounded-md' : 'h-9 w-9 rounded-lg';
   const iconClassName = compact ? 'h-4 w-4' : 'h-5 w-5';
@@ -96,8 +92,6 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
           activeMode={activeMode}
           setMode={setMode}
           compact
-          activateHoverBlock={activateHoverBlock}
-          deactivateHoverBlock={deactivateHoverBlock}
         />
       </div>,
       headerDockSlot,
@@ -113,8 +107,6 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
         activeMode={activeMode}
         setMode={setMode}
         compact
-        activateHoverBlock={activateHoverBlock}
-        deactivateHoverBlock={deactivateHoverBlock}
       />
     </div>
   );
@@ -136,8 +128,6 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
             activeMode={activeMode}
             setMode={setMode}
             compact={false}
-            activateHoverBlock={activateHoverBlock}
-            deactivateHoverBlock={deactivateHoverBlock}
           />
         </div>,
         bottomDockSlot,

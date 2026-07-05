@@ -1,9 +1,18 @@
-import { Color, Matrix4, Quaternion, SRGBColorSpace, Vector3, type Material } from 'three';
+import {
+  Color,
+  Matrix4,
+  Quaternion,
+  SRGBColorSpace,
+  Vector3,
+  type Material,
+  type Mesh,
+} from 'three';
 import {
   getMeshLoadPerformanceHistory,
   type MeshLoadPerformanceEntry,
 } from '@/core/loaders/meshLoadPerformance';
 import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
+import { getVisualMeshTriangleCount } from '@/core/utils/visualMeshShadowPolicy';
 import type {
   InteractionHelperKind,
   InteractionSelection,
@@ -192,6 +201,9 @@ interface RuntimeVisualMeshSummary {
   name: string;
   visible: boolean;
   effectiveVisible: boolean;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  triangleCount: number;
   isPlaceholder: boolean;
   missingMeshPath: string | null;
   materials: RuntimeMaterialSummary[];
@@ -207,6 +219,7 @@ interface RegressionDocumentLoadState {
 interface RegressionSnapshot {
   timestamp: number;
   runtimeRevision: number;
+  primaryRuntimeRevision: number;
   availableFiles: Array<{ name: string; format: string }>;
   selectedFile: { name: string; format: string } | null;
   store: ReturnType<typeof summarizeRobotState> | null;
@@ -216,6 +229,7 @@ interface RegressionSnapshot {
   } | null;
   viewer: ViewerControllerSnapshot | null;
   runtime: ReturnType<typeof summarizeRuntimeRobot> | null;
+  primaryRuntime: ReturnType<typeof summarizeRuntimeRobot> | null;
 }
 
 interface RegressionViewerResourceScopeState {
@@ -1994,6 +2008,9 @@ function summarizeRuntimeRobot(robot: RegressionRuntimeRobot | null) {
             name: typeof runtimeChild.name === 'string' ? runtimeChild.name : '',
             visible: runtimeChild.visible !== false,
             effectiveVisible,
+            castShadow: (runtimeChild as Mesh).castShadow === true,
+            receiveShadow: (runtimeChild as Mesh).receiveShadow === true,
+            triangleCount: getVisualMeshTriangleCount(runtimeChild as Mesh),
             isPlaceholder,
             missingMeshPath:
               typeof runtimeChild.userData?.missingMeshPath === 'string'
@@ -2290,6 +2307,7 @@ export function getRegressionSnapshot(): RegressionSnapshot {
   return {
     timestamp: Date.now(),
     runtimeRevision: regressionDebugState.runtimeRevision,
+    primaryRuntimeRevision: regressionDebugState.primaryRuntimeRevision,
     availableFiles: getAvailableFilesSummary(),
     selectedFile: selectedFile ? { name: selectedFile.name, format: selectedFile.format } : null,
     store: robotState ? summarizeRobotState(robotState) : null,
@@ -2301,6 +2319,7 @@ export function getRegressionSnapshot(): RegressionSnapshot {
       : null,
     viewer: regressionDebugState.viewerHandlers?.getSnapshot() ?? null,
     runtime: summarizeRuntimeRobot(regressionDebugState.runtimeRobot),
+    primaryRuntime: summarizeRuntimeRobot(regressionDebugState.primaryRuntimeRobot),
   };
 }
 

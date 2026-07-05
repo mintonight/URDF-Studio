@@ -12,7 +12,7 @@ import type {
   ViewerRuntimeStageBridge,
 } from '../types';
 import { isContinuousHoverEnabledForToolMode } from '../utils/usdInteractionPolicy';
-import { getViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import { getViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
 import type { ViewerSceneBaseProps } from '../utils/viewerSceneProps';
 import { resolveRegressionRuntimeRobot } from '../utils/regressionRuntimeRobot';
 

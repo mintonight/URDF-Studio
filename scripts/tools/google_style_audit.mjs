@@ -801,12 +801,15 @@ function buildReport(allFindings, currentBaseline) {
 
   const summary = RULES.map((rule) => {
     const count = findingsByRule[rule.id].length;
-    const allowed = currentBaseline?.rules?.[rule.id]?.max ?? null;
+    const baselineRule = currentBaseline?.rules?.[rule.id] ?? null;
+    const allowed = baselineRule?.max ?? null;
+    const retired = baselineRule?.retired === true;
     return {
       ...rule,
       count,
       allowed,
-      failed: allowed !== null && count > allowed,
+      retired,
+      failed: !retired && allowed !== null && count > allowed,
     };
   });
 
@@ -828,7 +831,7 @@ function printReport(report, currentBaseline) {
   console.log('');
 
   for (const rule of report.summary) {
-    const status = rule.failed ? 'FAIL' : 'OK';
+    const status = rule.retired ? 'RETIRED' : rule.failed ? 'FAIL' : 'OK';
     const allowance = rule.allowed === null ? '' : ` / allowed ${rule.allowed}`;
     console.log(`[${status}] ${rule.id}: ${rule.count}${allowance} - ${rule.title}`);
 

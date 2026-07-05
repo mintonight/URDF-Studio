@@ -6,6 +6,8 @@ import type { TranslationKeys } from '../types';
 import { zhWorkflow } from './zhWorkflow';
 
 export const zh: TranslationKeys = {
+  ...zhWorkflow,
+
   // Header
   appName: 'URDF Studio',
   editor: '编辑器',

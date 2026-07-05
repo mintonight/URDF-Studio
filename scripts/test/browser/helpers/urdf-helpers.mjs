@@ -16,7 +16,7 @@ export {
   createSession, waitForReady, getTopology, getAssemblyState, getRuntimeTransforms,
   getRegressionSnapshot, getProjectedInteractionTargets, getBestProjectedInteractionTarget,
   getCanvasDiagnostics, clickCanvasTarget, dragCanvasByDelta, measureCanvasDrag,
-  measureInteractionFrames, getSemanticSnapshot, getMaterialSnapshot,
+  measureInteractionFrames, measureCanvasContinuityDuring, getSemanticSnapshot, getMaterialSnapshot,
   openSourceEditor, getSourceEditorText, replaceSourceEditorText, saveSourceEditor,
   waitForRobotPredicate, assertNoBrowserErrors,
   findAvailableFile,

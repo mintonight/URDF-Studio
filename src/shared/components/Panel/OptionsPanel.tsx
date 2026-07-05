@@ -4,6 +4,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, ReactNode } from 'react';
+import { Paperclip } from 'lucide-react';
 import { Checkbox, IconButton, Slider as UiSlider } from '@/shared/components/ui';
 import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
@@ -41,6 +42,35 @@ const DragGripIcon = ({ className = 'w-3 h-3' }: { className?: string }) => (
     <path d={DRAG_GRIP_PATH} />
   </svg>
 );
+
+interface PanelOverlayToggleButtonProps {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  className?: string;
+}
+
+export function PanelOverlayToggleButton({
+  active,
+  label,
+  onClick,
+  className = '',
+}: PanelOverlayToggleButtonProps) {
+  return (
+    <IconButton
+      type="button"
+      variant="toolbar"
+      size="xs"
+      isActive={active}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+      className={`h-5 w-5 ${className}`.trim()}
+    >
+      <Paperclip className="h-3 w-3" />
+    </IconButton>
+  );
+}
 
 // ============== Checkbox Option ==============
 interface CheckboxOptionProps {
@@ -306,7 +336,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       <button
         type="button"
         onClick={handleToggle}
-        className={`w-full flex items-center justify-between px-2 py-2 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary hover:bg-element-hover transition-colors text-left ${triggerClassName}`}
+        className={`flex w-full items-center justify-between px-2 py-2 text-left text-[10px] font-semibold tracking-[0.02em] text-text-tertiary transition-colors hover:bg-element-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${triggerClassName}`}
       >
         <span className={titleClassName}>{title}</span>
         <span
@@ -375,7 +405,7 @@ export const GroundPlaneControls: React.FC<GroundPlaneControlsProps> = ({
             type="button"
             onClick={onAutoFit}
             disabled={disabled}
-            className="flex flex-1 items-center justify-center gap-1 rounded-md border border-system-blue/20 bg-system-blue/10 px-2 py-1 text-[10px] font-medium text-system-blue transition-colors hover:bg-system-blue/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-system-blue/10 dark:border-system-blue/30 dark:bg-system-blue/20 dark:hover:bg-system-blue/25 dark:disabled:hover:bg-system-blue/20"
+            className="flex flex-1 items-center justify-center gap-1 rounded-md border border-system-blue/20 bg-system-blue/10 px-2 py-1 text-[10px] font-medium text-system-blue transition-colors hover:bg-system-blue/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-system-blue/10 dark:border-system-blue/30 dark:bg-system-blue/20 dark:hover:bg-system-blue/25 dark:disabled:hover:bg-system-blue/20"
           >
             {autoFitIcon}
             {autoFitLabel}
@@ -385,7 +415,7 @@ export const GroundPlaneControls: React.FC<GroundPlaneControlsProps> = ({
           type="button"
           onClick={onReset}
           disabled={disabled}
-          className="flex items-center justify-center gap-1 rounded-md bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-element-bg"
+          className="flex items-center justify-center gap-1 rounded-md bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-element-bg"
         >
           {resetLabel}
         </button>
@@ -446,17 +476,20 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
       <div className="flex min-w-fit shrink-0 items-center gap-1">
         {additionalControls}
         {showCollapseButton && (
-          <button
+          <IconButton
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onToggleCollapse();
             }}
-            className="rounded-md p-0.5 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"
+            size="sm"
+            className="p-0.5"
+            variant="ghost"
             title={isCollapsed ? expandText : collapseText}
+            aria-expanded={!isCollapsed}
           >
             {isCollapsed ? <ChevronDown /> : <ChevronUp />}
-          </button>
+          </IconButton>
         )}
         {onClose && (
           <IconButton

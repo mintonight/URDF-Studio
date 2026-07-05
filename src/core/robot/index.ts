@@ -197,3 +197,11 @@ export {
 } from './transforms';
 
 export { buildDeletionPlan, applyDeletionPlan, type DeletionPlan } from './treeOperations';
+export {
+  detectGeometryPatches,
+  detectJointPatches,
+} from './runtime_patch_diff';
+export type {
+  GeometryPatchCandidate,
+  JointPatchCandidate,
+} from './runtime_patch_diff';

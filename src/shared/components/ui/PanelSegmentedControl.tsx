@@ -13,6 +13,7 @@ interface PanelSegmentedControlProps<T extends string | number> {
   unselectedItemClassName?: string;
   disabled?: boolean;
   stretch?: boolean;
+  ariaLabel?: string;
 }
 
 const PANEL_SEGMENTED_CONTROL_CLASSNAME =
@@ -34,6 +35,7 @@ export function PanelSegmentedControl<T extends string | number>({
   unselectedItemClassName = '',
   disabled = false,
   stretch = false,
+  ariaLabel,
 }: PanelSegmentedControlProps<T>) {
   return (
     <SegmentedControl
@@ -43,6 +45,7 @@ export function PanelSegmentedControl<T extends string | number>({
       size={size}
       disabled={disabled}
       stretch={stretch}
+      ariaLabel={ariaLabel}
       className={`${PANEL_SEGMENTED_CONTROL_CLASSNAME} ${className}`.trim()}
       itemClassName={`${PANEL_SEGMENTED_CONTROL_ITEM_CLASSNAME} ${itemClassName}`.trim()}
       selectedItemClassName={`${PANEL_SEGMENTED_CONTROL_SELECTED_ITEM_CLASSNAME} ${selectedItemClassName}`.trim()}

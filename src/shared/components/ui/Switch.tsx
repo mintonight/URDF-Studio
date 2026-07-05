@@ -21,6 +21,7 @@ export const Switch: React.FC<SwitchProps> = ({
   className = '',
   labelClassName = '',
 }) => {
+  const generatedLabelId = React.useId();
   const previousCheckedRef = React.useRef(checked);
   const pendingUserToggleRef = React.useRef(false);
   const handleToggle = () => {
@@ -50,22 +51,49 @@ export const Switch: React.FC<SwitchProps> = ({
       translate: 'translate-x-5',
     },
   };
-  const resolvedAriaLabel =
-    ariaLabel ??
-    (typeof label === 'string' || typeof label === 'number' ? String(label) : undefined);
+  const resolvedAriaLabel = ariaLabel;
+  const labelledBy = resolvedAriaLabel ? undefined : label ? generatedLabelId : undefined;
+  const trackClassName = `
+    relative inline-flex items-center shrink-0 cursor-pointer rounded-full border border-transparent ${shouldAnimateStateChange ? 'transition-[background-color,border-color] duration-200 ease-in-out' : 'transition-none'} focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 p-0.5
+    ${checked ? 'bg-system-blue-solid' : 'bg-switch-off'}
+    ${checked ? 'border-system-blue-solid' : 'border-border-strong/70'}
+    ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+    ${desktopSizes[size].switch}
+  `;
+  const thumbClassName = `
+    pointer-events-none inline-block transform rounded-full border border-border-black/10 bg-switch-thumb shadow-sm ring-0
+    ${shouldAnimateStateChange ? 'transition duration-200 ease-in-out' : 'transition-none'}
+    ${checked ? desktopSizes[size].translate : 'translate-x-0'}
+    ${desktopSizes[size].dot}
+  `;
+
+  if (label) {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={resolvedAriaLabel}
+        aria-labelledby={labelledBy}
+        onClick={handleToggle}
+        disabled={disabled}
+        className={`flex items-center justify-between gap-3 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      >
+        <span
+          id={generatedLabelId}
+          className={`select-none text-left text-xs font-medium text-text-secondary ${labelClassName}`}
+        >
+          {label}
+        </span>
+        <span className={trackClassName}>
+          <span className={thumbClassName} />
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className={`flex items-center justify-between ${className}`}>
-      {label && (
-        <button
-          type="button"
-          className={`border-0 bg-transparent p-0 text-left select-none cursor-pointer text-xs font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50 ${labelClassName}`}
-          onClick={handleToggle}
-          disabled={disabled}
-        >
-          {label}
-        </button>
-      )}
       <button
         type="button"
         role="switch"
@@ -73,22 +101,9 @@ export const Switch: React.FC<SwitchProps> = ({
         aria-label={resolvedAriaLabel}
         onClick={handleToggle}
         disabled={disabled}
-        className={`
-          relative inline-flex items-center shrink-0 cursor-pointer rounded-full border border-transparent ${shouldAnimateStateChange ? 'transition-[background-color,border-color] duration-200 ease-in-out' : 'transition-none'} focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 p-0.5
-          ${checked ? 'bg-system-blue-solid' : 'bg-switch-off'}
-          ${checked ? 'border-system-blue-solid' : 'border-border-strong/70'}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-          ${desktopSizes[size].switch}
-        `}
+        className={trackClassName}
       >
-        <span
-          className={`
-            pointer-events-none inline-block transform rounded-full border border-border-black/10 bg-switch-thumb shadow-sm ring-0
-            ${shouldAnimateStateChange ? 'transition duration-200 ease-in-out' : 'transition-none'}
-            ${checked ? desktopSizes[size].translate : 'translate-x-0'}
-            ${desktopSizes[size].dot}
-          `}
-        />
+        <span className={thumbClassName} />
       </button>
     </div>
   );

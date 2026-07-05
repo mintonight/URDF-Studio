@@ -39,16 +39,29 @@ test('prepareUsdVisualMesh enables the same shadow participation as the URDF vie
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 
-test('prepareUsdVisualMesh applies the shared dense-mesh shadow cutoff', () => {
-  const mesh = createIndexedTriangleMesh(86240);
+test('prepareUsdVisualMesh keeps Go2 USDA base meshes in the shadow pass', () => {
+  const mesh = createIndexedTriangleMesh(77928);
 
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
 
   prepareUsdVisualMesh(mesh);
 
-  assert.equal(mesh.castShadow, false);
-  assert.equal(mesh.receiveShadow, false);
+  assert.equal(mesh.castShadow, true);
+  assert.equal(mesh.receiveShadow, true);
+  assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
+});
+
+test('prepareUsdVisualMesh keeps dense USD visual meshes in the shadow pass', () => {
+  const mesh = createIndexedTriangleMesh(86240);
+
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+
+  prepareUsdVisualMesh(mesh);
+
+  assert.equal(mesh.castShadow, true);
+  assert.equal(mesh.receiveShadow, true);
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 

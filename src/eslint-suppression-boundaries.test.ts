@@ -37,8 +37,8 @@ test('eslint suppression baseline does not grow without an explicit budget updat
 test('typed runtime boundary files stay out of the eslint suppression baseline', () => {
   const baseline = readSuppressionBaseline();
   const typedBoundaryFiles = [
-    'src/shared/components/3d/renderers/types.ts',
-    'src/shared/components/3d/renderers/loadedRobotSceneSync.ts',
+    'src/features/urdf-viewer/renderers/types.ts',
+    'src/features/urdf-viewer/renderers/loadedRobotSceneSync.ts',
     'src/shared/components/3d/runtimeGeometrySelection.ts',
     'src/shared/components/3d/runtimeRobotTypes.ts',
     'src/shared/debug/regressionState.ts',

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as THREE from 'three';
 
 import {
   getRegressionSnapshot,
@@ -14,6 +15,31 @@ import {
   type RobotFile,
   type RobotState,
 } from '@/types';
+import { setRegressionPrimaryRuntimeRobot } from './regressionState';
+
+test('getRegressionSnapshot tracks primary runtime identity revisions separately', () => {
+  const firstRobot = new THREE.Group();
+  firstRobot.name = 'first-runtime';
+  const secondRobot = new THREE.Group();
+  secondRobot.name = 'second-runtime';
+
+  setRegressionPrimaryRuntimeRobot(null);
+  const baselineRevision = getRegressionSnapshot().primaryRuntimeRevision;
+
+  setRegressionPrimaryRuntimeRobot(firstRobot);
+  const firstRevision = getRegressionSnapshot().primaryRuntimeRevision;
+  setRegressionPrimaryRuntimeRobot(firstRobot);
+  const repeatedRevision = getRegressionSnapshot().primaryRuntimeRevision;
+  setRegressionPrimaryRuntimeRobot(secondRobot);
+  const secondRevision = getRegressionSnapshot().primaryRuntimeRevision;
+
+  assert.equal(firstRevision, baselineRevision + 1);
+  assert.equal(repeatedRevision, firstRevision);
+  assert.equal(secondRevision, firstRevision + 1);
+  assert.equal(getRegressionSnapshot().primaryRuntime?.name, 'second-runtime');
+
+  setRegressionPrimaryRuntimeRobot(null);
+});
 
 test('getRegressionSnapshot summarizes joint-only runtime proxies without requiring traverse()', () => {
   setRegressionRuntimeRobot({
@@ -48,6 +74,49 @@ test('getRegressionSnapshot summarizes joint-only runtime proxies without requir
         lower: -Math.PI / 2,
         upper: Math.PI / 2,
       },
+    },
+  ]);
+
+  setRegressionRuntimeRobot(null);
+});
+
+test('getRegressionSnapshot includes runtime visual mesh shadow state', () => {
+  const robot = new THREE.Group();
+  robot.name = 'shadow_robot';
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#808080' }),
+  );
+  visualMesh.name = 'base_visual';
+  visualMesh.userData.parentLinkName = 'base';
+  visualMesh.userData.isVisualMesh = true;
+  visualMesh.castShadow = true;
+  visualMesh.receiveShadow = true;
+  robot.add(visualMesh);
+
+  setRegressionRuntimeRobot(robot as Parameters<typeof setRegressionRuntimeRobot>[0]);
+
+  assert.deepEqual(getRegressionSnapshot().runtime?.visualMeshes, [
+    {
+      link: 'base',
+      name: 'base_visual',
+      visible: true,
+      effectiveVisible: true,
+      castShadow: true,
+      receiveShadow: true,
+      triangleCount: 12,
+      isPlaceholder: false,
+      missingMeshPath: null,
+      materials: [
+        {
+          type: 'MeshStandardMaterial',
+          name: null,
+          hasTexture: false,
+          color: '#808080',
+          transparent: false,
+          opacity: 1,
+        },
+      ],
     },
   ]);
 

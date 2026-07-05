@@ -5,6 +5,7 @@ import { GeometryType, JointType, type UrdfJoint, type UrdfLink } from '@/types'
 
 import {
   areRobotLinkChangesVisibilityOnly,
+  detectGeometryPatches,
   detectJointPatches,
   detectSingleGeometryPatch,
   detectSingleJointPatch,
@@ -266,6 +267,43 @@ test('areRobotLinkChangesVisibilityOnly accepts batched link and geometry visibi
 
   assert.equal(detectSingleGeometryPatch(previousLinks, nextLinks), null);
   assert.equal(areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks), true);
+});
+
+test('detectGeometryPatches returns multiple compatible link geometry patches for batch updates', () => {
+  const previousLinks = {
+    base_link: makeLink(),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+      visual: {
+        ...makeLink().visual,
+        color: '#334455',
+      },
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visual: {
+        ...makeLink().visual,
+        color: '#12ab34',
+      },
+    }),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+      visual: {
+        ...makeLink().visual,
+        color: '#556677',
+      },
+    }),
+  };
+
+  const patches = detectGeometryPatches(previousLinks, nextLinks);
+
+  assert.ok(patches);
+  assert.equal(patches?.length, 2);
+  assert.deepEqual(patches?.map((patch) => patch.linkName).sort(), ['arm_link', 'base_link']);
+  assert.equal(detectSingleGeometryPatch(previousLinks, nextLinks), null);
 });
 
 test('areRobotLinkChangesVisibilityOnly rejects mixed geometry edits', () => {

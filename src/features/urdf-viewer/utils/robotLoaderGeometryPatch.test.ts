@@ -18,7 +18,10 @@ import {
   type UrdfVisual as LinkGeometry,
 } from '@/types';
 
-import { applyGeometryPatchInPlace } from './robotLoaderGeometryPatch';
+import {
+  applyGeometryPatchesInPlace,
+  applyGeometryPatchInPlace,
+} from './robotLoaderGeometryPatch';
 import { syncLoadedRobotScene } from './loadedRobotSceneSync';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -55,6 +58,16 @@ function expectBoxEquals(actual: THREE.Box3, expected: THREE.Box3, epsilon = 1e-
   });
 }
 
+type RuntimeObject3D = THREE.Object3D & {
+  isMesh?: boolean;
+  isURDFCollider?: boolean;
+  isURDFLink?: boolean;
+};
+
+function markAsUrdfLink(object: THREE.Object3D) {
+  (object as RuntimeObject3D).isURDFLink = true;
+}
+
 const makeGeometry = (overrides: Partial<LinkGeometry> = {}): LinkGeometry => ({
   type: GeometryType.BOX,
   dimensions: { x: 0.1, y: 0.2, z: 0.3 },
@@ -88,6 +101,21 @@ async function waitForPatchedChild(group: THREE.Object3D): Promise<THREE.Object3
   }
 
   throw new Error('Timed out waiting for patched mesh object.');
+}
+
+async function waitForReplacementChild(
+  group: THREE.Object3D,
+  previousChild: THREE.Object3D,
+): Promise<THREE.Object3D> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const child = group.children[0];
+    if (child && child !== previousChild) {
+      return child;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error('Timed out waiting for replacement mesh object.');
 }
 
 test(
@@ -137,8 +165,13 @@ test(
     };
     const linkObject = new THREE.Group();
     linkObject.name = 'base_link';
-    (linkObject as any).isURDFLink = true;
+    markAsUrdfLink(linkObject);
     const visualGroup = new URDFVisual();
+    const placeholderMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: '#ff00ff' }),
+    );
+    visualGroup.add(placeholderMesh);
     linkObject.add(visualGroup);
     robotModel.add(linkObject);
     robotModel.links = { base_link: linkObject };
@@ -187,8 +220,14 @@ test(
     });
 
     assert.equal(applied, true);
+    assert.equal(
+      visualGroup.children[0],
+      placeholderMesh,
+      'async mesh patch must keep the previous child visible until the replacement is ready',
+    );
 
-    const patchedObject = await waitForPatchedChild(visualGroup);
+    const patchedObject = await waitForReplacementChild(visualGroup, placeholderMesh);
+    assert.equal(visualGroup.children.includes(placeholderMesh), false);
 
     assert.ok(Math.abs(patchedObject.rotation.x - referenceObject.rotation.x) < 1e-6);
     assert.ok(Math.abs(patchedObject.rotation.y - referenceObject.rotation.y) < 1e-6);
@@ -207,7 +246,7 @@ test('applyGeometryPatchInPlace updates visual material colors in place for link
   };
   const linkObject = new THREE.Group();
   linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
 
   const visualGroup = new URDFVisual();
   const authoredMaterial = new THREE.MeshPhongMaterial({
@@ -268,6 +307,83 @@ test('applyGeometryPatchInPlace updates visual material colors in place for link
   );
 });
 
+test('applyGeometryPatchesInPlace prevalidates all runtime targets before mutating', () => {
+  const robotModel = new THREE.Group() as THREE.Group & {
+    links?: Record<string, THREE.Object3D>;
+  };
+  const linkObject = new URDFLink();
+  linkObject.name = 'base_link';
+  const visualGroup = new URDFVisual();
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshPhongMaterial({ color: '#808080' }),
+  );
+  visualGroup.add(visualMesh);
+  linkObject.add(visualGroup);
+  robotModel.add(linkObject);
+  robotModel.links = { base_link: linkObject };
+
+  const previousBaseLink = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({ color: '#808080' }),
+  });
+  const nextBaseLink = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({ color: '#12ab34' }),
+  });
+  const previousMissingLink = makeLink({
+    id: 'missing_link',
+    name: 'missing_link',
+    visual: makeGeometry({ color: '#808080' }),
+  });
+  const nextMissingLink = makeLink({
+    id: 'missing_link',
+    name: 'missing_link',
+    visual: makeGeometry({ color: '#556677' }),
+  });
+
+  const applied = applyGeometryPatchesInPlace({
+    robotModel,
+    patches: [
+      {
+        linkName: 'base_link',
+        previousLinkData: previousBaseLink,
+        linkData: nextBaseLink,
+        visualChanged: true,
+        visualBodiesChanged: false,
+        collisionChanged: false,
+        collisionBodiesChanged: false,
+        inertialChanged: false,
+        visibilityChanged: false,
+      },
+      {
+        linkName: 'missing_link',
+        previousLinkData: previousMissingLink,
+        linkData: nextMissingLink,
+        visualChanged: true,
+        visualBodiesChanged: false,
+        collisionChanged: false,
+        collisionBodiesChanged: false,
+        inertialChanged: false,
+        visibilityChanged: false,
+      },
+    ],
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {},
+  });
+
+  assert.equal(applied, false);
+  assert.equal(
+    (visualMesh.material as THREE.MeshPhongMaterial).color.getHexString(),
+    '808080',
+  );
+});
+
 test('applyGeometryPatchInPlace updates runtime link display metadata in place for link rename edits', () => {
   const robotModel = new THREE.Group() as THREE.Group & {
     links?: Record<string, THREE.Object3D>;
@@ -276,7 +392,7 @@ test('applyGeometryPatchInPlace updates runtime link display metadata in place f
   linkObject.name = 'base_link';
   linkObject.userData.linkId = 'base_link';
   linkObject.userData.displayName = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
   robotModel.add(linkObject);
   robotModel.links = { base_link: linkObject };
 
@@ -319,6 +435,74 @@ test('applyGeometryPatchInPlace updates runtime link display metadata in place f
   assert.equal(linkObject.userData.linkId, 'base_link');
   assert.equal(linkObject.userData.displayName, 'renamed_base_link');
   assert.equal(invalidations.length, 1);
+});
+
+test('applyGeometryPatchInPlace keeps the old mesh visible until async mesh replacement is ready', async () => {
+  const robotModel = new THREE.Group() as THREE.Group & {
+    links?: Record<string, THREE.Object3D>;
+  };
+  const linkObject = new THREE.Group();
+  linkObject.name = 'base_link';
+  markAsUrdfLink(linkObject);
+
+  const visualGroup = new URDFVisual();
+  const oldMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial({ color: '#ff00ff' }),
+  );
+  visualGroup.add(oldMesh);
+  linkObject.add(visualGroup);
+  robotModel.add(linkObject);
+  robotModel.links = { base_link: linkObject };
+
+  const objSource = ['v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
+  const objDataUrl = `data:text/plain;base64,${Buffer.from(objSource).toString('base64')}`;
+  const previousLinkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      type: GeometryType.BOX,
+      meshPath: undefined,
+    }),
+  });
+  const linkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      type: GeometryType.MESH,
+      meshPath: 'mesh.obj',
+      dimensions: { x: 1, y: 1, z: 1 },
+    }),
+  });
+
+  const applied = applyGeometryPatchInPlace({
+    robotModel,
+    patch: {
+      linkName: 'base_link',
+      previousLinkData,
+      linkData,
+      visualChanged: true,
+      visualBodiesChanged: false,
+      collisionChanged: false,
+      collisionBodiesChanged: false,
+      inertialChanged: false,
+      visibilityChanged: false,
+    },
+    assets: {
+      'mesh.obj': objDataUrl,
+    },
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {},
+  });
+
+  assert.equal(applied, true);
+  assert.equal(visualGroup.children[0], oldMesh);
+
+  const replacement = await waitForReplacementChild(visualGroup, oldMesh);
+  assert.notEqual(replacement, oldMesh);
+  assert.equal(visualGroup.children.includes(oldMesh), false);
 });
 
 test('applyGeometryPatchInPlace updates MJCF visual colors in place through runtime links maps', () => {
@@ -511,7 +695,7 @@ test('applyGeometryPatchInPlace rebuilds visual meshes when authored material te
     };
     const linkObject = new THREE.Group();
     linkObject.name = 'base_link';
-    (linkObject as any).isURDFLink = true;
+    markAsUrdfLink(linkObject);
 
     const visualGroup = new URDFVisual();
     const visualMesh = new THREE.Mesh(
@@ -682,9 +866,9 @@ test('applyGeometryPatchInPlace rebuilds missing collision boxes as boxes', () =
     invalidate: () => {},
   });
 
-  const collisionGroup = linkObject.children.find((child: any) => child.isURDFCollider) as
-    | THREE.Object3D
-    | undefined;
+  const collisionGroup = linkObject.children.find(
+    (child) => (child as RuntimeObject3D).isURDFCollider,
+  );
   assert.equal(applied, true);
   assert.ok(collisionGroup, 'expected collision group to be rebuilt');
   assert.equal(collisionGroup.children.length, 1);
@@ -834,7 +1018,7 @@ test('applyGeometryPatchInPlace updates selected auxiliary visual bodies in plac
   };
   const linkObject = new THREE.Group();
   linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
 
   const primaryVisualGroup = new URDFVisual();
   const primaryVisualMesh = new THREE.Mesh(
@@ -920,7 +1104,7 @@ test('applyGeometryPatchInPlace applies double-sided rendering to marked mesh vi
   };
   const linkObject = new THREE.Group();
   linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
 
   const visualGroup = new URDFVisual();
   const visualMesh = new THREE.Mesh(
@@ -987,7 +1171,7 @@ test('applyGeometryPatchInPlace updates authored multi-material colors in place 
   };
   const linkObject = new THREE.Group();
   linkObject.name = 'FR_hip';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
 
   const visualGroup = new URDFVisual();
   const visualMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [
@@ -1086,7 +1270,7 @@ test(
     };
     const linkObject = new THREE.Group();
     linkObject.name = 'FR_hip';
-    (linkObject as any).isURDFLink = true;
+    markAsUrdfLink(linkObject);
 
     const visualGroup = new URDFVisual();
     const placeholderMesh = new THREE.Mesh(
@@ -1154,8 +1338,8 @@ test(
 
     const rebuiltRoot = await waitForPatchedChild(visualGroup);
     let rebuiltMesh: THREE.Mesh | null = null as THREE.Mesh | null;
-    rebuiltRoot.traverse((child: any) => {
-      if (!rebuiltMesh && child.isMesh) {
+    rebuiltRoot.traverse((child) => {
+      if (!rebuiltMesh && (child as RuntimeObject3D).isMesh) {
         rebuiltMesh = child as THREE.Mesh;
       }
     });
@@ -1194,7 +1378,7 @@ test('applyGeometryPatchInPlace keeps highlighted visual meshes synchronized wit
   };
   const linkObject = new THREE.Group();
   linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  markAsUrdfLink(linkObject);
 
   const visualGroup = new URDFVisual();
   const authoredMaterial = new THREE.MeshPhongMaterial({

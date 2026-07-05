@@ -20,6 +20,13 @@
 - Focus 态必须可见，建议统一 `ring-system-blue/30`
 - 小字号文本避免低对比度颜色
 
+## 2.1 控件复用边界
+
+- 基础交互控件统一从 `src/shared/components/ui/` 引用：`Button`、`IconButton`、`Checkbox`、`Switch`、`Input`、`Select`、`PanelSelect`、`Slider`、`SegmentedControl`、`Dialog`、`Tooltip`、`ContextMenu`
+- 面板组合控件统一从 `src/shared/components/Panel/` 引用；面板内 overlay / toolbar 小按钮优先使用 `IconButton` 或 `PanelOverlayToggleButton`
+- Feature 内可以保留业务 adapter（如 property editor 的数值输入），但 adapter 只负责业务布局、密度和行为，不复制完整 hover / focus / disabled / token 状态样式
+- Header、toolbar、panel、menu、dialog 表面禁止新增 `bg-white`、`text-slate-*`、`border-slate-*` 等绕过语义 token 的 Tailwind 色值；使用 `panel-bg`、`element-bg`、`element-hover`、`input-bg`、`border-black`、`border-strong`、`text-*`
+
 ## 3. 高频语义色
 
 | Token | 用途 |

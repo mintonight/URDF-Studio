@@ -2664,6 +2664,114 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps pristine single-co
   );
 });
 
+test('shouldReuseSourceViewerForSingleComponentAssembly keeps runtime-patchable property edits on the current file scene', () => {
+  const jointEditedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  jointEditedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState: jointEditedAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    true,
+  );
+
+  const linkEditedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  linkEditedAssembly.components.comp_demo.robot.links.comp_demo_tool_link.visual = {
+    ...linkEditedAssembly.components.comp_demo.robot.links.comp_demo_tool_link.visual,
+    color: '#12ab34',
+  };
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState: linkEditedAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    true,
+  );
+});
+
+test('shouldReuseSourceViewerForSingleComponentAssembly stops reusing for non-patchable metadata edits', () => {
+  const materialEditedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  materialEditedAssembly.components.comp_demo.robot.materials = {
+    shell: { color: '#12ab34' },
+  };
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState: materialEditedAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+
+  const constraintEditedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  constraintEditedAssembly.components.comp_demo.robot.closedLoopConstraints = [
+    {
+      id: 'loop_1',
+      type: 'distance',
+      linkAId: 'comp_demo_base_link',
+      linkBId: 'comp_demo_tool_link',
+      anchorWorld: { x: 0, y: 0, z: 0 },
+      anchorLocalA: { x: 0, y: 0, z: 0 },
+      anchorLocalB: { x: 0, y: 0, z: 0 },
+      restDistance: 0.5,
+    },
+  ];
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState: constraintEditedAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldReuseSourceViewerForSingleComponentAssembly accepts raw single-component seeds from auto import', () => {
+  const activeFile = createUrdfFile('robots/demo/demo.urdf');
+  const sourceRobot = createRobotState();
+  const assemblyState: AssemblyState = {
+    name: 'demo_project',
+    components: {
+      comp_demo: {
+        id: 'comp_demo',
+        name: 'demo',
+        sourceFile: activeFile.name,
+        robot: sourceRobot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState,
+      activeFile,
+      sourceSnapshot: createRobotSourceSnapshot(sourceRobot),
+    }),
+    true,
+  );
+
+  const editedSourceRobot = structuredClone(sourceRobot);
+  editedSourceRobot.joints.joint_a.origin.xyz.x = 0.25;
+  assemblyState.components.comp_demo.robot = editedSourceRobot;
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState,
+      activeFile,
+      sourceSnapshot: createRobotSourceSnapshot(editedSourceRobot),
+    }),
+    true,
+  );
+});
+
 test('shouldReuseSourceViewerForSingleComponentAssembly logs malformed source snapshots without throwing', () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalConsoleError = console.error;
@@ -2799,7 +2907,8 @@ test('shouldReuseSourceViewerForSingleComponentAssembly stops reusing the curren
   );
 
   const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
-  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.childLinkId =
+    'comp_demo_missing_link';
 
   assert.equal(
     shouldReuseSourceViewerForSingleComponentAssembly({
@@ -2899,7 +3008,8 @@ test('shouldPreviewLibraryRobotLoadFromWorkspace still skips preview for isolate
 
 test('shouldPreviewLibraryRobotLoadFromWorkspace leaves structurally edited single seeds to the unsaved-edit guard', () => {
   const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
-  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.childLinkId =
+    'comp_demo_missing_link';
 
   assert.equal(
     shouldPreviewLibraryRobotLoadFromWorkspace({
@@ -2952,7 +3062,8 @@ test('shouldPromptGenerateWorkspaceUrdfOnStructureSwitch ignores isolated seeded
 test('shouldPromptGenerateWorkspaceUrdfOnStructureSwitch still flags structural single-component edits', () => {
   const pristineAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
   const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
-  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.childLinkId =
+    'comp_demo_missing_link';
 
   assert.equal(
     shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({

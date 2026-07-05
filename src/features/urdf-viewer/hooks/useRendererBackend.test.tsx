@@ -100,6 +100,48 @@ function createRobotData(color: string): RobotData {
   };
 }
 
+function createTwoLinkColorRobotData(baseColor: string, armColor: string): RobotData {
+  return {
+    name: 'two_link_demo',
+    rootLinkId: 'base',
+    links: {
+      base: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base',
+        name: 'base',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: baseColor,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+      arm: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'arm',
+        name: 'arm',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.4, y: 0.4, z: 0.4 },
+          color: armColor,
+          origin: { xyz: { x: 0.8, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {
+      base_to_arm: {
+        ...structuredClone(DEFAULT_JOINT),
+        id: 'base_to_arm',
+        name: 'base_to_arm',
+        type: JointType.FIXED,
+        parentLinkId: 'base',
+        childLinkId: 'arm',
+      },
+    },
+    materials: {},
+  };
+}
+
 function createJointOriginRobotData(jointZ: number): RobotData {
   return {
     name: 'joint_origin_demo',
@@ -248,6 +290,14 @@ function findFirstMesh(root: THREE.Object3D): THREE.Mesh {
   return found;
 }
 
+function findMeshForRuntimeLink(root: THREE.Object3D, linkName: string): THREE.Mesh {
+  const link = (root as THREE.Object3D & { links?: Record<string, THREE.Object3D> }).links?.[
+    linkName
+  ];
+  assert.ok(link, `expected runtime link ${linkName} to exist`);
+  return findFirstMesh(link);
+}
+
 function findFirstColliderGroup(root: THREE.Object3D): THREE.Object3D {
   let found: THREE.Object3D | null = null;
   root.traverse((child) => {
@@ -298,6 +348,33 @@ function Probe({
   return null;
 }
 
+function StateProbe({
+  robotData,
+  onRobotLoaded,
+  onState,
+}: {
+  robotData: RobotData;
+  onRobotLoaded: (robot: THREE.Object3D) => void;
+  onState: (state: { robot: THREE.Object3D | null; isLoading: boolean }) => void;
+}) {
+  const state = useRendererBackend({
+    sourceFile,
+    assets: EMPTY_ASSETS,
+    showVisual: true,
+    showCollision: false,
+    showCollisionAlwaysOnTop: true,
+    allowUrdfXmlFallback: false,
+    robotData,
+    onRobotLoaded,
+  });
+
+  React.useEffect(() => {
+    onState({ robot: state.robot, isLoading: state.isLoading });
+  }, [onState, state.isLoading, state.robot]);
+
+  return null;
+}
+
 function renderProbe(
   root: Root,
   robotData: RobotData,
@@ -315,6 +392,21 @@ function renderProbe(
       r3fContext.Provider,
       { value: useR3fStore as unknown as React.ContextType<typeof r3fContext> },
       React.createElement(Probe, { robotData, onRobotLoaded, ...options }),
+    ),
+  );
+}
+
+function renderStateProbe(
+  root: Root,
+  robotData: RobotData,
+  onRobotLoaded: (robot: THREE.Object3D) => void,
+  onState: (state: { robot: THREE.Object3D | null; isLoading: boolean }) => void,
+) {
+  return root.render(
+    React.createElement(
+      r3fContext.Provider,
+      { value: useR3fStore as unknown as React.ContextType<typeof r3fContext> },
+      React.createElement(StateProbe, { robotData, onRobotLoaded, onState }),
     ),
   );
 }
@@ -369,6 +461,108 @@ test('useRendererBackend patches a link color edit without reloading the backend
 
     assert.equal(loadedRobots.length, 1);
     assert.equal(getMeshHexColor(mesh), '#12ab34');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches multiple link color edits without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+
+  try {
+    await act(async () => {
+      renderProbe(root, createTwoLinkColorRobotData('#808080', '#334455'), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0];
+    const baseMesh = findMeshForRuntimeLink(runtimeRobot, 'base');
+    const armMesh = findMeshForRuntimeLink(runtimeRobot, 'arm');
+    assert.equal(getMeshHexColor(baseMesh), '#808080');
+    assert.equal(getMeshHexColor(armMesh), '#334455');
+
+    await act(async () => {
+      renderProbe(root, createTwoLinkColorRobotData('#12ab34', '#556677'), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => getMeshHexColor(baseMesh) === '#12ab34' && getMeshHexColor(armMesh) === '#556677',
+      'expected both link color patches to update existing meshes',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend keeps the previous runtime mounted while a full reload is in flight', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const states: Array<{ robot: THREE.Object3D | null; isLoading: boolean }> = [];
+
+  try {
+    await act(async () => {
+      renderStateProbe(
+        root,
+        createRobotData('#808080'),
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        (state) => {
+          states.push(state);
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const previousRobot = loadedRobots[0];
+    const stateCountAfterInitialLoad = states.length;
+    await act(async () => {
+      renderStateProbe(
+        root,
+        createJointOriginRobotData(0.35),
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        (state) => {
+          states.push(state);
+        },
+      );
+    });
+
+    await waitForCondition(
+      () => states.some((state) => state.isLoading && state.robot === previousRobot),
+      'expected full reload loading state to keep the previous runtime robot mounted',
+    );
+    await waitForCondition(
+      () => loadedRobots.length === 2,
+      'expected structural edit to finish a replacement runtime load',
+    );
+
+    assert.equal(
+      states
+        .slice(stateCountAfterInitialLoad)
+        .some((state) => state.isLoading && state.robot === null),
+      false,
+      'reload should not publish a blank runtime state after a robot has mounted',
+    );
   } finally {
     await act(async () => {
       root.unmount();
@@ -751,6 +945,123 @@ test('useRendererBackend patches a MJCF joint limit source edit without reloadin
 
     assert.equal(loadedRobots.length, 1);
     assert.equal(runtimeRobot.joints?.lift_joint, runtimeJoint);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend keeps the runtime scene mounted when a joint source patch follows the state patch', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const urdfSourceFile: RobotFile = {
+    name: 'robot.urdf',
+    format: 'urdf',
+    content: [
+      '<robot name="demo">',
+      '<joint name="lift_joint" type="revolute">',
+      '<limit lower="-1" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+  const initialRobotData = createJointOriginRobotData(0);
+  initialRobotData.joints.lift_joint.type = JointType.REVOLUTE;
+  initialRobotData.joints.lift_joint.axis = { x: 0, y: 0, z: 1 };
+  initialRobotData.joints.lift_joint.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        initialRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: urdfSourceFile,
+          availableFiles: [urdfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0] as THREE.Object3D & {
+      joints?: Record<
+        string,
+        THREE.Object3D & { limit?: { lower: number; upper: number } }
+      >;
+    };
+    const runtimeJoint = runtimeRobot.joints?.lift_joint;
+    assert.ok(runtimeJoint, 'expected runtime joint to exist');
+    assert.equal(runtimeJoint.limit?.lower, -1);
+
+    const patchedRobotData = structuredClone(initialRobotData);
+    patchedRobotData.joints.lift_joint.limit = {
+      lower: -2,
+      upper: 1,
+      effort: 10,
+      velocity: 5,
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: urdfSourceFile,
+          availableFiles: [urdfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => Math.abs((runtimeJoint.limit?.lower ?? 0) + 2) < 1e-6,
+      'expected joint limit state patch to update the existing runtime joint',
+    );
+    assert.equal(loadedRobots.length, 1);
+
+    const patchedUrdfSourceFile: RobotFile = {
+      ...urdfSourceFile,
+      content: [
+        '<robot name="demo">',
+        '<joint name="lift_joint" type="revolute">',
+        '<limit lower="-2" upper="1" effort="10" velocity="5" />',
+        '</joint>',
+        '</robot>',
+      ].join(''),
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedUrdfSourceFile,
+          availableFiles: [patchedUrdfSourceFile],
+        },
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(runtimeRobot.joints?.lift_joint, runtimeJoint);
+    assert.equal(runtimeJoint.limit?.lower, -2);
   } finally {
     await act(async () => {
       root.unmount();

@@ -1,1 +1,1 @@
-export { shouldWaitForStructuredUrdfRobotState } from '@/shared/components/3d/renderers/urdfXmlFallbackPolicy';
+export { shouldWaitForStructuredUrdfRobotState } from '@/features/urdf-viewer/renderers/urdfXmlFallbackPolicy';

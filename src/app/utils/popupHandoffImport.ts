@@ -67,7 +67,7 @@ export function stripPopupHandoffQueryParam(urlLike: string): string {
     return cleanedUrl;
   }
 
-  const parsedCleanedUrl = new URL(cleanedUrl);
+  const parsedCleanedUrl = new URL(cleanedUrl, 'http://localhost');
   return `${parsedCleanedUrl.pathname}${parsedCleanedUrl.search}${parsedCleanedUrl.hash}`;
 }
 

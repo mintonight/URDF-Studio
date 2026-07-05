@@ -8,6 +8,7 @@ export {
   OptionsPanelHeader,
   OptionsPanelContent,
   OptionsPanelContainer,
+  PanelOverlayToggleButton,
   CheckboxOption,
   SliderOption,
   SectionDivider,

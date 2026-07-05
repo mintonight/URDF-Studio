@@ -51,22 +51,22 @@ export async function importUnitreeModel(page, modelKey, timeoutMs = 120_000) {
     Go2: {
       sourceRoot: path.resolve('test/unitree_model/Go2'),
       exposedRoot: 'unitree_model/Go2',
-      loadFileName: 'unitree_model/Go2/usd/go2.usd',
+      loadFileName: 'usd/go2.usd',
     },
     Go2W: {
       sourceRoot: path.resolve('test/unitree_model/Go2W'),
       exposedRoot: 'unitree_model/Go2W',
-      loadFileName: 'unitree_model/Go2W/usd/go2w.usd',
+      loadFileName: 'usd/go2w.usd',
     },
     B2: {
       sourceRoot: path.resolve('test/unitree_model/B2'),
       exposedRoot: 'unitree_model/B2',
-      loadFileName: 'unitree_model/B2/usd/b2.usd',
+      loadFileName: 'usd/b2.usd',
     },
     H1: {
       sourceRoot: path.resolve('test/unitree_model/H1/h1'),
       exposedRoot: 'unitree_model/H1/h1',
-      loadFileName: 'unitree_model/H1/h1/usd/h1.usd',
+      loadFileName: 'usd/h1.usd',
     },
   };
 

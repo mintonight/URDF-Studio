@@ -268,6 +268,62 @@ test('patchJointInPlace resolves runtime joints by stable id and updates joint d
   assert.equal(invalidations.length, 1);
 });
 
+test('patchJointInPlace resolves runtime joints by traversing the scene when the joint map is missing', () => {
+  const robot = new THREE.Group();
+  const joint = new RuntimeURDFJoint();
+  joint.name = 'FR_hip_joint';
+  joint.urdfName = 'FR_hip_joint';
+  joint.userData.displayName = 'FR_hip_joint';
+  joint.userData.jointId = 'FR_hip_joint';
+  joint.jointType = JointType.REVOLUTE;
+  joint.limit.lower = -0.802851455917;
+  joint.limit.upper = 0.802851455917;
+  joint.origPosition = joint.position.clone();
+  joint.origQuaternion = joint.quaternion.clone();
+  robot.add(joint);
+
+  const invalidations: number[] = [];
+  const applied = patchJointInPlace(
+    robot,
+    {
+      jointId: 'FR_hip_joint',
+      jointName: 'FR_hip_joint',
+      previousJointData: makeJointPatchData({
+        id: 'FR_hip_joint',
+        name: 'FR_hip_joint',
+        parentLinkId: 'trunk',
+        childLinkId: 'FR_hip',
+        limit: {
+          lower: -0.802851455917,
+          upper: 0.802851455917,
+          effort: 20,
+          velocity: 20,
+        },
+      }),
+      jointData: makeJointPatchData({
+        id: 'FR_hip_joint',
+        name: 'FR_hip_joint',
+        parentLinkId: 'trunk',
+        childLinkId: 'FR_hip',
+        limit: {
+          lower: -0.7,
+          upper: 0.802851455917,
+          effort: 20,
+          velocity: 20,
+        },
+      }),
+    },
+    () => {
+      invalidations.push(1);
+    },
+  );
+
+  assert.equal(applied, true);
+  assert.equal(joint.limit.lower, -0.7);
+  assert.equal(joint.limit.upper, 0.802851455917);
+  assert.equal(invalidations.length, 1);
+});
+
 test('patchJointInPlace resolves the correct joint by stable id when names collide across models', () => {
   // Multi-model scene: two runtime joints share the same display name but have
   // distinct stable ids. A name-first lookup would resolve the wrong joint

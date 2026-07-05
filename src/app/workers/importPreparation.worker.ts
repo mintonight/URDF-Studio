@@ -6,7 +6,7 @@ import {
   type ImportPreparationWorkerRequest,
   type ImportPreparationWorkerResponse,
 } from '@/app/utils/importPreparation';
-import { ensureWorkerXmlDomApis } from './ensureWorkerXmlDomApis';
+import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
 ensureWorkerXmlDomApis(workerScope as unknown as typeof globalThis);

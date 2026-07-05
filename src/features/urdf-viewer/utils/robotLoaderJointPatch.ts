@@ -27,13 +27,64 @@ function getCurrentJointValues(joint: RuntimeURDFJoint): number[] {
   return [];
 }
 
-function resolveRuntimeJointKey(
-  joints: Record<string, RuntimeURDFJoint>,
+type RuntimeJointLookup = {
+  joints: Record<string, RuntimeURDFJoint>;
+  jointList: RuntimeURDFJoint[];
+};
+
+function createRuntimeJointLookup(robotModel: THREE.Object3D): RuntimeJointLookup | null {
+  const joints = (robotModel as any).joints as Record<string, RuntimeURDFJoint> | undefined;
+  const jointSet = new Set<RuntimeURDFJoint>();
+
+  Object.values(joints ?? {}).forEach((joint) => {
+    if (joint) {
+      jointSet.add(joint);
+    }
+  });
+
+  robotModel.traverse((child) => {
+    if ((child as { isURDFJoint?: boolean }).isURDFJoint === true) {
+      jointSet.add(child as RuntimeURDFJoint);
+    }
+  });
+
+  if (!joints && jointSet.size === 0) {
+    return null;
+  }
+
+  return {
+    joints: joints ?? {},
+    jointList: Array.from(jointSet),
+  };
+}
+
+function findUniqueRuntimeJoint(
+  jointList: RuntimeURDFJoint[],
+  predicate: (joint: RuntimeURDFJoint) => boolean,
+): RuntimeURDFJoint | null {
+  let match: RuntimeURDFJoint | null = null;
+
+  for (const joint of jointList) {
+    if (!predicate(joint)) {
+      continue;
+    }
+    if (match && match !== joint) {
+      return null;
+    }
+    match = joint;
+  }
+
+  return match;
+}
+
+function resolveRuntimeJoint(
+  lookup: RuntimeJointLookup,
   patch: JointPatchCandidate,
-): string | null {
+): RuntimeURDFJoint | null {
+  const { joints, jointList } = lookup;
   const stableJointId = patch.jointId || patch.jointData.id || patch.previousJointData.id;
   if (stableJointId && joints[stableJointId]) {
-    return stableJointId;
+    return joints[stableJointId];
   }
 
   // The runtime joints map is keyed by joint *name*, but a stable jointId is
@@ -49,17 +100,36 @@ function resolveRuntimeJointKey(
       return runtimeJointId === stableJointId;
     });
     if (byStableId) {
-      return byStableId[0];
+      return byStableId[1];
+    }
+
+    const traversedByStableId = findUniqueRuntimeJoint(jointList, (joint) => {
+      const runtimeJointId =
+        typeof joint.userData?.jointId === 'string' ? joint.userData.jointId.trim() : '';
+      return runtimeJointId === stableJointId;
+    });
+    if (traversedByStableId) {
+      return traversedByStableId;
     }
   }
 
   if (patch.jointName && joints[patch.jointName]) {
-    return patch.jointName;
+    return joints[patch.jointName];
   }
 
   const resolvedEntry = Object.entries(joints).find(([, joint]) => joint.name === patch.jointName);
+  if (resolvedEntry) {
+    return resolvedEntry[1];
+  }
 
-  return resolvedEntry?.[0] ?? null;
+  return findUniqueRuntimeJoint(jointList, (joint) => {
+    const jointWithNames = joint as RuntimeURDFJoint & { urdfName?: string };
+    return (
+      joint.name === patch.jointName ||
+      jointWithNames.urdfName === patch.jointName ||
+      joint.userData?.displayName === patch.jointName
+    );
+  });
 }
 
 function applyJointPatch(joint: RuntimeURDFJoint, patch: JointPatchCandidate): void {
@@ -169,17 +239,12 @@ export function patchJointsInPlace(
     return false;
   }
 
-  const joints = (robotModel as any).joints as Record<string, RuntimeURDFJoint> | undefined;
-  if (!joints) {
+  const lookup = createRuntimeJointLookup(robotModel);
+  if (!lookup) {
     return false;
   }
 
-  const runtimeJointKeys = patches.map((patch) => resolveRuntimeJointKey(joints, patch));
-  if (runtimeJointKeys.some((jointKey) => !jointKey)) {
-    return false;
-  }
-
-  const runtimeJoints = runtimeJointKeys.map((jointKey) => (jointKey ? joints[jointKey] : null));
+  const runtimeJoints = patches.map((patch) => resolveRuntimeJoint(lookup, patch));
   if (runtimeJoints.some((joint) => !joint)) {
     return false;
   }

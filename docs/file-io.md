@@ -1,16 +1,19 @@
 # 导入导出与 Workspace 链路
 
-> 最后更新：2026-05-13 | 覆盖源码：`src/app/hooks/`、`src/app/utils/`、`src/app/workers/`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
+> 最后更新：2026-07-05 | 覆盖源码：`src/app/hooks/`、`src/app/hooks/file-export/`、`src/app/hooks/workspace-source-sync/`、`src/app/hooks/workspace-mutations/`、`src/app/utils/`、`src/app/workers/`、`src/core/parsers/format_detection.ts`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
 > 交叉引用：[viewer.md](viewer.md)、[architecture.md](architecture.md)
 
 ## 1. 职责拆分
 
 | 层级 | 职责 | 入口 |
 |------|------|------|
-| `features/file-io/` | 底层文件能力：格式检测、BOM、project import/export、archive/asset registry、USD/SDF export、ExportDialog/ExportProgressDialog、snapshot/pdf hooks、导入导出 worker bridge | `src/features/file-io/index.ts` |
+| `core/parsers/format_detection.ts` | 机器人源文件格式检测 canonical source（URDF / MJCF / SDF / USD / Xacro） | `detectRobotDefinitionFormat`、`isRobotDefinitionPath` |
+| `features/file-io/` | 底层文件能力：BOM、project import/export、archive/asset registry、USD/SDF export、ExportDialog/ExportProgressDialog、snapshot/pdf hooks、导入导出 worker bridge；格式检测只 wrap core 并补充 asset/motor 判断 | `src/features/file-io/index.ts` |
 | `app/hooks/useFileImport.ts` | 应用级导入工作流（source of truth） | — |
 | `app/hooks/useFileExport.ts` | 应用级导出工作流（source of truth） | — |
 | `app/hooks/file-export/*` | 导出 workflow 子模块 helper | `assemblyHistory.ts`、`progress.ts`、`projectExport.ts`、`usdExport.ts` |
+| `app/hooks/workspace-source-sync/*` | workspace/source 同步 hook 与策略拆分 | snapshot、单组件复用、deferred sync、MJCF viewer policy、source baseline |
+| `app/hooks/workspace-mutations/*` | workspace 变更操作拆分 | 组件、bridge、source file 相关 mutation |
 | `features/robot-tree/` | structure/workspace 文件树、树编辑器、上下文菜单 | `tree-editor/*`、`tree-node/*` |
 | `features/assembly/` | 桥接组件创建与组装入口 | — |
 | `features/property-editor/` | 属性编辑、几何编辑、碰撞优化 | `geometry-conversion/*`、`workers/*` |
@@ -19,7 +22,9 @@
 
 - `features/file-io/hooks/useFileExport.ts` 已移除，应用导出 source of truth 在 `app/hooks/useFileExport.ts`
 - 应用导入 source of truth 在 `app/hooks/useFileImport.ts`，不要在 `features/file-io` 恢复旧导入 hook
+- 机器人源格式检测 source of truth 在 `core/parsers/format_detection.ts`；`app/utils/import-preparation/formatDetection.ts` 与 `features/file-io/utils/formatDetection.ts` 只做 wrapper
 - 新增导出辅助逻辑时，优先补到 `app/hooks/file-export/*`，不要把 `useFileExport.ts` 堆成大而全单文件
+- 新增 workspace/source 同步策略时，优先补到 `app/hooks/workspace-source-sync/*` 或 `workspace-mutations/*`，不要继续扩大 `workspaceSourceSyncUtils.ts`
 - `.usp` project import/export、USD prepared export cache、live USD roundtrip archive 已进入主工作流
 - `projectArchive.worker.ts`、`usdExport.worker.ts`、`usdBinaryArchive.worker.ts` 已进入主导出链路；大型归档或序列化任务优先走 worker/transfer
 - `projectImport.worker.ts` 已进入 project import 链路；问题优先在 worker/bridge 修
@@ -44,6 +49,7 @@
 - `useViewerOrchestration`：selection / hover / pulse / focus / transform pending 协调
 - `useFileImport` / `useFileExport`：导入导出编排入口
 - `useWorkspaceSourceSync` / `useWorkspaceMutations` / `useLibraryFileActions`：workspace 与 source 同步
+- `workspace-source-sync/robot_source_snapshot.ts` / `single_component_reuse.ts`：source snapshot 与单组件 source viewer 复用策略
 - `useWorkspaceModeTransitions` / `useWorkspaceOverlayActions`：workspace 视图切换与浮层动作
 - `usePreparedUsdViewerAssets` / `useAnimatedWorkspaceViewerRobotData`：viewer 资产与动画数据
 - `useImportInputBinding`：App 级文件输入绑定
@@ -59,6 +65,7 @@
 - 导出辅助：`exportArchiveAssets.ts`、`usdBinaryArchive.ts`、`urdfSourceExportUtils.ts`、`currentUsdExportMode.ts`
 - 历史与缓存：`pendingHistory.ts`、`pendingUsdCache.ts`
 - 导入准备：`documentLoadFlow.ts`、`importPreparation.ts`、`importPreparationTransfer.ts`
+- 导入格式 wrapper：`import-preparation/formatDetection.ts`（委托 core）
 - Unified viewer 状态：`unifiedViewer*.ts`、`viewerViewportHandoff.ts`
 - Worker payload：`robotImportWorkerPayload.ts`、`usdBinaryArchiveWorkerTransfer.ts`
 
@@ -144,3 +151,4 @@ BOT-World 构造 URL ?plugin=<key> → window.open 新标签页
 - `src/features/file-io/utils/usdExport.ts`
 - `src/app/hooks/useFileExport.ts`
 - `src/app/AppLayout.tsx`
+- `src/app/hooks/workspaceSourceSyncUtils.ts`（新增策略优先抽到 `workspace-source-sync/*`）

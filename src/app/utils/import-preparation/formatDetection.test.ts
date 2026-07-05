@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ensureWorkerXmlDomApis } from '@/app/workers/ensureWorkerXmlDomApis';
+import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 
 import { detectImportFormat } from './formatDetection.ts';
 

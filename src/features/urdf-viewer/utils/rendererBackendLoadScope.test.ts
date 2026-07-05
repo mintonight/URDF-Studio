@@ -172,6 +172,51 @@ test('createMemoizedRendererBackendLoadScopeKey reuses the key for patchable joi
   assert.equal(secondKey, firstKey);
 });
 
+test('createMemoizedRendererBackendLoadScopeKey reuses patchable edits when material metadata settles', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const robotData = createRobotData(0);
+  const assets: Record<string, string> = {};
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets,
+      reloadToken: 0,
+      robotData,
+    },
+    memo,
+  );
+  const editedRobotData = {
+    ...robotData,
+    joints: {
+      ...robotData.joints,
+      shoulder: {
+        ...robotData.joints.shoulder,
+        origin: {
+          ...robotData.joints.shoulder.origin,
+          xyz: {
+            ...robotData.joints.shoulder.origin.xyz,
+            z: 0.4,
+          },
+        },
+      },
+    },
+    materials: {
+      base: { color: '#808080' },
+    },
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
 test('createMemoizedRendererBackendLoadScopeKey reuses keys for transient motion across draggable formats', () => {
   const formats: DraggableFormat[] = ['urdf', 'sdf', 'mjcf', 'usd', 'usda'];
 
@@ -492,7 +537,7 @@ test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF visual dimen
   assert.equal(secondKey, firstKey);
 });
 
-test('createMemoizedRendererBackendLoadScopeKey recomputes for multiple geometry edits', () => {
+test('createMemoizedRendererBackendLoadScopeKey reuses key for multiple geometry edits', () => {
   const memo: RendererBackendLoadScopeKeyMemo = {};
   const assets: Record<string, string> = {};
   const baselineRobotData = createRobotData(0);
@@ -531,7 +576,53 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for multiple geometry
     memo,
   );
 
-  assert.notEqual(secondKey, firstKey);
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey ignores generated source file additions for geometry patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.links.base.visual.color = '#808080';
+  const urdfSource: RobotFile = {
+    name: 'robots/demo/demo.urdf',
+    format: 'urdf',
+    content: '<robot name="vendor-original" />',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: urdfSource,
+      availableFiles: [urdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.visual.color = '#12ab34';
+  const generatedSource: RobotFile = {
+    name: 'generated/demo.generated.urdf',
+    format: 'urdf',
+    content: '<robot name="generated-roundtrip" />',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: {
+        ...urdfSource,
+        content: generatedSource.content,
+      },
+      availableFiles: [urdfSource, generatedSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
 });
 
 test('createMemoizedRendererBackendLoadScopeKey recomputes when non-source file content changes with a geometry edit', () => {
@@ -637,6 +728,368 @@ test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF joint limit 
   assert.equal(secondKey, firstKey);
 });
 
+test('createMemoizedRendererBackendLoadScopeKey reuses key when joint source patch arrives after the state patch', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const urdfSource: RobotFile = {
+    name: 'robot.urdf',
+    format: 'urdf',
+    content: [
+      '<robot name="demo">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-1" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: urdfSource,
+      availableFiles: [urdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const statePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: urdfSource,
+      availableFiles: [urdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+  const patchedUrdfSource: RobotFile = {
+    ...urdfSource,
+    content: [
+      '<robot name="demo">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-2" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+  const sourcePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedUrdfSource,
+      availableFiles: [patchedUrdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(statePatchKey, firstKey);
+  assert.equal(sourcePatchKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key when joint source patch arrives before the state patch', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const urdfSource: RobotFile = {
+    name: 'robot.urdf',
+    format: 'urdf',
+    content: [
+      '<robot name="demo">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-1" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: urdfSource,
+      availableFiles: [urdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const patchedUrdfSource: RobotFile = {
+    ...urdfSource,
+    content: [
+      '<robot name="demo">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-2" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+  const sourcePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedUrdfSource,
+      availableFiles: [patchedUrdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+  const repeatedSourcePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedUrdfSource,
+      availableFiles: [patchedUrdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const statePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedUrdfSource,
+      availableFiles: [patchedUrdfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(sourcePatchKey, firstKey);
+  assert.equal(repeatedSourcePatchKey, firstKey);
+  assert.equal(statePatchKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key when an available component source patch arrives with the state patch', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const workspaceSource: RobotFile = {
+    name: 'workspace.urdf',
+    format: 'urdf',
+    content: '<robot name="workspace" />',
+  };
+  const componentSource: RobotFile = {
+    name: 'robots/a1_description/urdf/a1.urdf',
+    format: 'urdf',
+    content: [
+      '<robot name="a1">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-1" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: workspaceSource,
+      availableFiles: [workspaceSource, componentSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const patchedComponentSource: RobotFile = {
+    ...componentSource,
+    content: [
+      '<robot name="a1">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-2" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: workspaceSource,
+      availableFiles: [workspaceSource, patchedComponentSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key when an available component source patch follows the state patch', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const workspaceSource: RobotFile = {
+    name: 'workspace.urdf',
+    format: 'urdf',
+    content: '<robot name="workspace" />',
+  };
+  const componentSource: RobotFile = {
+    name: 'robots/a1_description/urdf/a1.urdf',
+    format: 'urdf',
+    content: [
+      '<robot name="a1">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-1" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: workspaceSource,
+      availableFiles: [workspaceSource, componentSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const statePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: workspaceSource,
+      availableFiles: [workspaceSource, componentSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+  const patchedComponentSource: RobotFile = {
+    ...componentSource,
+    content: [
+      '<robot name="a1">',
+      '<joint name="shoulder" type="revolute">',
+      '<limit lower="-2" upper="1" effort="10" velocity="5" />',
+      '</joint>',
+      '</robot>',
+    ].join(''),
+  };
+  const sourcePatchKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: workspaceSource,
+      availableFiles: [workspaceSource, patchedComponentSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(statePatchKey, firstKey);
+  assert.equal(sourcePatchKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey recomputes for USD source edits with joint edits', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const usdSource: RobotFile = {
+    name: 'robot.usda',
+    format: 'usda' as RobotFile['format'],
+    content: '#usda 1.0\n',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: usdSource,
+      availableFiles: [usdSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const patchedUsdSource: RobotFile = {
+    ...usdSource,
+    content: '#usda 1.0\ndef Xform "patched" {}\n',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedUsdSource,
+      availableFiles: [patchedUsdSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.notEqual(secondKey, firstKey);
+});
+
 test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF joint type source patches', () => {
   const memo: RendererBackendLoadScopeKeyMemo = {};
   const assets: Record<string, string> = {};
@@ -720,6 +1173,64 @@ test('createMemoizedRendererBackendLoadScopeKey reuses key for inertial edits wi
   );
 
   assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey recomputes for MJCF tendon metadata edits', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.inspectionContext = {
+    sourceFormat: 'mjcf',
+    mjcf: {
+      siteCount: 2,
+      tendonCount: 1,
+      tendonActuatorCount: 0,
+      bodiesWithSites: [],
+      tendons: [
+        {
+          name: 'cable',
+          type: 'spatial',
+          width: 0.01,
+          rgba: [1, 0, 0, 1],
+          attachmentRefs: ['site_a', 'site_b'],
+          attachments: [],
+          actuatorNames: [],
+        },
+      ],
+    },
+  };
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base" /></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.inspectionContext!.mjcf!.tendons[0]!.width = 0.02;
+  editedRobotData.inspectionContext!.mjcf!.tendons[0]!.rgba = [0, 1, 0, 1];
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.notEqual(secondKey, firstKey);
 });
 
 test('createRendererBackendLoadScopeKey keeps USD hydration data from triggering reloads', () => {
