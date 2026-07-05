@@ -1,4 +1,4 @@
-import { Camera, Globe, Moon, Monitor, Settings, Sun } from 'lucide-react';
+import { Camera, Languages, Moon, Monitor, Settings, Sun } from 'lucide-react';
 import { Button, IconButton } from '@/shared/components/ui';
 import type { Theme } from '@/types';
 import type {
@@ -111,7 +111,7 @@ function LanguageButton({
       title={label}
       aria-label={label}
     >
-      <Globe className="w-3.5 h-3.5" />
+      <Languages className="w-3.5 h-3.5" />
       <span className="text-[10px] font-semibold">{lang === 'en' ? 'EN' : '中'}</span>
     </Button>
   );

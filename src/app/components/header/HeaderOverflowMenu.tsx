@@ -1,7 +1,7 @@
 import {
   Camera,
   Code,
-  Globe,
+  Languages,
   Moon,
   Monitor,
   MoreHorizontal,
@@ -168,7 +168,7 @@ export function HeaderOverflowMenu({
                 )}
                 {showLanguage && (
                   <HeaderMenuItem
-                    icon={Globe}
+                    icon={Languages}
                     onClick={() => {
                       setLang(lang === 'en' ? 'zh' : 'en');
                       setActiveMenu(null);
