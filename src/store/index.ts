@@ -71,7 +71,3 @@ export type {
   JointInteractionPreviewSource,
   JointInteractionPreviewSnapshot,
 } from './jointInteractionPreviewStore';
-
-// History helper (for custom stores that need undo/redo)
-export { createHistoryManager } from './historyMiddleware';
-export type { HistoryState, HistoryActions, HistoryOptions } from './historyMiddleware';

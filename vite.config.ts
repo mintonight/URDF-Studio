@@ -402,14 +402,6 @@ export default defineConfig(({ mode }) => {
               return 'editor-monaco';
             }
 
-            if (
-              normalizedId.includes('/react-syntax-highlighter/') ||
-              normalizedId.includes('/react-simple-code-editor/') ||
-              normalizedId.includes('/prismjs/')
-            ) {
-              return 'code-vendor';
-            }
-
             if (normalizedId.includes('/jspdf/') || normalizedId.includes('/jszip/')) {
               return 'export-vendor';
             }
