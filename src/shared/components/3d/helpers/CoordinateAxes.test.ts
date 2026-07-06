@@ -30,9 +30,10 @@ test('WorldOriginAxes can render with default props', () => {
 });
 
 test('origin axes size limits scale with model extent', () => {
-  assert.equal(resolveOriginAxesSizeMax(null), 0.12);
-  assert.equal(resolveOriginAxesSizeMax(0.6), 0.072);
-  assert.equal(resolveOriginAxesSizeMax(10), 0.24);
+  assert.equal(resolveOriginAxesSizeMax(null), 0.5);
+  assert.equal(resolveOriginAxesSizeMax(0.1), 0.5);
+  assert.equal(resolveOriginAxesSizeMax(0.6), 0.5);
+  assert.equal(resolveOriginAxesSizeMax(10), 2);
 });
 
 test('normalizeOriginAxesSize clamps to the active size limit', () => {

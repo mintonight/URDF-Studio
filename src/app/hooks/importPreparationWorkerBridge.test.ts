@@ -68,10 +68,10 @@ test('import preparation worker bridge rejects immediately when Worker is unavai
 
 test('import preparation worker bridge rejects pending work when message transfer fails', async () => {
   const originalWorker = globalThis.Worker;
-  let fakeWorker: FakeWorker | null = null;
+  const fakeWorkers: FakeWorker[] = [];
   const createFakeWorker = function ImportPreparationWorkerMock() {
     const worker = new FakeWorker();
-    fakeWorker = worker;
+    fakeWorkers.push(worker);
     return worker;
   };
 
@@ -87,6 +87,7 @@ test('import preparation worker bridge rejects pending work when message transfe
       existingPaths: [],
     });
 
+    const fakeWorker = fakeWorkers[0];
     assert.ok(fakeWorker);
     assert.equal(fakeWorker.postedMessages.length, 1);
     fakeWorker.emitMessageError(new Error('structured clone failed'));

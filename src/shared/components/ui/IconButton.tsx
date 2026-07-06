@@ -1,5 +1,6 @@
 import React from 'react';
 import { Tooltip } from './Tooltip';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from './closeButtonStyles';
 
 type IconButtonVariant = 'ghost' | 'close' | 'toolbar' | 'solid';
 type IconButtonTone = 'neutral' | 'danger' | 'success';
@@ -41,7 +42,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
 
   let variantClasses = '';
   if (variant === 'close') {
-    variantClasses = 'text-text-tertiary hover:bg-danger hover:text-white active:bg-danger-hover';
+    variantClasses = CLOSE_BUTTON_DANGER_TERTIARY_CLASS;
   } else if (variant === 'toolbar') {
     variantClasses = isActive
       ? 'bg-system-blue/10 text-system-blue ring-1 ring-system-blue/20 dark:bg-system-blue/15 dark:text-text-primary dark:ring-system-blue/30'

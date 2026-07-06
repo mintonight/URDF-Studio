@@ -6,3 +6,8 @@
 export type { Language, TranslationKeys, Translations } from './types';
 export { translations } from './translations';
 export { en, zh } from './locales';
+export {
+  getRuntimeLanguageTranslations,
+  normalizeLanguage,
+  resolveRuntimeLanguage,
+} from './runtimeLanguage';

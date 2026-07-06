@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CircleHelp, X } from 'lucide-react';
 import { translations, Language } from '@/shared/i18n';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui';
 
 interface UsageGuideProps {
   lang: Language;
@@ -69,7 +70,7 @@ export const UsageGuide: React.FC<UsageGuideProps> = ({ lang }) => {
         <span className="max-w-[70vw] truncate sm:max-w-none">{instructionText}</span>
         <button
           type="button"
-          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary"
+          className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
           onClick={() => setIsVisible(false)}
           title={t.hideUsageGuide}
           aria-label={t.hideUsageGuide}

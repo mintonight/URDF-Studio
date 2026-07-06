@@ -592,16 +592,16 @@ test('handleRobotLoaded derives origin axes size limits from robot bounds', asyn
   const { dom, root, getHook } = await mountControllerWithProps({ active: false });
 
   await act(async () => {
-    getHook().setOriginSize(0.2);
+    getHook().setOriginSize(0.4);
   });
-  assert.equal(getHook().originSize, 0.12);
+  assert.equal(getHook().originSize, 0.4);
 
   await act(async () => {
     getHook().handleRobotLoaded(runtimeRobot);
   });
 
-  assert.equal(getHook().originAxesSizeMax, 0.06);
-  assert.equal(getHook().originSize, 0.06);
+  assert.equal(getHook().originAxesSizeMax, 0.5);
+  assert.equal(getHook().originSize, 0.4);
 
   await act(async () => {
     root.unmount();

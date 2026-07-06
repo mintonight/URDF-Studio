@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
 import { useManagedWindowLayer } from '@/store';
@@ -297,7 +298,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         showMaximizeButton={false}
         showCloseButton={!isExporting}
         closeTitle={t.close}
-        closeButtonClassName="p-1.5 text-text-tertiary hover:bg-red-500 hover:text-white rounded transition-colors"
+        closeButtonClassName={`rounded p-1.5 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
         showResizeHandles={true}
       >
         {/* Scrollable body */}

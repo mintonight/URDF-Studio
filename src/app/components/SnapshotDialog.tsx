@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Camera, X } from 'lucide-react';
 import {
   Button,
+  CLOSE_BUTTON_DANGER_TERTIARY_CLASS,
   CompactSwitch,
   PanelSegmentedControl,
   PanelSelect,
@@ -295,14 +296,9 @@ export function SnapshotDialog({
     () =>
       SNAPSHOT_ASPECT_RATIO_PRESETS.map((preset) => ({
         value: preset,
-        label:
-          preset === 'viewport'
-            ? lang === 'zh'
-              ? '当前画布'
-              : 'Viewport'
-            : preset,
+        label: preset === 'viewport' ? t.snapshotAspectViewport : preset,
       })),
-    [lang],
+    [t],
   );
   const environmentOptions = useMemo<SelectOption[]>(
     () => [
@@ -383,21 +379,21 @@ export function SnapshotDialog({
   );
   const compactLabels = useMemo(
     () => ({
-      output: lang === 'zh' ? '输出' : 'Output',
-      scene: lang === 'zh' ? '场景' : 'Scene',
-      resolution: lang === 'zh' ? '分辨率' : 'Resolution',
-      aspect: lang === 'zh' ? '画幅' : 'Aspect',
-      format: lang === 'zh' ? '格式' : 'Format',
+      output: t.snapshotCompactOutput,
+      scene: t.snapshotCompactScene,
+      resolution: t.snapshotCompactResolution,
+      aspect: t.snapshotCompactAspect,
+      format: t.snapshotCompactFormat,
       aa: 'AA',
-      quality: lang === 'zh' ? '压缩' : 'Compression',
-      lighting: lang === 'zh' ? '灯光' : 'Lighting',
-      background: lang === 'zh' ? '背景' : 'Background',
-      shadow: lang === 'zh' ? '阴影' : 'Shadow',
-      ground: lang === 'zh' ? '地面' : 'Ground',
-      dof: lang === 'zh' ? '景深' : 'DoF',
-      grid: lang === 'zh' ? '网格' : 'Grid',
+      quality: t.snapshotCompactQuality,
+      lighting: t.snapshotCompactLighting,
+      background: t.snapshotCompactBackground,
+      shadow: t.snapshotCompactShadow,
+      ground: t.snapshotCompactGround,
+      dof: t.snapshotCompactDof,
+      grid: t.snapshotCompactGrid,
     }),
-    [lang],
+    [t],
   );
   const selectedAntialiasOption =
     antialiasOptions.find((option) => option.value === detailLevel) ?? antialiasOptions[1];
@@ -487,7 +483,7 @@ export function SnapshotDialog({
       headerClassName="flex h-10 items-center justify-between border-b border-border-black bg-element-bg px-3"
       interactionClassName="select-none"
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"
-      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+      closeButtonClassName={`rounded-md p-1 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
       controlIcons={{ close: <X className="h-3.5 w-3.5" /> }}
       showMinimizeButton={false}
       showMaximizeButton={false}

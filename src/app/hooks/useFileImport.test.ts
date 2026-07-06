@@ -26,7 +26,7 @@ import {
 import type { ProjectImportResult } from '@/features/file-io';
 import { translations } from '@/shared/i18n';
 import { DEFAULT_MOTOR_LIBRARY } from '@/shared/data/motorLibrary';
-import type { RobotFile } from '@/types';
+import { GeometryType, type RobotFile } from '@/types';
 import { resolveRobotFileData } from '@/core/parsers';
 
 function restoreGlobalProperty<T extends keyof typeof globalThis>(
@@ -241,22 +241,21 @@ function createProjectImportResult(fileName: string, content: string): ProjectIm
     manifest: {
       name: 'project',
       version: '1.0',
-      createdAt: '2026-03-30T00:00:00.000Z',
       lastModified: '2026-03-30T00:00:00.000Z',
+      ui: {},
+      workspace: {
+        selectedFile: fileName,
+      },
       assets: {
-        logicalPaths: [],
+        availableFiles: [
+          {
+            name: fileName,
+            format: 'urdf',
+          },
+        ],
+        originalFileFormat: 'urdf',
         assetEntries: [],
       },
-      files: [
-        {
-          name: fileName,
-          format: 'urdf',
-        },
-      ],
-      selectedFileName: fileName,
-      ui: {},
-      robotState: null,
-      assemblyState: null,
     },
     assets: {},
     availableFiles: [
@@ -2487,13 +2486,13 @@ test('useFileImport keeps project-import state when usp import fails after mutat
               id: 'base_link',
               name: 'base_link',
               visual: {
-                type: 'box',
+                type: GeometryType.BOX,
                 dimensions: { x: 1, y: 1, z: 1 },
                 color: '#ffffff',
                 origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
               },
               collision: {
-                type: 'box',
+                type: GeometryType.BOX,
                 dimensions: { x: 1, y: 1, z: 1 },
                 color: '#ffffff',
                 origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },

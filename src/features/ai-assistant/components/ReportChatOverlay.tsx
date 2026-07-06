@@ -2,6 +2,7 @@ import { Loader2, MessageCircle, Send, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { InspectionReport, MotorSpec, RobotState } from '@/types'
 import type { Language, TranslationKeys } from '@/shared/i18n'
+import { CLOSE_BUTTON_DANGER_SECONDARY_CLASS } from '@/shared/components/ui'
 import { buildInspectionEvidenceSummary } from '@/shared/utils/inspectionEvidenceSummary'
 import { generateRobotFromPrompt } from '../services/aiService'
 import { buildInspectionRobotContext } from '../utils/buildInspectionRobotContext'
@@ -95,7 +96,7 @@ export function ReportChatOverlay({
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 text-text-secondary hover:bg-red-500 hover:text-white rounded-md transition-colors"
+          className={`rounded-md p-1.5 ${CLOSE_BUTTON_DANGER_SECONDARY_CLASS}`}
         >
           <X className="w-4 h-4" />
         </button>

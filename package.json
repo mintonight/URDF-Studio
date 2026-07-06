@@ -136,12 +136,12 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "@floating-ui/react": "^0.27.19",
     "@jsquash/oxipng": "^2.3.0",
     "@monaco-editor/react": "^4.7.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.4.2",
     "@types/jsdom": "^27.0.0",
-    "@types/react-syntax-highlighter": "^15.5.13",
     "html2canvas": "^1.4.1",
     "immer": "^11.1.3",
     "jsdom": "^28.0.0",
@@ -152,14 +152,9 @@
     "lucide-react": "^0.555.0",
     "monaco-editor": "^0.55.1",
     "openai": "^4.0.0",
-    "prismjs": "^1.30.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-draggable": "^4.5.0",
     "react-markdown": "^10.1.0",
-    "react-resizable": "^3.1.3",
-    "react-simple-code-editor": "^0.14.1",
-    "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
     "three": "^0.181.2",
     "zustand": "^5.0.10"
@@ -168,9 +163,7 @@
     "@eslint/js": "^9.39.4",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^22.14.0",
-    "@types/prismjs": "^1.26.5",
     "@types/react-dom": "^19.2.3",
-    "@types/react-resizable": "^3.0.8",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.4",
@@ -195,6 +188,7 @@
     "packages/*"
   ],
   "overrides": {
-    "dompurify": "^3.4.7"
+    "dompurify": "^3.4.7",
+    "tsx": "^4.23.0"
   }
 }

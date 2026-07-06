@@ -1,63 +1,56 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
-import { AppErrorBoundary } from './AppErrorBoundary';
+import { AppErrorBoundary } from './AppErrorBoundary.tsx';
 
-function installDom() {
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+function renderErrorBoundaryForLanguage(
+  dataLang: 'en' | 'zh',
+  error: unknown = new Error('render failed'),
+) {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/',
-    pretendToBeVisual: true,
   });
-
   (globalThis as { window?: Window }).window = dom.window as unknown as Window;
   (globalThis as { document?: Document }).document = dom.window.document;
-  Object.defineProperty(globalThis, 'navigator', {
-    value: dom.window.navigator,
-    configurable: true,
-  });
-  (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement = dom.window.HTMLElement;
-  (globalThis as { HTMLButtonElement?: typeof HTMLButtonElement }).HTMLButtonElement =
-    dom.window.HTMLButtonElement;
-  (globalThis as { Node?: typeof Node }).Node = dom.window.Node;
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-  return dom;
-}
-
-function ThrowValue({ value }: { value: unknown }): React.ReactElement {
-  throw value;
-}
-
-test('AppErrorBoundary shows its fallback for falsy thrown values', async () => {
-  const dom = installDom();
-  const container = dom.window.document.getElementById('root');
-  assert.ok(container, 'root container should exist');
-
-  const root = createRoot(container);
-  const originalConsoleError = console.error;
-  console.error = () => {};
+  document.documentElement.dataset.lang = dataLang;
 
   try {
-    await act(async () => {
-      root.render(
-        <AppErrorBoundary>
-          <ThrowValue value={null} />
-        </AppErrorBoundary>,
-      );
-    });
-
-    const text = container.textContent ?? '';
-    assert.match(text, /Something went wrong/);
-    assert.match(text, /null/);
+    const boundary = new AppErrorBoundary({ children: null });
+    boundary.state = { hasError: true, error };
+    const node = boundary.render();
+    assert.ok(React.isValidElement(node), 'boundary should render an element after an error');
+    return renderToStaticMarkup(node);
   } finally {
-    console.error = originalConsoleError;
-    await act(async () => {
-      root.unmount();
-    });
     dom.window.close();
   }
+}
+
+test('AppErrorBoundary renders English copy without mixed Chinese UI', () => {
+  const markup = renderErrorBoundaryForLanguage('en');
+
+  assert.match(markup, /Something went wrong/);
+  assert.match(markup, /Rendering was interrupted/);
+  assert.match(markup, />Reload</);
+  assert.doesNotMatch(markup, /应用遇到错误/);
+  assert.doesNotMatch(markup, /重新加载/);
+});
+
+test('AppErrorBoundary renders Chinese copy without mixed English UI', () => {
+  const markup = renderErrorBoundaryForLanguage('zh');
+
+  assert.match(markup, /应用遇到错误/);
+  assert.match(markup, /页面渲染中断/);
+  assert.match(markup, />重新加载</);
+  assert.doesNotMatch(markup, /Something went wrong/);
+  assert.doesNotMatch(markup, />Reload</);
+});
+
+test('AppErrorBoundary renders falsy thrown values without crashing', () => {
+  const markup = renderErrorBoundaryForLanguage('en', null);
+
+  assert.match(markup, /Something went wrong/);
+  assert.match(markup, />null</);
 });

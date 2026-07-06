@@ -2,6 +2,7 @@ import React from 'react';
 import type { RobotMjcfInspectionTendonSummary } from '@/types';
 import { formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
 import type { Language } from '@/store';
+import { translations } from '@/shared/i18n';
 import {
   PROPERTY_EDITOR_HELPER_TEXT_CLASS,
   PROPERTY_EDITOR_INPUT_CLASS,
@@ -60,64 +61,6 @@ function formatRange(value: [number, number] | undefined): string {
   }
 
   return `${formatNumberWithMaxDecimals(value[0])} to ${formatNumberWithMaxDecimals(value[1])}`;
-}
-
-function getLabels(lang: Language): TendonLabels {
-  if (lang === 'zh') {
-    return {
-      overview: '概览',
-      attachments: '附着点',
-      actuators: '驱动器',
-      name: '名称',
-      type: '类型',
-      className: '类',
-      group: '组',
-      limited: '限幅',
-      range: '范围',
-      width: '宽度',
-      stiffness: '刚度',
-      springlength: '弹簧长度',
-      rgba: 'RGBA',
-      target: '目标',
-      extra: '附加参数',
-      yes: '是',
-      no: '否',
-      none: '无',
-      attachmentType: {
-        site: 'site',
-        geom: 'geom',
-        joint: 'joint',
-        pulley: 'pulley',
-      },
-    };
-  }
-
-  return {
-    overview: 'Overview',
-    attachments: 'Attachments',
-    actuators: 'Actuators',
-    name: 'Name',
-    type: 'Type',
-    className: 'Class',
-    group: 'Group',
-    limited: 'Limited',
-    range: 'Range',
-    width: 'Width',
-    stiffness: 'Stiffness',
-    springlength: 'Spring Length',
-    rgba: 'RGBA',
-    target: 'Target',
-    extra: 'Extra',
-    yes: 'Yes',
-    no: 'No',
-    none: 'None',
-    attachmentType: {
-      site: 'site',
-      geom: 'geom',
-      joint: 'joint',
-      pulley: 'pulley',
-    },
-  };
 }
 
 function clampUnitInterval(value: number): number {
@@ -252,7 +195,33 @@ function DeferredColorPickerInput({
 }
 
 export const TendonProperties: React.FC<TendonPropertiesProps> = ({ data, lang, onUpdate }) => {
-  const labels = getLabels(lang);
+  const t = translations[lang];
+  const labels: TendonLabels = {
+    overview: t.tendonOverview,
+    attachments: t.tendonAttachments,
+    actuators: t.tendonActuators,
+    name: t.name,
+    type: t.type,
+    className: t.tendonClass,
+    group: t.tendonGroup,
+    limited: t.tendonLimited,
+    range: t.tendonRange,
+    width: t.tendonWidth,
+    stiffness: t.tendonStiffness,
+    springlength: t.tendonSpringLength,
+    rgba: t.tendonRgba,
+    target: t.tendonTarget,
+    extra: t.tendonExtra,
+    yes: t.yes,
+    no: t.no,
+    none: t.none,
+    attachmentType: {
+      site: 'site',
+      geom: 'geom',
+      joint: 'joint',
+      pulley: 'pulley',
+    },
+  };
   const limitedValue =
     typeof data.limited === 'boolean' ? (data.limited ? labels.yes : labels.no) : '-';
   const editable = typeof onUpdate === 'function';

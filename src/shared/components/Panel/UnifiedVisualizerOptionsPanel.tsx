@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { Shapes, Shield } from 'lucide-react';
+import { ArrowUpRight, Move, Shapes, Shield } from 'lucide-react';
 import { Language, translations } from '@/shared/i18n';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import {
@@ -22,6 +22,8 @@ interface UnifiedVisualizerOptionsPanelProps {
   setShowVisual: (show: boolean) => void;
   showOrigin: boolean;
   setShowOrigin: (show: boolean) => void;
+  showOriginOverlay?: boolean;
+  setShowOriginOverlay?: (show: boolean) => void;
   frameSize: number;
   setFrameSize: (size: number) => void;
   frameSizeMax?: number;
@@ -31,6 +33,8 @@ interface UnifiedVisualizerOptionsPanelProps {
   setLabelScale: (scale: number) => void;
   showJointAxes: boolean;
   setShowJointAxes: (show: boolean) => void;
+  showJointAxesOverlay?: boolean;
+  setShowJointAxesOverlay?: (show: boolean) => void;
   jointAxisSize: number;
   setJointAxisSize: (size: number) => void;
   showCollision: boolean;
@@ -39,8 +43,12 @@ interface UnifiedVisualizerOptionsPanelProps {
   setShowCollisionAlwaysOnTop: (show: boolean) => void;
   showInertia: boolean;
   setShowInertia: (show: boolean) => void;
+  showInertiaOverlay?: boolean;
+  setShowInertiaOverlay?: (show: boolean) => void;
   showCenterOfMass: boolean;
   setShowCenterOfMass: (show: boolean) => void;
+  showCoMOverlay?: boolean;
+  setShowCoMOverlay?: (show: boolean) => void;
   modelOpacity: number;
   setModelOpacity: (opacity: number) => void;
   isCollapsed: boolean;
@@ -67,6 +75,8 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       setShowVisual,
       showOrigin,
       setShowOrigin,
+      showOriginOverlay = false,
+      setShowOriginOverlay,
       frameSize,
       setFrameSize,
       frameSizeMax = ORIGIN_AXES_SIZE_FALLBACK_MAX,
@@ -76,6 +86,8 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       setLabelScale,
       showJointAxes,
       setShowJointAxes,
+      showJointAxesOverlay = false,
+      setShowJointAxesOverlay,
       jointAxisSize,
       setJointAxisSize,
       showCollision,
@@ -84,8 +96,12 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       setShowCollisionAlwaysOnTop,
       showInertia,
       setShowInertia,
+      showInertiaOverlay = false,
+      setShowInertiaOverlay,
       showCenterOfMass,
       setShowCenterOfMass,
+      showCoMOverlay = false,
+      setShowCoMOverlay,
       isCollapsed,
       toggleCollapsed,
       onMouseDown,
@@ -102,6 +118,18 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
     const englishCheckboxLabelClassName = isEnglish ? 'text-[10px]' : '';
     const englishSliderLabelClassName = isEnglish ? 'text-[9px]' : '';
     const detailOptionIconClassName = 'w-3 h-3 text-text-tertiary';
+    const renderOverlayToggle = (
+      checked: boolean,
+      active: boolean,
+      onToggle: ((show: boolean) => void) | undefined,
+    ) =>
+      checked && onToggle ? (
+        <PanelOverlayToggleButton
+          active={active}
+          label={t.alwaysOnTop}
+          onClick={() => onToggle(!active)}
+        />
+      ) : undefined;
 
     return (
       <div
@@ -169,9 +197,16 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
               <ToggleSliderOption
                 checked={showOrigin}
                 onChange={setShowOrigin}
+                icon={<Move className={detailOptionIconClassName} />}
                 label={t.showOrigin}
                 className="mt-1"
                 labelClassName={englishCheckboxLabelClassName}
+                rowClassName="pr-1"
+                trailingControl={renderOverlayToggle(
+                  showOrigin,
+                  showOriginOverlay,
+                  setShowOriginOverlay,
+                )}
                 sliderConfig={{
                   label: t.frameSize,
                   value: frameSize,
@@ -208,9 +243,16 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
               <ToggleSliderOption
                 checked={showJointAxes}
                 onChange={setShowJointAxes}
+                icon={<ArrowUpRight className="w-3 h-3 text-red-500" />}
                 label={t.showJointAxes}
                 className="mt-1"
                 labelClassName={englishCheckboxLabelClassName}
+                rowClassName="pr-1"
+                trailingControl={renderOverlayToggle(
+                  showJointAxes,
+                  showJointAxesOverlay,
+                  setShowJointAxesOverlay,
+                )}
                 sliderConfig={{
                   label: t.jointAxisSize,
                   value: jointAxisSize,
@@ -224,18 +266,38 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
                 }}
               />
 
-              <CheckboxOption
+              <ToggleSliderOption
                 checked={showInertia}
                 onChange={setShowInertia}
+                icon={<div className="h-3 w-3 border border-dashed border-slate-500" />}
                 label={t.showInertia}
+                className="mt-1"
                 labelClassName={englishCheckboxLabelClassName}
+                rowClassName="pr-1"
+                trailingControl={renderOverlayToggle(
+                  showInertia,
+                  showInertiaOverlay,
+                  setShowInertiaOverlay,
+                )}
               />
 
-              <CheckboxOption
+              <ToggleSliderOption
                 checked={showCenterOfMass}
                 onChange={setShowCenterOfMass}
+                icon={
+                  <div className="flex h-3 w-3 items-center justify-center rounded-full border border-slate-500">
+                    <div className="h-1 w-1 rounded-full bg-slate-500" />
+                  </div>
+                }
                 label={t.showCenterOfMass}
+                className="mt-1"
                 labelClassName={englishCheckboxLabelClassName}
+                rowClassName="pr-1"
+                trailingControl={renderOverlayToggle(
+                  showCenterOfMass,
+                  showCoMOverlay,
+                  setShowCoMOverlay,
+                )}
               />
             </div>
           </OptionsPanelContent>

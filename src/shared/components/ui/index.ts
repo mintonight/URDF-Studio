@@ -14,5 +14,6 @@ export * from './Select';
 export * from './Checkbox';
 export * from './Dialog';
 export * from './IconButton';
+export * from './closeButtonStyles';
 export * from './ContextMenu';
 export * from './Tooltip';

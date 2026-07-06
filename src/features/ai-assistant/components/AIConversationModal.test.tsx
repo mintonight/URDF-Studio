@@ -154,7 +154,7 @@ const clickButton = async (button: HTMLButtonElement) => {
   });
 };
 
-test('AIConversationModal moves to the front when activated', async () => {
+test('AIConversationModal opens at the front and remains front when activated', async () => {
   const previousApiKey = process.env.API_KEY;
   process.env.API_KEY = '';
   const dom = installDom();
@@ -189,9 +189,9 @@ test('AIConversationModal moves to the front when activated', async () => {
     assert.ok(windowRoot, 'conversation window should render with dynamic z-index');
     assert.equal(windowRoot.className.includes('z-[110]'), false);
     assert.ok(
-      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
-        useUIStore.getState().getManagedWindowZIndex('aiConversation'),
-      'source code should start above AI conversation in the default order',
+      useUIStore.getState().getManagedWindowZIndex('aiConversation') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'opened AI conversation window should start above source code',
     );
 
     await act(async () => {

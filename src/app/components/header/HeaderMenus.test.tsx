@@ -63,6 +63,7 @@ function renderViewMenu({
       viewConfig: {
         showOptionsPanel: true,
         showJointPanel,
+        showStructureGraph: false,
       },
       viewAvailability: {
         jointPanel: jointPanelAvailable,
@@ -96,6 +97,7 @@ function renderHeaderMenusWithToolboxItems(activeMenu: import('./types').HeaderM
       viewConfig: {
         showOptionsPanel: true,
         showJointPanel: true,
+        showStructureGraph: false,
       },
       viewAvailability: {
         jointPanel: true,
@@ -249,6 +251,7 @@ function renderFileMenu({
         viewConfig: {
           showOptionsPanel: true,
           showJointPanel: true,
+          showStructureGraph: false,
         },
         viewAvailability: {
           jointPanel: true,

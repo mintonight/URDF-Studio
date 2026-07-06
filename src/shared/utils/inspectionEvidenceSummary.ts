@@ -1,4 +1,5 @@
 import type { RobotInspectionContext } from '@/types'
+import { translations } from '@/shared/i18n'
 
 export interface InspectionEvidenceMetric {
   label: string
@@ -18,10 +19,10 @@ export function buildInspectionEvidenceSummary(
     return null
   }
 
-  const isZh = lang === 'zh'
+  const t = translations[lang]
   const metrics: InspectionEvidenceMetric[] = [
     {
-      label: isZh ? '来源格式' : 'Source',
+      label: t.inspectionEvidenceSourceFormat,
       value: inspectionContext.sourceFormat.toUpperCase()
     }
   ]
@@ -29,26 +30,26 @@ export function buildInspectionEvidenceSummary(
   if (inspectionContext.sourceFormat === 'mjcf' && inspectionContext.mjcf) {
     metrics.push(
       {
-        label: isZh ? '含 site 的 body' : 'Bodies with Sites',
+        label: t.inspectionEvidenceBodiesWithSites,
         value: String(inspectionContext.mjcf.bodiesWithSites.length)
       },
       {
-        label: isZh ? 'site 数' : 'Sites',
+        label: t.inspectionEvidenceSites,
         value: String(inspectionContext.mjcf.siteCount)
       },
       {
-        label: isZh ? 'tendon 数' : 'Tendons',
+        label: t.inspectionEvidenceTendons,
         value: String(inspectionContext.mjcf.tendonCount)
       },
       {
-        label: isZh ? '腱驱动器' : 'Tendon Actuators',
+        label: t.inspectionEvidenceTendonActuators,
         value: String(inspectionContext.mjcf.tendonActuatorCount)
       }
     )
   }
 
   return {
-    title: isZh ? '源格式证据' : 'Source Evidence',
+    title: t.inspectionEvidenceTitle,
     metrics
   }
 }

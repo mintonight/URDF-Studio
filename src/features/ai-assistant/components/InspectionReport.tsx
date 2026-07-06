@@ -272,6 +272,7 @@ export function buildInspectionProfileSections(
   lang: Language = 'en',
   profileScores: Record<string, number> = {},
 ): InspectionProfileSection[] {
+  const t = translations[lang];
   const groupedIssues = new Map<string, InspectionReport['issues']>();
 
   issues.forEach((issue) => {
@@ -296,9 +297,7 @@ export function buildInspectionProfileSections(
         profileId,
         profileName:
           profileId === 'unmapped'
-            ? lang === 'zh'
-              ? '未映射结果'
-              : 'Unmapped Results'
+            ? t.inspectionUnmappedResults
             : getInspectionProfileName(profileId, lang),
         layerName: profile ? getInspectionProfileLayerName(profile.layer, lang) : '',
         issues: profileIssues,

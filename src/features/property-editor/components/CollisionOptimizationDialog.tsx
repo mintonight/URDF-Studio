@@ -10,7 +10,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
-import { CompactSwitch } from '@/shared/components/ui';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS, CompactSwitch } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
 import { useManagedWindowLayer } from '@/store';
@@ -1188,7 +1188,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       showMinimizeButton={false}
       showMaximizeButton={false}
       closeTitle={t.close}
-      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-red-500 hover:text-white"
+      closeButtonClassName={`rounded-md p-1 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
       showResizeHandles={true}
     >
       <div className="flex-1 min-h-0 overflow-hidden px-2 py-2 sm:px-2.5">

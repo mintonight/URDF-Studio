@@ -8,6 +8,7 @@ import {
   readImportParamsFromUrl,
   stripImportParamsFromUrl,
 } from '@/shared/utils/popupHandoffProtocol';
+import { getRuntimeLanguageTranslations } from '@/shared/i18n';
 
 // ---------------------------------------------------------------------------
 //  Title blink utility — draws attention to an existing tab
@@ -371,8 +372,8 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
           onImportCompleteRef.current?.(result.success);
         });
 
-        // Blink title to alert user (auto-restores when tab is focused or after 5s)
-        startTitleBlink('新资产导入 - URDF Studio');
+        const { t } = getRuntimeLanguageTranslations();
+        startTitleBlink(t.botWorldImportTitleBlink);
       }
     };
 

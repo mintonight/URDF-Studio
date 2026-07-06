@@ -104,6 +104,7 @@ test('setup inspection sidebar lets a profile layer collapse and expand', async 
   const selectedProfiles = createSelectedItems();
   const baseProfile = INSPECTION_PROFILE_DEFINITIONS.find((profile) => profile.layer === 'base');
   assert.ok(baseProfile, 'expected a base-layer profile');
+  const focusedProfileId = baseProfile.id;
 
   function SidebarHarness() {
     const [expandedProfiles, setExpandedProfiles] = useState(
@@ -117,7 +118,7 @@ test('setup inspection sidebar lets a profile layer collapse and expand', async 
         t={translations.zh}
         isGeneratingAI={false}
         readOnly={false}
-        focusedProfileId={baseProfile.id}
+        focusedProfileId={focusedProfileId}
         expandedProfiles={expandedProfiles}
         selectedProfiles={localSelectedProfiles}
         recommendedProfiles={selectedProfiles}

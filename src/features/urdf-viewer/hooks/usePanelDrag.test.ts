@@ -70,7 +70,14 @@ function Harness({ safeAreaStyle }: { safeAreaStyle?: HarnessStyle }) {
   const optionsPanelRef = useRef<HTMLDivElement>(null);
   const jointPanelRef = useRef<HTMLDivElement>(null);
   const measurePanelRef = useRef<HTMLDivElement>(null);
-  const drag = usePanelDrag(containerRef, optionsPanelRef, jointPanelRef, measurePanelRef);
+  const paintPanelRef = useRef<HTMLDivElement>(null);
+  const drag = usePanelDrag(
+    containerRef,
+    optionsPanelRef,
+    jointPanelRef,
+    measurePanelRef,
+    paintPanelRef,
+  );
 
   useLayoutEffect(() => {
     const containerElement = containerRef.current;

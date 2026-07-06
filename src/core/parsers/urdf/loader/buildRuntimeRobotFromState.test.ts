@@ -754,7 +754,7 @@ test('buildRuntimeRobotFromState preserves single MTL-authored mesh materials wi
           type: GeometryType.MESH,
           meshPath: 'meshes/body.obj',
           dimensions: { x: 1, y: 1, z: 1 },
-          color: undefined,
+          color: '',
         },
         collision: {
           ...DEFAULT_LINK.collision,

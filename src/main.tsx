@@ -7,6 +7,7 @@ import {
   getInitialLanguageFromUrl,
   hideSeoLanguagePathFromUserUrl,
 } from '@/app/utils/initialLanguage';
+import { getRuntimeLanguageTranslations } from '@/shared/i18n';
 import '@/styles/index.css';
 
 // ponytail: 全局安全网 —— React 渲染期之外的错误（未 await 的 Promise reject、
@@ -17,11 +18,14 @@ function logGlobalError(label: string, detail: unknown): void {
 }
 
 function handleGlobalError(event: ErrorEvent): void {
-  logGlobalError('未捕获错误', event.error ?? event.message);
+  logGlobalError(
+    getRuntimeLanguageTranslations().t.globalUncaughtError,
+    event.error ?? event.message,
+  );
 }
 
 function handleUnhandledRejection(event: PromiseRejectionEvent): void {
-  logGlobalError('未处理的 Promise 拒绝', event.reason);
+  logGlobalError(getRuntimeLanguageTranslations().t.globalUnhandledRejection, event.reason);
 }
 
 window.addEventListener('error', handleGlobalError);

@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import { DraggableWindow } from './DraggableWindow';
 import { APP_HEADER_HEIGHT_PX } from '@/shared/hooks/useDraggableWindow';
 import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
+import { CLOSE_BUTTON_DANGER_INTERACTION_CLASS } from '@/shared/components/ui/closeButtonStyles';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -40,6 +41,54 @@ function installDom() {
 
   return dom;
 }
+
+test('DraggableWindow default close button uses the shared danger hover treatment', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const windowRef = createRef<HTMLDivElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DraggableWindow, {
+          window: {
+            isMaximized: false,
+            isMinimized: false,
+            isDragging: false,
+            isResizing: false,
+            containerRef: windowRef,
+            handleDragStart: () => {},
+            handleResizeStart: () => {},
+            toggleMaximize: () => {},
+            toggleMinimize: () => {},
+            windowStyle: {},
+          },
+          onClose: () => {},
+          title: 'Export',
+          closeTitle: 'Close',
+          children: React.createElement('div', null, 'content'),
+        }),
+      );
+    });
+
+    const closeButton = container.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
+    assert.ok(closeButton, 'close button should render');
+    for (const classToken of CLOSE_BUTTON_DANGER_INTERACTION_CLASS.split(' ')) {
+      assert.ok(
+        closeButton.classList.contains(classToken),
+        `close button should include ${classToken}`,
+      );
+    }
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
 
 test('DraggableWindow activates the shared hover block while hovered and releases it on unmount', async () => {
   const dom = installDom();

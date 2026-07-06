@@ -7,6 +7,7 @@ import { translations } from '@/shared/i18n';
 import { useRobotStore } from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
@@ -706,7 +707,7 @@ export function AIInspectionModal({
     isSetupView && showRunInspectionPointer && totalSelectedCount > 0 && !isMinimized;
   const runInspectionPointerKey = `${isOpen}:${isSetupView}:${inspectionSetupMode}:${isMinimized}`;
   const inspectionSetupSummary =
-    `${t.inspectionRunDetails}${lang === 'zh' ? '：' : ': '}` +
+    `${t.inspectionRunDetails}${t.inspectionRunDetailsSeparator}` +
     `${t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))} | ` +
     `${t.inspectionSelectedCategories}: ${selectedProfileCount} | ` +
     `${t.inspectionWeightedCoverage}: ${selectedCoveragePercentage}% | ` +
@@ -892,7 +893,7 @@ export function AIInspectionModal({
         restoreTitle={t.restore}
         closeTitle={t.close}
         controlButtonClassName="p-1.5 hover:bg-element-hover rounded-md transition-colors"
-        closeButtonClassName="p-1.5 text-text-tertiary hover:bg-red-500 hover:text-white rounded-md transition-colors"
+        closeButtonClassName={`rounded-md p-1.5 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
         rightResizeHandleClassName="absolute resize-edge-right resize-edge-visual-right top-0 bottom-0 z-20 w-2 cursor-ew-resize after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
         bottomResizeHandleClassName="absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-0 z-20 h-2 cursor-ns-resize after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
         cornerResizeHandleClassName="absolute resize-edge-bottom resize-edge-right z-30 flex h-6 w-6 cursor-nwse-resize items-center justify-center"

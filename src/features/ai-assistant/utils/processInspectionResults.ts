@@ -64,16 +64,16 @@ const createUnmappedIssue = (
   rawIssue: RawInspectionIssue,
   lang: 'en' | 'zh',
 ): InspectionReport['issues'][number] => {
+  const t = translations[lang]
   const rawTitle = typeof rawIssue.title === 'string' ? rawIssue.title : ''
   const rawDescription = typeof rawIssue.description === 'string' ? rawIssue.description : ''
 
   return {
     type: 'error',
-    title: lang === 'zh' ? '未映射的审阅结果' : 'Unmapped inspection result',
-    description:
-      lang === 'zh'
-        ? `AI 返回的问题缺少有效 profileId/itemId，无法归属到当前 profile 标准。原始标题：${rawTitle || '无'}。原始描述：${rawDescription || '无'}。`
-        : `The AI returned an issue without a valid profileId/itemId, so it cannot be attributed to the active profile standard. Original title: ${rawTitle || 'none'}. Original description: ${rawDescription || 'none'}.`,
+    title: t.inspectionUnmappedIssueTitle,
+    description: t.inspectionUnmappedIssueDescription
+      .replace('{title}', rawTitle || t.none)
+      .replace('{description}', rawDescription || t.none),
     profileId: 'unmapped',
     itemId: 'unmapped',
     evidenceLevel: 'L3',

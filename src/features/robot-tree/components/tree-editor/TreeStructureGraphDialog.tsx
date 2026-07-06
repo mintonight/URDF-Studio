@@ -12,6 +12,7 @@ import { Network, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { getTreeRenderRootLinkIds } from '@/core/robot';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import type { TranslationKeys } from '@/shared/i18n';
 import { useManagedWindowLayer } from '@/store';
@@ -1113,7 +1114,7 @@ export function TreeStructureGraphDialog({
       headerClassName="flex h-10 items-center justify-between border-b border-border-black bg-element-bg px-3"
       interactionClassName="select-none"
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"
-      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+      closeButtonClassName={`rounded-md p-1 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
       controlIcons={{ close: <X className="h-3.5 w-3.5" /> }}
       showMinimizeButton={false}
       showMaximizeButton

@@ -36,7 +36,8 @@ import {
 } from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
-import { Select, Tooltip } from '@/shared/components/ui';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS, Select, Tooltip } from '@/shared/components/ui';
+import { translations, type TranslationKeys } from '@/shared/i18n';
 import type { SourceCodeDocumentFlavor } from '../types';
 import type { MonacoInstance } from '../utils/monacoLoader';
 import {
@@ -159,131 +160,6 @@ type RegressionSourceEditorWindow = Window & {
   };
 };
 
-const editorTexts = {
-  en: {
-    save: 'Save',
-    saveTooltip: 'Save (Ctrl+S)',
-    download: 'Download',
-    downloadTooltip: 'Download file',
-    previewDownloadTooltip: 'Use the Export dialog to download a complete MJCF bundle',
-    copy: 'Copy',
-    copyTooltip: 'Copy to clipboard',
-    copied: 'Copied',
-    modified: 'Modified',
-    applyFailed: 'Save failed',
-    applyFailedMessage: 'Could not apply the source changes. Fix the source and try again.',
-    readOnly: 'Read-only',
-    readOnlyView: 'Read-only view',
-    generated: 'Generated',
-    maximize: 'Maximize',
-    restore: 'Restore',
-    close: 'Close',
-    maximized: 'Maximized',
-    noErrors: 'No errors',
-    problems: 'problems',
-    loading: 'Loading...',
-    files: 'files',
-    selectFile: 'Select source file',
-    noStructuralValidation: 'No structural validation',
-    jumpToProblem: 'Jump to first problem',
-    saveShortcut: 'Ctrl+S',
-    urdfLabel: 'URDF/XML',
-    xacroLabel: 'Xacro/XML',
-    sdfLabel: 'SDF/XML',
-    mjcfLabel: 'MJCF/XML',
-    usdLabel: 'USD/ASCII',
-    equivalentMjcfLabel: 'Equivalent MJCF',
-    xmlParseError: 'XML parsing error',
-    missingRobotRoot: 'Missing <robot> root element',
-    robotMissingName: '<robot> element missing name attribute',
-    linkMissingName: 'Link #{0} missing name attribute',
-    jointMissingName: 'Joint #{0} missing name attribute',
-    jointMissingType: 'Joint "{0}" missing type attribute',
-    jointMissingParent: 'Joint "{0}" missing <parent> element',
-    jointMissingChild: 'Joint "{0}" missing <child> element',
-    missingSdfRoot: 'Missing <sdf> root element',
-    sdfMissingVersion: '<sdf> element missing version attribute',
-    sdfMissingModelOrWorld: '<sdf> must contain at least one <model> or <world>',
-    sdfModelMissingName: 'SDF model #{0} missing name attribute',
-    sdfLinkMissingName: 'SDF link #{0} missing name attribute',
-    sdfJointMissingName: 'SDF joint #{0} missing name attribute',
-    sdfJointMissingType: 'SDF joint "{0}" missing type attribute',
-    sdfJointMissingParent: 'SDF joint "{0}" missing <parent> element',
-    sdfJointMissingChild: 'SDF joint "{0}" missing <child> element',
-    invalidSdfJointType: 'SDF joint "{0}" has invalid type "{1}"',
-    missingMjcfRoot: 'Missing <mujoco> root element',
-    missingMjcfWorldbody: '<mujoco> is missing required <worldbody> element',
-    invalidMjcfJointType: 'MJCF <joint> has invalid type "{0}"',
-    invalidMjcfGeomType: 'MJCF <geom> has invalid type "{0}"',
-    unknownElement: 'Unknown <{0}> element under <{1}>',
-    unknownAttribute: '<{0}> has unknown "{1}" attribute',
-    missingRequiredAttribute: '<{0}> missing required "{1}" attribute',
-    invalidAttributeValue: '<{0}> attribute "{1}" has invalid value "{2}"',
-    cannotParseXml: 'Cannot parse XML',
-  },
-  zh: {
-    save: '保存',
-    saveTooltip: '保存 (Ctrl+S)',
-    download: '下载',
-    downloadTooltip: '下载文件',
-    previewDownloadTooltip: '请使用导出面板下载完整的 MJCF bundle',
-    copy: '复制',
-    copyTooltip: '复制到剪贴板',
-    copied: '已复制',
-    modified: '已修改',
-    applyFailed: '保存失败',
-    applyFailedMessage: '无法应用源代码修改。请修正源码后重试。',
-    readOnly: '只读',
-    readOnlyView: '只读视图',
-    generated: '生成内容',
-    maximize: '最大化',
-    restore: '还原',
-    close: '关闭',
-    maximized: '最大化',
-    noErrors: '无错误',
-    problems: '个问题',
-    loading: '加载中...',
-    files: '个文件',
-    selectFile: '选择源文件',
-    noStructuralValidation: '当前模式不做结构校验',
-    jumpToProblem: '跳转到第一个问题',
-    saveShortcut: 'Ctrl+S',
-    urdfLabel: 'URDF/XML',
-    xacroLabel: 'Xacro/XML',
-    sdfLabel: 'SDF/XML',
-    mjcfLabel: 'MJCF/XML',
-    usdLabel: 'USD/ASCII',
-    equivalentMjcfLabel: '等效 MJCF',
-    xmlParseError: 'XML 解析错误',
-    missingRobotRoot: '缺少 <robot> 根元素',
-    robotMissingName: '<robot> 元素缺少 name 属性',
-    linkMissingName: '第 {0} 个 <link> 缺少 name 属性',
-    jointMissingName: '第 {0} 个 <joint> 缺少 name 属性',
-    jointMissingType: '关节 "{0}" 缺少 type 属性',
-    jointMissingParent: '关节 "{0}" 缺少 <parent> 元素',
-    jointMissingChild: '关节 "{0}" 缺少 <child> 元素',
-    missingSdfRoot: '缺少 <sdf> 根元素',
-    sdfMissingVersion: '<sdf> 元素缺少 version 属性',
-    sdfMissingModelOrWorld: '<sdf> 中至少需要一个 <model> 或 <world>',
-    sdfModelMissingName: '第 {0} 个 SDF <model> 缺少 name 属性',
-    sdfLinkMissingName: '第 {0} 个 SDF <link> 缺少 name 属性',
-    sdfJointMissingName: '第 {0} 个 SDF <joint> 缺少 name 属性',
-    sdfJointMissingType: 'SDF 关节 "{0}" 缺少 type 属性',
-    sdfJointMissingParent: 'SDF 关节 "{0}" 缺少 <parent> 元素',
-    sdfJointMissingChild: 'SDF 关节 "{0}" 缺少 <child> 元素',
-    invalidSdfJointType: 'SDF 关节 "{0}" 的 type 值 "{1}" 非法',
-    missingMjcfRoot: '缺少 <mujoco> 根元素',
-    missingMjcfWorldbody: '<mujoco> 缺少必需的 <worldbody> 元素',
-    invalidMjcfJointType: 'MJCF <joint> 的 type 值 "{0}" 非法',
-    invalidMjcfGeomType: 'MJCF <geom> 的 type 值 "{0}" 非法',
-    unknownElement: '<{1}> 下存在未知元素 <{0}>',
-    unknownAttribute: '<{0}> 存在未知属性 "{1}"',
-    missingRequiredAttribute: '<{0}> 缺少必需属性 "{1}"',
-    invalidAttributeValue: '<{0}> 的属性 "{1}" 存在非法值 "{2}"',
-    cannotParseXml: '无法解析 XML',
-  },
-};
-
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 300;
 const FIND_WIDGET_TOOLTIP_TARGET_SELECTOR =
@@ -375,7 +251,7 @@ const formatCodeEditorOpacityPercent = (opacity: number) => `${Math.round(opacit
 
 const getDocumentMeta = (
   documentFlavor: SourceCodeDocumentFlavor,
-  t: (typeof editorTexts)['en'],
+  t: TranslationKeys,
 ): DocumentMeta => {
   const language = getDocumentLanguageId(documentFlavor);
 
@@ -383,35 +259,35 @@ const getDocumentMeta = (
     case 'mjcf':
       return {
         language,
-        label: t.mjcfLabel,
+        label: t.sourceCodeMjcfLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
     case 'sdf':
       return {
         language,
-        label: t.sdfLabel,
+        label: t.sourceCodeSdfLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
     case 'usd':
       return {
         language,
-        label: t.usdLabel,
+        label: t.sourceCodeUsdLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
     case 'equivalent-mjcf':
       return {
         language,
-        label: t.equivalentMjcfLabel,
+        label: t.sourceCodeEquivalentMjcfLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
     case 'xacro':
       return {
         language,
-        label: t.xacroLabel,
+        label: t.sourceCodeXacroLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
@@ -419,7 +295,7 @@ const getDocumentMeta = (
     default:
       return {
         language,
-        label: t.urdfLabel,
+        label: t.sourceCodeUrdfLabel,
         supportsValidation: supportsDocumentValidation(documentFlavor),
         isXmlLike: isXmlLikeDocumentFlavor(documentFlavor),
       };
@@ -455,12 +331,12 @@ const attachFindWidgetTooltipSuppression = (
 
 const toWorkerValidationError = (
   error: unknown,
-  t: (typeof editorTexts)['en'],
+  t: TranslationKeys,
 ): ValidationError[] => [
   {
     line: 1,
     column: 1,
-    message: `${t.cannotParseXml}: ${error instanceof Error ? error.message : String(error)}`,
+    message: `${t.sourceCodeCannotParseXml}: ${error instanceof Error ? error.message : String(error)}`,
   },
 ];
 
@@ -481,7 +357,14 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const codeEditorFontSize = useUIStore((state) => state.codeEditorFontSize);
   const codeEditorOpacity = useUIStore((state) => state.codeEditorOpacity);
   const sourceCodeWindowLayer = useManagedWindowLayer('sourceCode');
-  const t = editorTexts[lang];
+  const t = translations[lang];
+  const xmlValidationTexts = useMemo(
+    () => ({
+      xmlParseError: t.sourceCodeXmlParseError,
+      cannotParseXml: t.sourceCodeCannotParseXml,
+    }),
+    [t],
+  );
   const normalizedDocuments = useMemo(
     () =>
       normalizeDocuments({
@@ -736,7 +619,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     setIsValidationPending(true);
 
     const timeout = window.setTimeout(() => {
-      void requestXmlValidationWithWorker(currentCode, activeDocumentFlavor, t)
+      void requestXmlValidationWithWorker(currentCode, activeDocumentFlavor, xmlValidationTexts)
         .then((nextErrors) => {
           if (validationRequestSequenceRef.current !== requestSequence) {
             return;
@@ -764,7 +647,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         validationRequestSequenceRef.current += 1;
       }
     };
-  }, [activeDocumentFlavor, currentCode, t, validationEnabled]);
+  }, [activeDocumentFlavor, currentCode, t, validationEnabled, xmlValidationTexts]);
 
   useEffect(() => {
     if (
@@ -883,7 +766,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
 
       const value = editorRef.current.getValue();
       if (validationEnabled) {
-        void requestXmlValidationWithWorker(value, activeDocumentFlavor, t)
+        void requestXmlValidationWithWorker(value, activeDocumentFlavor, xmlValidationTexts)
           .then((nextErrors) => {
             startTransition(() => {
               setValidationErrors(nextErrors);
@@ -915,7 +798,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           return true;
         }
 
-        setApplyErrorMessage(t.applyFailedMessage);
+        setApplyErrorMessage(t.sourceCodeApplyFailedMessage);
         if (trigger === 'auto') {
           setAutoApplyBlockedCode(value);
         }
@@ -926,8 +809,8 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         }
         setApplyErrorMessage(
           error instanceof Error && error.message
-            ? `${t.applyFailedMessage} ${error.message}`
-            : t.applyFailedMessage,
+            ? `${t.sourceCodeApplyFailedMessage} ${error.message}`
+            : t.sourceCodeApplyFailedMessage,
         );
         console.error('Failed to apply source code changes:', error);
         return false;
@@ -943,6 +826,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       isReadOnly,
       t,
       validationEnabled,
+      xmlValidationTexts,
     ],
   );
 
@@ -1200,17 +1084,17 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
             <span className="shrink-0 text-[10px] text-text-tertiary">{contentSizeLabel}</span>
             {isReadOnly ? (
               <span className="shrink-0 rounded bg-element-hover px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-secondary">
-                {t.readOnly}
+                {t.sourceCodeReadOnly}
               </span>
             ) : null}
             {activeDocumentFlavor === 'equivalent-mjcf' ? (
               <span className="shrink-0 rounded bg-system-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-system-blue">
-                {t.generated}
+                {t.sourceCodeGenerated}
               </span>
             ) : null}
             {!isReadOnly && isDirty ? (
               <span className="shrink-0 rounded bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                {t.modified}
+                {t.sourceCodeModified}
               </span>
             ) : null}
           </div>
@@ -1219,7 +1103,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       headerActions={
         <div className="flex items-center gap-1">
           {!isReadOnly ? (
-            <Tooltip content={t.saveTooltip} side="bottom">
+            <Tooltip content={t.sourceCodeSaveTooltip} side="bottom">
               <button
                 onClick={() => {
                   void handleApply('manual');
@@ -1238,12 +1122,16 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
                 ) : (
                   <Save className="h-3 w-3" />
                 )}
-                <span>{t.save}</span>
+                <span>{t.sourceCodeSave}</span>
               </button>
             </Tooltip>
           ) : null}
           <Tooltip
-            content={isEquivalentMjcfPreview ? t.previewDownloadTooltip : t.downloadTooltip}
+            content={
+              isEquivalentMjcfPreview
+                ? t.sourceCodePreviewDownloadTooltip
+                : t.sourceCodeDownloadTooltip
+            }
             side="bottom"
           >
             <button
@@ -1255,10 +1143,10 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
               type="button"
             >
               <Download className="h-3.5 w-3.5" />
-              <span>{t.download}</span>
+              <span>{t.sourceCodeDownload}</span>
             </button>
           </Tooltip>
-          <Tooltip content={t.copyTooltip} side="bottom">
+          <Tooltip content={t.sourceCodeCopyTooltip} side="bottom">
             <button
               onClick={handleCopy}
               className={`${HEADER_ACTION_CLASS} ${
@@ -1267,7 +1155,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
               type="button"
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>{copied ? t.copied : t.copy}</span>
+              <span>{copied ? t.sourceCodeCopied : t.sourceCodeCopy}</span>
             </button>
           </Tooltip>
         </div>
@@ -1287,7 +1175,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       closeTitle={t.close}
       onHeaderDoubleClick={toggleMaximize}
       controlButtonClassName="rounded p-1.5 text-text-tertiary transition-colors hover:bg-element-hover"
-      closeButtonClassName="rounded p-1.5 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+      closeButtonClassName={`rounded p-1.5 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
       rightResizeHandleClassName="absolute resize-edge-right resize-edge-visual-right top-10 bottom-7 z-40 w-1.5 cursor-ew-resize after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
       bottomResizeHandleClassName="absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-0 z-40 h-1.5 cursor-ns-resize after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
       cornerResizeHandleClassName="absolute resize-edge-bottom resize-edge-right z-50 h-4 w-4 cursor-nwse-resize"
@@ -1305,7 +1193,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           <div className="source-code-editor-chrome flex h-10 shrink-0 items-center gap-2 border-b border-border-black px-3 select-none">
             <Files className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
             <Select
-              aria-label={t.selectFile}
+              aria-label={t.sourceCodeSelectFile}
               className="h-7 rounded-md bg-element-bg py-1 pr-7 pl-2 font-mono text-[11px] leading-none"
               containerClassName="min-w-0 max-w-[420px] flex-1"
               menuClassName="font-mono"
@@ -1319,12 +1207,16 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
               }}
             />
             <span className="shrink-0 text-[10px] font-medium text-text-tertiary">
-              {normalizedDocuments.length} {t.files}
+              {normalizedDocuments.length} {t.sourceCodeFiles}
             </span>
           </div>
         ) : (
           <div className="source-code-editor-chrome custom-scrollbar flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border-black select-none">
-            <div aria-label={t.selectFile} className={SOURCE_CODE_EDITOR_TABS_CLASS} role="tablist">
+            <div
+              aria-label={t.sourceCodeSelectFile}
+              className={SOURCE_CODE_EDITOR_TABS_CLASS}
+              role="tablist"
+            >
               {normalizedDocuments.map((document) => {
                 const isActiveDocument = document.id === activeDocument.id;
                 return (
@@ -1348,7 +1240,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
                     </span>
                     {document.documentFlavor === 'equivalent-mjcf' ? (
                       <span className={getSourceCodeEditorTabBadgeClassName(isActiveDocument)}>
-                        {t.generated}
+                        {t.sourceCodeGenerated}
                       </span>
                     ) : null}
                   </button>
@@ -1364,7 +1256,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           <div className="source-code-editor-panel absolute inset-0 z-10 flex items-center justify-center">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
-              <span>{t.loading}</span>
+              <span>{t.sourceCodeLoading}</span>
             </div>
           </div>
         ) : null}
@@ -1372,7 +1264,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           <div className="source-code-editor-overlay absolute inset-0 z-10 flex items-center justify-center">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
-              <span>{t.loading}</span>
+              <span>{t.sourceCodeLoading}</span>
             </div>
           </div>
         ) : null}
@@ -1415,7 +1307,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         <div className="flex min-w-0 items-center gap-3">
           {validationEnabled ? (
             validationErrors.length > 0 ? (
-              <Tooltip content={t.jumpToProblem} side="bottom">
+              <Tooltip content={t.sourceCodeJumpToProblem} side="bottom">
                 <button
                   className="flex items-center gap-1.5 text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
                   onClick={() => {
@@ -1435,20 +1327,22 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
                 >
                   <AlertCircle className="h-3 w-3" />
                   <span>
-                    {validationErrors.length} {t.problems}
+                    {validationErrors.length} {t.sourceCodeProblems}
                   </span>
                 </button>
               </Tooltip>
             ) : (
               <div className="flex items-center gap-1.5 text-success dark:text-success">
                 <CheckCircle className="h-3 w-3" />
-                <span>{t.noErrors}</span>
+                <span>{t.sourceCodeNoErrors}</span>
               </div>
             )
           ) : (
             <div className="flex items-center gap-1.5 text-text-secondary">
               {isReadOnly ? <Lock className="h-3 w-3" /> : <Info className="h-3 w-3" />}
-              <span>{isReadOnly ? t.readOnlyView : t.noStructuralValidation}</span>
+              <span>
+                {isReadOnly ? t.sourceCodeReadOnlyView : t.sourceCodeNoStructuralValidation}
+              </span>
             </div>
           )}
 
@@ -1456,7 +1350,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
             <>
               <div className="h-3 w-px bg-border-black" />
               <div className="flex items-center gap-1.5 text-text-secondary">
-                <span>{t.readOnly}</span>
+                <span>{t.sourceCodeReadOnly}</span>
               </div>
             </>
           ) : null}
@@ -1469,7 +1363,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
                 title={applyErrorMessage}
               >
                 <AlertCircle className="h-3 w-3 shrink-0" />
-                <span className="truncate">{t.applyFailed}</span>
+                <span className="truncate">{t.sourceCodeApplyFailed}</span>
               </div>
             </>
           ) : null}
@@ -1478,14 +1372,16 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         <div className="flex items-center gap-2 font-mono text-text-tertiary">
           {!isReadOnly ? (
             <>
-              <span>{t.saveShortcut}</span>
+              <span>{t.sourceCodeSaveShortcut}</span>
               <span aria-hidden="true">•</span>
             </>
           ) : null}
           <span>{documentMeta.label}</span>
           <span aria-hidden="true">•</span>
           <span>
-            {isMaximized ? t.maximized : `${Math.round(size.width)} × ${Math.round(size.height)}`}
+            {isMaximized
+              ? t.sourceCodeMaximized
+              : `${Math.round(size.width)} × ${Math.round(size.height)}`}
           </span>
         </div>
       </div>

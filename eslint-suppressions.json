@@ -839,19 +839,6 @@
       "count": 5
     }
   },
-  "src/shared/components/3d/renderers/ThreeJsBackend.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/shared/components/3d/renderers/createRendererBackend.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "src/shared/components/3d/scene/snapshotSceneQuality.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -929,11 +916,6 @@
   },
   "src/shared/components/Panel/OptionsPanel.tsx": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/shared/components/Panel/UnifiedVisualizerOptionsPanel.tsx": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },

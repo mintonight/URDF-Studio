@@ -4,7 +4,13 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Link2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
-import { Button, PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
+import {
+  Button,
+  CLOSE_BUTTON_DANGER_TERTIARY_CLASS,
+  PanelSelect,
+  SegmentedControl,
+  type SelectOption,
+} from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { resolveSuggestedBridgeOriginForVisualContact } from '@/core/robot/assemblyBridgeAlignment';
 import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
@@ -67,6 +73,9 @@ function isBridgeRotationShortcutEditableTarget(target: EventTarget | null): boo
   );
 }
 
+const formatTemplateValue = (template: string, value: string): string =>
+  template.replace('{value}', value);
+
 export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   isOpen,
   onClose,
@@ -77,11 +86,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 }) => {
   const t = translations[lang];
   const bridgeCreateWindowLayer = useManagedWindowLayer('bridgeCreate');
-  const sideCardTitle =
-    lang === 'zh'
-      ? { parent: '基准 Link', child: '连接 Link' }
-      : { parent: 'Base Link', child: 'Attach Link' };
-  const relationSectionTitle = lang === 'zh' ? '连接对象' : 'Links';
+  const sideCardTitle = { parent: t.bridgeBaseLink, child: t.bridgeAttachLink };
+  const relationSectionTitle = t.bridgeRelationLinks;
   const compactLabelWidthClassName = lang === 'zh' ? 'w-[30px]' : 'w-[44px]';
   const fullRowLabelClassName = 'w-auto whitespace-nowrap';
   const axisLabelWidthClassName = 'w-4 justify-center';
@@ -324,8 +330,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const validationMessages = [limitRangeValidationMessage, nonFixedCycleValidationMessage].filter(
     (message): message is string => Boolean(message),
   );
-  const positionLowerLabel = lang === 'zh' ? '位置下限' : 'Position Lower Limit';
-  const positionUpperLabel = lang === 'zh' ? '位置上限' : 'Position Upper Limit';
+  const positionLowerLabel = t.bridgePositionLowerLimit;
+  const positionUpperLabel = t.bridgePositionUpperLimit;
   const rollRad = useMemo(() => degToRad(rollDeg), [rollDeg]);
   const pitchRad = useMemo(() => degToRad(pitchDeg), [pitchDeg]);
   const yawRad = useMemo(() => degToRad(yawDeg), [yawDeg]);
@@ -337,18 +343,18 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const quickRotateAriaLabelSuffix =
     rotationDisplayMode === 'euler_rad'
       ? {
-          decrease: lang === 'zh' ? '减少 π/2' : 'decrease π/2',
-          increase: lang === 'zh' ? '增加 π/2' : 'increase π/2',
+          decrease: formatTemplateValue(t.decreaseValue, 'π/2'),
+          increase: formatTemplateValue(t.increaseValue, 'π/2'),
         }
       : {
-          decrease:
-            lang === 'zh'
-              ? `减少 ${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`
-              : `decrease ${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`,
-          increase:
-            lang === 'zh'
-              ? `增加 ${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`
-              : `increase ${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`,
+          decrease: formatTemplateValue(
+            t.decreaseValue,
+            `${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`,
+          ),
+          increase: formatTemplateValue(
+            t.increaseValue,
+            `${BRIDGE_ROTATION_SHORTCUT_DEGREES}°`,
+          ),
         };
   const rotationAxisFields = [
     {
@@ -734,7 +740,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       }
       closeTitle={t.close}
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-element-hover"
-      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+      closeButtonClassName={`rounded-md p-1 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
         <div className="space-y-2">
@@ -911,11 +917,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                           : 'border-border-black bg-panel-bg text-text-tertiary'
                       }`}
                     >
-                      {jointPick.parentSnap
-                        ? lang === 'zh'
-                          ? '基准 ✓'
-                          : 'Base ✓'
-                        : sideCardTitle.parent}
+                      {jointPick.parentSnap ? t.bridgeBaseSnapped : sideCardTitle.parent}
                     </div>
                     <div
                       data-bridge-snap-status="child"
@@ -925,11 +927,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                           : 'border-border-black bg-panel-bg text-text-tertiary'
                       }`}
                     >
-                      {jointPick.childSnap
-                        ? lang === 'zh'
-                          ? '连接 ✓'
-                          : 'Attach ✓'
-                        : sideCardTitle.child}
+                      {jointPick.childSnap ? t.bridgeAttachSnapped : sideCardTitle.child}
                     </div>
                   </div>
                   <p className="text-[10px] leading-tight text-text-tertiary">

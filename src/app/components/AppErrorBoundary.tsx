@@ -1,4 +1,5 @@
 import React from 'react';
+import { getRuntimeLanguageTranslations } from '@/shared/i18n';
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -24,12 +25,6 @@ function formatErrorBoundaryMessage(error: unknown): string {
   }
 }
 
-/**
- * 顶层 React 错误边界：捕获任意子树（属性编辑器 / 源码编辑器 / AI 弹窗 / 结构树 …）
- * 的渲染期异常，避免整页白屏。现有的 WorkspaceCanvasErrorBoundary 只兜 3D 画布。
- *
- * fallback 故意自包含（内联样式、不依赖 store / i18n），因为崩溃子树里那些可能也挂了。
- */
 export class AppErrorBoundary extends React.Component<
   AppErrorBoundaryProps,
   AppErrorBoundaryState
@@ -41,9 +36,8 @@ export class AppErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: unknown, info: React.ErrorInfo): void {
-    // ponytail: 完整 stack + 组件栈落日志，生产崩溃可诊断而非被静默吞掉；
-    // 后续可替换为上报通道（Sentry …）。
-    console.error('[URDF Studio] 未捕获的渲染错误:', error, info.componentStack);
+    const { t } = getRuntimeLanguageTranslations();
+    console.error(t.appErrorBoundaryLogPrefix, error, info.componentStack);
   }
 
   private handleReload = (): void => {
@@ -60,8 +54,12 @@ export class AppErrorBoundary extends React.Component<
       return this.props.children;
     }
 
+    const { lang, t } = getRuntimeLanguageTranslations();
+
     return (
       <div
+        lang={lang === 'zh' ? 'zh-CN' : 'en'}
+        role="alert"
         style={{
           position: 'fixed',
           inset: 0,
@@ -77,11 +75,9 @@ export class AppErrorBoundary extends React.Component<
           textAlign: 'center',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-          应用遇到错误 · Something went wrong
-        </h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>{t.appErrorBoundaryTitle}</h1>
         <p style={{ margin: 0, opacity: 0.7, maxWidth: 480 }}>
-          页面渲染中断。请重新加载；若问题持续，可将下方错误信息反馈给开发。
+          {t.appErrorBoundaryMessage}
         </p>
         <pre
           style={{
@@ -114,7 +110,7 @@ export class AppErrorBoundary extends React.Component<
               fontSize: 14,
             }}
           >
-            重新加载 Reload
+            {t.appErrorBoundaryReload}
           </button>
           <button
             type="button"
@@ -129,7 +125,7 @@ export class AppErrorBoundary extends React.Component<
               fontSize: 14,
             }}
           >
-            尝试恢复 Retry
+            {t.appErrorBoundaryDismiss}
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { translations } from '@/shared/i18n';
+import { APP_HEADER_HEIGHT_PX } from '@/shared/hooks/useDraggableWindow';
 import { useSelectionStore } from '@/store/selectionStore';
 import type { RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
@@ -419,7 +420,7 @@ test('TreeStructureGraphDialog exposes maximize and only uses grab cursor while 
     assert.equal(dialog.className.includes('z-[240]'), false);
     assert.notEqual(dialog.style.zIndex, '');
     assert.equal(dialog.style.width, '100%');
-    assert.equal(dialog.style.height, '100%');
+    assert.equal(dialog.style.height, `calc(100% - ${APP_HEADER_HEIGHT_PX}px)`);
 
     const surface = getRequiredElement<HTMLDivElement>(
       dom.window.document,

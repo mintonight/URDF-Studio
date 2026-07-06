@@ -9,7 +9,7 @@ const createRobot = (
   names: {
     links?: string[]
     joints?: string[]
-    sourceFormat?: RobotState['inspectionContext']['sourceFormat']
+    sourceFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat']
   } = {},
 ): RobotState => {
   const linkNames = names.links ?? ['base_link']

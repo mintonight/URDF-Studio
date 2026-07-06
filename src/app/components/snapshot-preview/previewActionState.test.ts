@@ -24,6 +24,7 @@ test('toSnapshotPreviewActionState preserves callback identity without invoking 
         dofMode: 'off',
         backgroundStyle: 'studio',
         hideGrid: true,
+        aspectRatioPreset: 'viewport',
         pngOptimizeLevel: 2,
       },
     };

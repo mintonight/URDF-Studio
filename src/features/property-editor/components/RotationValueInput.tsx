@@ -32,6 +32,9 @@ const QUATERNION_PRECISION = 4;
 const FULL_ROTATION_DEGREES = 360;
 const HALF_ROTATION_DEGREES = 180;
 
+const formatTemplateValue = (template: string, value: string): string =>
+  template.replace('{value}', value);
+
 type EulerAxisKey = keyof EulerRadiansValue;
 
 interface QuickRotateAction {
@@ -195,12 +198,8 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                 : `-${quickStepDegrees}`,
             ariaLabelSuffix:
               usesRadianQuickSteps && quickStepRadiansLabel
-                ? lang === 'zh'
-                  ? `减少 ${quickStepRadiansLabel}`
-                  : `decrease ${quickStepRadiansLabel}`
-                : lang === 'zh'
-                  ? `减少 ${quickStepDegrees}°`
-                  : `decrease ${quickStepDegrees}°`,
+                ? formatTemplateValue(t.decreaseValue, quickStepRadiansLabel)
+                : formatTemplateValue(t.decreaseValue, `${quickStepDegrees}°`),
             deltaRadians:
               usesRadianQuickSteps && quickStepRadians !== undefined
                 ? -quickStepRadians
@@ -213,12 +212,8 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                 : `+${quickStepDegrees}`,
             ariaLabelSuffix:
               usesRadianQuickSteps && quickStepRadiansLabel
-                ? lang === 'zh'
-                  ? `增加 ${quickStepRadiansLabel}`
-                  : `increase ${quickStepRadiansLabel}`
-                : lang === 'zh'
-                  ? `增加 ${quickStepDegrees}°`
-                  : `increase ${quickStepDegrees}°`,
+                ? formatTemplateValue(t.increaseValue, quickStepRadiansLabel)
+                : formatTemplateValue(t.increaseValue, `${quickStepDegrees}°`),
             deltaRadians:
               usesRadianQuickSteps && quickStepRadians !== undefined
                 ? quickStepRadians

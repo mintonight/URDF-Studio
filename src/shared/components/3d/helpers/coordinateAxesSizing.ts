@@ -1,10 +1,10 @@
 export const ORIGIN_AXES_SIZE_MIN = 0.01;
 export const ORIGIN_AXES_SIZE_STEP = 0.01;
 export const DEFAULT_ORIGIN_AXES_SIZE = 0.07;
-export const ORIGIN_AXES_SIZE_FALLBACK_MAX = 0.12;
-export const ORIGIN_AXES_SIZE_ABSOLUTE_MAX = 0.24;
-export const ORIGIN_AXES_SIZE_MODEL_EXTENT_FACTOR = 0.12;
-export const ORIGIN_AXES_SIZE_MODEL_MIN_MAX = 0.03;
+export const ORIGIN_AXES_SIZE_FALLBACK_MAX = 0.5;
+export const ORIGIN_AXES_SIZE_ABSOLUTE_MAX = 2;
+export const ORIGIN_AXES_SIZE_MODEL_EXTENT_FACTOR = 0.5;
+export const ORIGIN_AXES_SIZE_MODEL_MIN_MAX = 0.5;
 
 export function normalizeOriginAxesSize(
   value: number | string | null | undefined,

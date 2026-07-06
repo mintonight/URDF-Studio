@@ -220,6 +220,53 @@ test('visualizer options panel toggles collision always-on-top state from the tr
   dom.window.close();
 });
 
+test('visualizer options panel exposes always-on-top controls for enabled helper visualization rows', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const overlayUpdates: Array<[string, boolean]> = [];
+
+  await renderPanel(root, {
+    showOrigin: true,
+    setShowOriginOverlay: (nextValue) => {
+      overlayUpdates.push(['origin', nextValue]);
+    },
+    showJointAxes: true,
+    setShowJointAxesOverlay: (nextValue) => {
+      overlayUpdates.push(['joint-axis', nextValue]);
+    },
+    showInertia: true,
+    setShowInertiaOverlay: (nextValue) => {
+      overlayUpdates.push(['inertia', nextValue]);
+    },
+    showCenterOfMass: true,
+    setShowCoMOverlay: (nextValue) => {
+      overlayUpdates.push(['center-of-mass', nextValue]);
+    },
+  });
+
+  const overlayToggles = Array.from(
+    container.querySelectorAll<HTMLButtonElement>(`[aria-label="${translations.zh.alwaysOnTop}"]`),
+  );
+  assert.equal(overlayToggles.length, 4);
+
+  for (const toggle of overlayToggles) {
+    await act(async () => {
+      toggle.click();
+    });
+  }
+
+  assert.deepEqual(overlayUpdates, [
+    ['origin', true],
+    ['joint-axis', true],
+    ['inertia', true],
+    ['center-of-mass', true],
+  ]);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
 test('visualizer options panel keeps only the enabled size sliders in the detail section', async () => {
   const { dom, container, root } = createComponentRoot();
 

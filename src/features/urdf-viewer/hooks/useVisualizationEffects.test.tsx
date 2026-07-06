@@ -169,6 +169,7 @@ function VisualizationEffectsProbe({
   showVisual = true,
   showCenterOfMass = false,
   showInertia = false,
+  showInertiaOverlay = true,
   showIkHandles = false,
   showOrigins = false,
   showMjcfSites = false,
@@ -197,6 +198,7 @@ function VisualizationEffectsProbe({
   showVisual?: boolean;
   showCenterOfMass?: boolean;
   showInertia?: boolean;
+  showInertiaOverlay?: boolean;
   showIkHandles?: boolean;
   showOrigins?: boolean;
   showMjcfSites?: boolean;
@@ -218,6 +220,7 @@ function VisualizationEffectsProbe({
     showVisual,
     showCollisionAlwaysOnTop: true,
     showInertia,
+    showInertiaOverlay,
     showIkHandles,
     showCenterOfMass,
     showCoMOverlay: true,
@@ -261,6 +264,7 @@ function Harness({
   showVisual = true,
   showCenterOfMass = false,
   showInertia = false,
+  showInertiaOverlay = true,
   showIkHandles = false,
   showOrigins = false,
   showMjcfSites = false,
@@ -289,6 +293,7 @@ function Harness({
         showVisual,
         showCenterOfMass,
         showInertia,
+        showInertiaOverlay,
         showIkHandles,
         showOrigins,
         showMjcfSites,
@@ -333,6 +338,38 @@ test('snapshot rendering hides URDF helper overlays even when their toggles are 
 
   assert.equal(centerOfMassHelperRoot.visible, false);
   assert.equal(inertiaHelperRoot.visible, false);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('inertia overlay changes refresh existing helper material depth state', async () => {
+  const { dom, root } = createComponentRoot();
+  const { robot, inertiaHelperRoot, robotLinks } = createRobotWithCenterOfMassHelper();
+  const inertiaMesh = inertiaHelperRoot.children[0] as THREE.Mesh;
+  const material = inertiaMesh.material as THREE.Material;
+
+  await renderHarness(root, robot, {
+    robotLinks,
+    showInertia: true,
+    showInertiaOverlay: true,
+  });
+
+  assert.equal(material.depthTest, false);
+  assert.equal(material.depthWrite, false);
+  assert.equal(inertiaMesh.renderOrder, 10001);
+
+  await renderHarness(root, robot, {
+    robotLinks,
+    showInertia: true,
+    showInertiaOverlay: false,
+  });
+
+  assert.equal(material.depthTest, true);
+  assert.equal(material.depthWrite, false);
+  assert.equal(inertiaMesh.renderOrder, 0);
 
   await act(async () => {
     root.unmount();

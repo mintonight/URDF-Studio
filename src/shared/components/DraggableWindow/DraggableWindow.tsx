@@ -2,6 +2,7 @@ import React from 'react';
 import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import type { DraggableWindowReturn, ResizeDirection } from '@/shared/hooks/useDraggableWindow';
 import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
 
 type DraggableWindowState = Pick<
   DraggableWindowReturn,
@@ -69,8 +70,7 @@ export interface DraggableWindowProps {
 }
 
 const DEFAULT_CONTROL_BUTTON_CLASS = 'p-1.5 hover:bg-element-hover rounded-md transition-colors';
-const DEFAULT_CLOSE_BUTTON_CLASS =
-  'p-1.5 text-text-tertiary hover:bg-red-500 hover:text-white rounded-md transition-colors';
+const DEFAULT_CLOSE_BUTTON_CLASS = `rounded-md p-1.5 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`;
 const DEFAULT_LEFT_RESIZE_CLASS =
   "absolute resize-edge-left resize-edge-visual-left top-0 bottom-0 w-2 cursor-ew-resize z-20 after:absolute after:left-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70";
 const DEFAULT_RIGHT_RESIZE_CLASS =

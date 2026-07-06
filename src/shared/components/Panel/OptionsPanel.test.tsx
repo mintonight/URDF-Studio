@@ -5,7 +5,12 @@ import React, { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { OptionsPanel, PanelOverlayToggleButton } from './OptionsPanel';
+import {
+  CheckboxOption,
+  OptionsPanel,
+  PanelOverlayToggleButton,
+  ToggleSliderOption,
+} from './OptionsPanel';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -105,13 +110,17 @@ test('OptionsPanel uses a slimmer shared header by default', async () => {
       );
     });
 
-    const titleNode = Array.from(container.querySelectorAll<HTMLElement>('span,div')).find(
+    const titleNode = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
       (element) => element.textContent?.trim() === 'Options',
     );
     const header = titleNode?.closest<HTMLElement>('div.group');
     assert.ok(header, 'options panel header should render');
     assert.match(header.className, /\bpx-2\b/);
     assert.match(header.className, /\bpy-1\.5\b/);
+    const titleClasses = titleNode?.className.split(/\s+/) ?? [];
+    assert.ok(titleClasses.includes('text-[11px]'));
+    assert.ok(titleClasses.includes('leading-4'));
+    assert.equal(titleClasses.includes('leading-none'), false);
   } finally {
     await act(async () => {
       root.unmount();
@@ -235,6 +244,87 @@ test('PanelOverlayToggleButton exposes a shared toolbar toggle contract', async 
       button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
     assert.equal(clickCount, 1);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('CheckboxOption keeps panel option text vertically readable', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(CheckboxOption, {
+          checked: true,
+          label: 'Show visual',
+          onChange: () => {},
+        }),
+      );
+    });
+
+    const labelText = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
+      (element) => element.textContent?.trim() === 'Show visual',
+    );
+    assert.ok(labelText, 'checkbox option text should render');
+    const textClasses = labelText.className.split(/\s+/);
+    assert.ok(textClasses.includes('leading-4'));
+    assert.equal(textClasses.includes('leading-tight'), false);
+
+    const contentRow = labelText.parentElement;
+    assert.ok(contentRow instanceof dom.window.HTMLDivElement);
+    const contentRowClasses = contentRow.className.split(/\s+/);
+    assert.ok(contentRowClasses.includes('min-h-5'));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('ToggleSliderOption centers the trailing overlay control in the option row', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(ToggleSliderOption, {
+          checked: true,
+          label: 'Show origin',
+          onChange: () => {},
+          trailingControl: React.createElement(PanelOverlayToggleButton, {
+            active: false,
+            label: 'Always on top',
+            onClick: () => {},
+          }),
+        }),
+      );
+    });
+
+    const button = container.querySelector('button[aria-label="Always on top"]');
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    const row = button.closest('.flex.items-center.justify-between');
+    assert.ok(row instanceof dom.window.HTMLDivElement);
+    const checkboxWrapper = row.firstElementChild;
+    assert.ok(checkboxWrapper instanceof dom.window.HTMLDivElement);
+    assert.match(checkboxWrapper.className, /\bflex\b/);
+    assert.match(checkboxWrapper.className, /\bitems-center\b/);
+    const trailingWrapper = button.parentElement?.parentElement;
+    assert.ok(trailingWrapper instanceof dom.window.HTMLDivElement);
+    assert.match(trailingWrapper.className, /\bflex\b/);
+    assert.match(trailingWrapper.className, /\bitems-center\b/);
   } finally {
     await act(async () => {
       root.unmount();

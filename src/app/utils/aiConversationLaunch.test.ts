@@ -49,6 +49,8 @@ test('createConversationLaunchContext clones launch payloads and derives selecte
         type: 'warning' as const,
         title: 'Joint range',
         description: 'Joint range may be narrow.',
+        profileId: 'base.kinematics',
+        itemId: 'joint_range',
       },
     ],
   };

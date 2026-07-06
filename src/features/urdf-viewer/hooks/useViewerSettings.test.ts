@@ -23,6 +23,7 @@ type ViewerSettingsTestViewOptions = {
   showCenterOfMass: boolean;
   showCollision: boolean;
   modelOpacity: number;
+  cameraProjection: 'perspective' | 'orthographic';
 };
 
 const DEFAULT_VIEW_OPTIONS: ViewerSettingsTestViewOptions = {
@@ -36,6 +37,7 @@ const DEFAULT_VIEW_OPTIONS: ViewerSettingsTestViewOptions = {
   showCenterOfMass: false,
   showCollision: false,
   modelOpacity: 1,
+  cameraProjection: 'perspective',
 };
 
 function installDom() {

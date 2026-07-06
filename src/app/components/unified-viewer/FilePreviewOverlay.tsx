@@ -3,6 +3,7 @@ import { AlertCircle, FileCode, X } from 'lucide-react';
 
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui';
 import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 export function FilePreviewBanner({
@@ -41,7 +42,7 @@ export function FilePreviewBanner({
       </span>
       <button
         onClick={onClose}
-        className="ml-1 rounded p-0.5 text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-secondary"
+        className={`ml-1 rounded p-0.5 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
         title={t.closePreview}
       >
         <X className="h-4 w-4" />

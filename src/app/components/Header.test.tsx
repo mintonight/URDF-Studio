@@ -34,6 +34,7 @@ function renderHeader() {
       viewConfig: {
         showOptionsPanel: true,
         showJointPanel: true,
+        showStructureGraph: false,
       },
       setViewConfig: () => {},
     }),
@@ -73,7 +74,9 @@ test('Header renders above managed windows so its dropdowns stay clickable', () 
     /z-\[(\d+)\]/,
     'header must carry an explicit z-index utility to own its layer',
   );
-  const zIndex = Number(headerTag.match(/z-\[(\d+)\]/)[1]);
+  const zIndexMatch = headerTag.match(/z-\[(\d+)\]/);
+  assert.ok(zIndexMatch, 'header z-index utility should include a numeric value');
+  const zIndex = Number(zIndexMatch[1]);
   assert.ok(
     zIndex > 235,
     `header z-index (${zIndex}) must exceed the managed-window ceiling (235) so dropdowns render above windows`,

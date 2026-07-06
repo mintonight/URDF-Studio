@@ -112,11 +112,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   const data: UrdfLink | typeof jointData | RobotMjcfInspectionTendonSummary | null =
     linkData ?? jointData ?? tendonData;
   const t = translations[lang];
-  const emptyStateMessage =
-    readOnlyMessage ??
-    (lang === 'zh'
-      ? '选择连杆、关节或肌腱以查看属性。'
-      : 'Select a link, joint, or tendon to inspect its properties.');
+  const emptyStateMessage = readOnlyMessage ?? t.selectLinkJointOrTendon;
 
   const { sidebarRef, width, isDragging, handleResizeMouseDown } = useResizablePanel();
 

@@ -44,7 +44,7 @@ const robotFixture: RobotState = {
   links: {},
   joints: {},
   inspectionContext: undefined,
-  selection: null,
+  selection: { type: null, id: null },
 }
 
 test('buildInspectionProfileSections groups report issues by executable profile items', () => {

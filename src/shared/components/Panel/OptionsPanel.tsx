@@ -90,16 +90,20 @@ export const CheckboxOption: React.FC<CheckboxOptionProps> = ({
   compact = false,
   labelClassName = '',
 }) => {
+  const contentHeightClassName = compact ? 'min-h-4' : 'min-h-5';
+  const textLineHeightClassName = compact ? 'leading-[14px]' : 'leading-4';
   // Use the new Checkbox component but preserve the layout logic
   const content = (
-    <div className="flex items-center gap-2">
+    <div className={`flex ${contentHeightClassName} items-center gap-2`}>
       {icon}
-      <span className={`text-[11px] leading-tight ${labelClassName}`}>{label}</span>
+      <span className={`text-[11px] ${textLineHeightClassName} ${labelClassName}`}>
+        {label}
+      </span>
     </div>
   );
 
   return (
-    <div className={compact ? 'px-1 py-0.5' : ''}>
+    <div className={`flex min-w-0 items-center ${compact ? 'px-1 py-0.5' : ''}`.trim()}>
       <Checkbox
         checked={checked}
         onChange={onChange}
@@ -240,7 +244,7 @@ export const ToggleSliderOption: React.FC<ToggleSliderOptionProps> = ({
       {trailingControl ? (
         <div className={`flex items-center justify-between ${rowClassName}`}>
           {checkbox}
-          <div className="shrink-0">{trailingControl}</div>
+          <div className="flex shrink-0 items-center">{trailingControl}</div>
         </div>
       ) : (
         checkbox
@@ -469,7 +473,7 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
             <DragGripIcon className="w-3.5 h-3.5" />
           </span>
         ) : null}
-        <span className="truncate whitespace-nowrap font-semibold leading-none text-text-secondary group-hover:text-text-primary">
+        <span className="truncate whitespace-nowrap text-[11px] font-semibold leading-4 text-text-secondary group-hover:text-text-primary">
           {title}
         </span>
       </div>

@@ -1,4 +1,5 @@
 import type { AppToastState } from '../hooks/useAppShellState';
+import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui';
 
 interface AppToastProps {
   toast: AppToastState;
@@ -56,7 +57,7 @@ export function AppToast({ toast, onClose }: AppToastProps) {
           type="button"
           onClick={onClose}
           aria-label="Close notification"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path

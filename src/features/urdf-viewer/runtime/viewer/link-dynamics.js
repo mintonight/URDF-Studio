@@ -1279,7 +1279,7 @@ export class LinkDynamicsController {
                     if (!material)
                         continue;
                     material.transparent = true;
-                    material.depthTest = true;
+                    material.depthTest = !visibility.showInertiaOverlay;
                     material.depthWrite = false;
                     if (child.type === "Mesh") {
                         material.opacity = 0.25;
