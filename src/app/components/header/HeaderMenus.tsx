@@ -193,6 +193,7 @@ export function HeaderMenus({
             ariaLabel={t.aiMenu}
             ariaHaspopup="menu"
             ariaExpanded={activeMenu === 'ai'}
+            className="ai-glow-button"
           >
             <Sparkles className="w-3.5 h-3.5" />
             {showMenuLabels && <span>{t.aiMenu}</span>}

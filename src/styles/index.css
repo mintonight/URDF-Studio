@@ -889,3 +889,76 @@ input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/*
+ * AI button halo effect.
+ * On hover, the button gains a soft, slowly rotating conic-gradient ring in
+ * the signature AI purple→pink→blue palette, plus a matching outer glow.
+ * The halo sits behind the button content (z-index: -1) so it never covers
+ * the icon or label. Disabled when the user prefers reduced motion.
+ */
+.ai-glow-button {
+  position: relative;
+  isolation: isolate;
+}
+
+.ai-glow-button::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--ai-glow-angle, 0deg),
+    #c4b5fd,
+    #f0abfc,
+    #93c5fd,
+    #c4b5fd
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.ai-glow-button:hover::before {
+  opacity: 0.6;
+}
+
+.ai-glow-button:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #c4b5fd 22%, transparent),
+    0 0 6px 1px color-mix(in srgb, #c4b5fd 16%, transparent),
+    0 0 12px 2px color-mix(in srgb, #f0abfc 10%, transparent);
+}
+
+@property --ai-glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.ai-glow-button:hover::before {
+  animation: ai-glow-rotate 5s linear infinite;
+}
+
+@keyframes ai-glow-rotate {
+  to {
+    --ai-glow-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-glow-button::before {
+    animation: none;
+  }
+}
+
