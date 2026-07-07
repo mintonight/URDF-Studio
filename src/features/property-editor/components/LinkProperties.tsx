@@ -5,6 +5,7 @@
  * - Visual/Collision/Physics tabs
  */
 import React, { useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Edit3, Eye, EyeOff, Box, Minus, Plus, Waypoints } from 'lucide-react';
 import type {
   DetailLinkTab,
@@ -1097,6 +1098,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
         }}
         title={t.massChangeInertiaDialogTitle}
         width="w-[520px]"
+        zIndexClassName="z-[260]"
         footer={
           <div className="flex items-center justify-end gap-2">
             <Button
@@ -1165,20 +1167,25 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
         ) : null}
       </Dialog>
 
-      {floatingMassInertiaNotice ? (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-[140] max-w-[min(28rem,calc(100vw-2rem))] animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <div className="flex items-start gap-2 rounded-2xl border border-border-black bg-panel-bg px-3 py-2.5 shadow-xl dark:shadow-black/40">
-            <div
-              className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
-                floatingMassInertiaNotice.tone === 'success' ? 'bg-emerald-500' : 'bg-system-blue'
-              }`}
-            />
-            <div className="text-xs font-semibold leading-5 text-text-primary">
-              {floatingMassInertiaNotice.message}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {floatingMassInertiaNotice && typeof document !== 'undefined' && document.body
+        ? createPortal(
+            <div className="pointer-events-none fixed left-1/2 top-20 z-[200] flex max-w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="flex items-start gap-2.5 rounded-[1.75rem] border border-border-black bg-panel-bg px-3.5 py-2.5 shadow-2xl dark:shadow-black/40">
+                <div
+                  className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+                    floatingMassInertiaNotice.tone === 'success'
+                      ? 'bg-emerald-500'
+                      : 'bg-system-blue'
+                  }`}
+                />
+                <div className="text-xs font-semibold leading-5 text-text-primary">
+                  {floatingMassInertiaNotice.message}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <ContextMenuFrame position={collisionListContextMenu}>
         <ContextMenuItem
