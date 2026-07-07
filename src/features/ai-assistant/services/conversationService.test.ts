@@ -286,3 +286,38 @@ test('sendConversationTurnStream uses the backend transport when AI_BACKEND_URL 
     }
   }
 });
+
+test('sendConversationTurnStream maps backend 401 to a login-required error', async () => {
+  const previousBackendUrl = process.env.AI_BACKEND_URL;
+  process.env.AI_BACKEND_URL = 'https://backend.test/api/ai/urdf-studio';
+  const previousFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => ({
+    ok: false,
+    status: 401,
+    body: null,
+    json: async () => ({ success: false, message: 'JWT Bearer token required' }),
+  })) as unknown as typeof fetch;
+
+  try {
+    const result = await sendConversationTurnStream({
+      mode: 'general',
+      lang: 'zh',
+      context: '',
+      history: [],
+      userMessage: '这个机器人怎么样？',
+    });
+
+    assert.equal(result.status, 'error');
+    assert.equal(result.error?.code, 'login_required');
+    assert.equal(result.error?.message, '请先登录后再使用 AI 助手。');
+    assert.ok(!String(result.error?.message).includes('JWT'));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousBackendUrl === undefined) {
+      delete process.env.AI_BACKEND_URL;
+    } else {
+      process.env.AI_BACKEND_URL = previousBackendUrl;
+    }
+  }
+});

@@ -173,6 +173,7 @@ export interface TranslationFeatureConvergenceKeys {
   reportChatNoReply: string;
   reportChatSendError: string;
   apiKeyMissing: string;
+  aiLoginRequired: string;
   apiReturnedEmptyContent: string;
   rawResponse: string;
   failedToParseJson: string;

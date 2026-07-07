@@ -189,6 +189,7 @@ export const zhWorkflow: TranslationWorkflowKeys = {
   reportChatNoReply: '抱歉，无法生成回复。',
   reportChatSendError: '发送消息时出错，请重试。',
   apiKeyMissing: 'API Key 缺失，请先完成环境配置。',
+  aiLoginRequired: '请先登录后再使用 AI 助手。',
   apiReturnedEmptyContent: 'API 返回了空内容，请重试。',
   rawResponse: '原始响应',
   failedToParseJson: 'JSON 解析失败: {message}',

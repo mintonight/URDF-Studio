@@ -1,7 +1,11 @@
 import OpenAI from 'openai';
 import { translations, type Language } from '@/shared/i18n';
 import { getConversationSystemPrompt, type ConversationMode } from '../config/prompts';
-import { isAiBackendEnabled, streamAiBackendChat } from './aiBackendTransport';
+import {
+  isAiBackendAuthError,
+  isAiBackendEnabled,
+  streamAiBackendChat,
+} from './aiBackendTransport';
 import { resolveAiRuntimeEnv } from './aiRuntimeEnv';
 
 export interface ConversationHistoryTurn {
@@ -25,6 +29,7 @@ export interface SendConversationTurnStreamInput extends SendConversationTurnInp
 export type ConversationTurnErrorCode =
   | 'empty_user_message'
   | 'missing_api_key'
+  | 'login_required'
   | 'empty_response'
   | 'request_failed';
 
@@ -76,6 +81,7 @@ const getConversationTexts = (lang: Language) => {
   const t = translations[lang];
   return {
     missingApiKey: t.apiKeyMissing,
+    loginRequired: t.aiLoginRequired,
     emptyResponse: t.aiServiceReturnedEmptyContent,
     unknownError: t.unknownError,
     requestFailed: (message?: string) =>
@@ -207,6 +213,13 @@ export const sendConversationTurnStream = async ({
     } catch (error) {
       if (isConversationAbortError(error) || signal?.aborted) {
         return { reply: '', error: null, status: 'aborted' };
+      }
+      if (isAiBackendAuthError(error)) {
+        return {
+          reply: '',
+          error: buildConversationError('login_required', text.loginRequired),
+          status: 'error',
+        };
       }
       const e = error as { message?: string };
       console.error('Conversation request failed', error);

@@ -22,7 +22,11 @@ import {
 import { normalizeAIRobotResponse } from '../utils/normalizeRobotData'
 import { processInspectionResults } from '../utils/processInspectionResults'
 import type { SelectedInspectionProfileMap } from '../utils/inspectionProfileSelection'
-import { isAiBackendEnabled, requestAiBackendContent } from './aiBackendTransport'
+import {
+  isAiBackendAuthError,
+  isAiBackendEnabled,
+  requestAiBackendContent,
+} from './aiBackendTransport'
 import { resolveAiRuntimeEnv } from './aiRuntimeEnv'
 
 export type RobotInspectionStage =
@@ -40,6 +44,7 @@ const getAiServiceTexts = (lang: Language) => {
   const t = translations[lang]
   return {
     apiKeyMissing: t.apiKeyMissing,
+    loginRequired: t.aiLoginRequired,
     noContentFromApi: t.apiReturnedEmptyContent,
     rawResponse: t.rawResponse,
     jsonParseFailed: (message: string) =>
@@ -435,19 +440,33 @@ export const generateRobotFromPrompt = async (
       robotData: finalRobotState
     }
   } catch (e: unknown) {
-    const error = e as { message?: string; status?: number; code?: string; response?: unknown }
-    logRegressionError('OpenAI API call failed', e)
-    logRegressionError('Error details:', {
-      message: error?.message,
-      status: error?.status,
-      code: error?.code,
-      response: error?.response
-    })
+    return mapGenerationFailure(e, text)
+  }
+}
 
+const mapGenerationFailure = (
+  e: unknown,
+  text: ReturnType<typeof getAiServiceTexts>,
+): AIResponse => {
+  if (isAiBackendAuthError(e)) {
     return {
-      explanation: text.apiCallFailed(error?.message, error?.status),
+      explanation: text.loginRequired,
       actionType: 'advice' as const
     }
+  }
+
+  const error = e as { message?: string; status?: number; code?: string; response?: unknown }
+  logRegressionError('OpenAI API call failed', e)
+  logRegressionError('Error details:', {
+    message: error?.message,
+    status: error?.status,
+    code: error?.code,
+    response: error?.response
+  })
+
+  return {
+    explanation: text.apiCallFailed(error?.message, error?.status),
+    actionType: 'advice' as const
   }
 }
 
@@ -539,28 +558,52 @@ export const runRobotInspection = async (
       selectedItems,
     )
   } catch (e: unknown) {
-    if (
-      options.signal?.aborted ||
-      e instanceof OpenAI.APIUserAbortError ||
-      (e instanceof Error && e.name === 'AbortError')
-    ) {
-      return null
-    }
+    return mapInspectionFailure(e, options.signal, text)
+  }
+}
 
-    const error = e as { message?: string }
-    logRegressionError('Inspection failed', e)
+const mapInspectionFailure = (
+  e: unknown,
+  signal: AbortSignal | undefined,
+  text: ReturnType<typeof getAiServiceTexts>,
+): InspectionReport | null => {
+  if (
+    signal?.aborted ||
+    e instanceof OpenAI.APIUserAbortError ||
+    (e instanceof Error && e.name === 'AbortError')
+  ) {
+    return null
+  }
+
+  if (isAiBackendAuthError(e)) {
     return {
-      summary: text.failedToCompleteInspection,
+      summary: text.loginRequired,
       issues: [
         {
           type: 'error',
-          title: text.inspectionError,
-          description: text.aiServiceRequestFailed(error?.message),
+          title: text.configurationError,
+          description: text.loginRequired,
           profileId: 'unmapped',
           itemId: 'unmapped',
           score: 0,
         }
       ]
     }
+  }
+
+  const error = e as { message?: string }
+  logRegressionError('Inspection failed', e)
+  return {
+    summary: text.failedToCompleteInspection,
+    issues: [
+      {
+        type: 'error',
+        title: text.inspectionError,
+        description: text.aiServiceRequestFailed(error?.message),
+        profileId: 'unmapped',
+        itemId: 'unmapped',
+        score: 0,
+      }
+    ]
   }
 }

@@ -201,6 +201,7 @@ export const enWorkflow: TranslationWorkflowKeys = {
   reportChatNoReply: 'Sorry, unable to generate response.',
   reportChatSendError: 'Error sending message, please try again.',
   apiKeyMissing: 'API Key is missing. Please configure the environment.',
+  aiLoginRequired: 'Please log in first to use the AI assistant.',
   apiReturnedEmptyContent: 'The API returned empty content. Please try again.',
   rawResponse: 'Raw response',
   failedToParseJson: 'Failed to parse JSON: {message}',

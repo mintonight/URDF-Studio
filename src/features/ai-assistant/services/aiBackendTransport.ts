@@ -43,6 +43,15 @@ export class AiBackendRequestError extends Error {
   }
 }
 
+/**
+ * True when the backend rejected the call for lack of a (valid) login —
+ * callers surface a "please log in" hint instead of a raw request error.
+ * Deliberately 401-only: 404 can also mean the route is missing upstream.
+ */
+export function isAiBackendAuthError(error: unknown): boolean {
+  return error instanceof AiBackendRequestError && error.status === 401;
+}
+
 const buildRequestHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = authTokenProvider?.();
