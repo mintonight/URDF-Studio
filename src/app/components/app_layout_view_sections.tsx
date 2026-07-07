@@ -72,9 +72,7 @@ function AppLayoutDropOverlay({ drag }: Pick<AppLayoutViewProps, 'drag'>) {
   );
 }
 
-function AppLayoutImportInputs({
-  importInputs,
-}: Pick<AppLayoutViewProps, 'importInputs'>) {
+function AppLayoutImportInputs({ importInputs }: Pick<AppLayoutViewProps, 'importInputs'>) {
   return (
     <>
       <input
@@ -138,7 +136,10 @@ function WorkspaceViewerSection({
   workspaceChrome,
   viewer,
   shouldSuppressDocumentLoadingOverlay,
-}: Pick<AppLayoutViewContentProps, 'workspaceChrome' | 'viewer' | 'shouldSuppressDocumentLoadingOverlay'>) {
+}: Pick<
+  AppLayoutViewContentProps,
+  'workspaceChrome' | 'viewer' | 'shouldSuppressDocumentLoadingOverlay'
+>) {
   return (
     <WorkspaceViewerLayer
       className={workspaceChrome.classNames.viewerLayer}
@@ -158,6 +159,7 @@ function WorkspaceViewerSection({
         showVisual: viewer.showVisual,
         setShowVisual: viewer.handleSetShowVisual,
         snapshotAction: viewer.snapshotActionRef,
+        previewAction: viewer.previewActionRef,
         onCanvasCreated: (state) => {
           viewer.viewerCanvasStateRef.current = state;
         },

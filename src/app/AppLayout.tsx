@@ -3,6 +3,7 @@
  * Main application layout with Header and workspace area
  */
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
 import type { RootState } from '@react-three/fiber';
 import { AppLayoutView } from './components/AppLayoutView';
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
@@ -51,12 +52,14 @@ import { translations } from '@/shared/i18n';
 import type {
   SnapshotCaptureAction,
   SnapshotCaptureOptions,
+  SnapshotPreviewAction,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 
 export function AppLayout({
   importInputRef,
@@ -162,10 +165,7 @@ export function AppLayout({
       updateAssemblyTransform,
       renameComponentSourceFolder,
     },
-    collisionTransformStore: {
-      setPendingCollisionTransform,
-      clearPendingCollisionTransform,
-    },
+    collisionTransformStore: { setPendingCollisionTransform, clearPendingCollisionTransform },
   } = useAppLayoutStoreSlices();
 
   useResponsiveSidebarCollapse({ sidebar, setSidebar });
@@ -176,6 +176,202 @@ export function AppLayout({
   const snapshotActionRef = useRef<
     ((options?: Partial<SnapshotCaptureOptions>) => Promise<void>) | null
   >(null);
+  // previewActionRef feeds SnapshotManager's preview pipeline (off-screen render
+  // target, supersampling, background fill) and is exposed to automation via the
+  // regression debug API as `captureSnapshot` (see effect below). Unlike
+  // snapshotAction (which downloads), preview returns a blob for programmatic use.
+  const previewActionRef = useRef<SnapshotPreviewAction | null>(null);
+
+  // Expose captureSnapshot on the regression debug API so batch automation
+  // (scripts/batch-export-thumbnails.mjs) can capture the current scene via
+  // SnapshotManager's preview pipeline (off-screen render target, supersampling,
+  // background fill). The debug API is installed asynchronously by
+  // useRegressionDebugApi (App.tsx), so poll until it appears, then attach.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isRegressionDebugEnabled(window)) {
+      return;
+    }
+
+    let disposed = false;
+
+    const blobToBase64 = (blob: Blob) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error);
+        reader.onloadend = () => {
+          const result = reader.result;
+          if (typeof result !== 'string') {
+            reject(new Error('FileReader did not return a data URL'));
+            return;
+          }
+          const comma = result.indexOf(',');
+          resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.readAsDataURL(blob);
+      });
+
+    const attach = () => {
+      if (disposed) {
+        return;
+      }
+      const api = window.__URDF_STUDIO_DEBUG__;
+      if (!api) {
+        window.setTimeout(attach, 100);
+        return;
+      }
+      api.captureSnapshot = async (options) => {
+        const action = previewActionRef.current;
+        if (!action) {
+          return { ok: false, base64: null, width: 0, height: 0, format: 'png' };
+        }
+        try {
+          const result = await action(options);
+          return {
+            ok: true,
+            base64: await blobToBase64(result.blob),
+            width: result.width,
+            height: result.height,
+            format: result.options.imageFormat,
+          };
+        } catch (error) {
+          logRegressionError('[AppLayout] captureSnapshot failed', error);
+          return { ok: false, base64: null, width: 0, height: 0, format: 'png' };
+        }
+      };
+      // Dolly the active camera toward the orbit target. Used by batch
+      // thumbnail automation to tighten or loosen the auto-framed view before
+      // capture. Reads the live R3F state (camera + controls.target) captured
+      // by onCanvasCreated; OrbitControls has damping disabled, so a direct
+      // position write survives until the off-screen capture clones the camera.
+      api.setCameraZoom = (factor: number): { ok: boolean } => {
+        const state = viewerCanvasStateRef.current;
+        if (!state?.camera || !Number.isFinite(factor) || factor <= 0) {
+          return { ok: false };
+        }
+        const controls = state.controls as { target?: THREE.Vector3 } | undefined;
+        const target = controls?.target
+          ? new THREE.Vector3(controls.target.x, controls.target.y, controls.target.z)
+          : new THREE.Vector3(0, 0, 0);
+        state.camera.position.lerp(target, 1 - 1 / factor);
+        state.camera.updateMatrixWorld();
+        state.invalidate?.();
+        return { ok: true };
+      };
+      // Re-frame onto the unioned robot-mesh bounding box, skipping the flat
+      // ground plane. Used before captureSnapshot for SDF (and other) assets
+      // whose cameraFollowPrimary did not converge — without it the robot can
+      // render off-frame and the thumbnail comes out blank.
+      api.frameScene = (): {
+        ok: boolean;
+        meshCount?: number;
+        center?: number[];
+        size?: number[];
+        camPos?: number[];
+      } => {
+        const state = viewerCanvasStateRef.current;
+        if (!state?.scene || !state.camera) {
+          return { ok: false };
+        }
+        const box = new THREE.Box3();
+        let robotMeshCount = 0;
+        state.scene.traverse((obj: THREE.Object3D) => {
+          const mesh = obj as THREE.Mesh;
+          if (!mesh.isMesh || !mesh.geometry) {
+            return;
+          }
+          mesh.updateMatrixWorld(true);
+          const meshBox = new THREE.Box3().setFromObject(mesh);
+          if (meshBox.isEmpty()) {
+            return;
+          }
+          const size = new THREE.Vector3();
+          meshBox.getSize(size);
+          // Skip scene helpers (ground plane, shadow catcher, grid, gizmos) by
+          // name first — GroundShadowPlane / ReferenceGrid / axes report huge
+          // 20x20 footprints that would otherwise dwarf the robot bbox.
+          const helperName = (mesh.name || (mesh.parent?.name ?? '') || '').toLowerCase();
+          if (
+            helperName.includes('ground') ||
+            helperName.includes('grid') ||
+            helperName.includes('shadow') ||
+            helperName.includes('axes') ||
+            helperName.includes('gizmo') ||
+            helperName.includes('plane')
+          ) {
+            return;
+          }
+          const maxHorizontal = Math.max(size.x, size.z);
+          // Fallback: drop any broad, relatively-thin slab (an unnamed ground).
+          if (maxHorizontal > 1 && size.y < maxHorizontal * 0.1) {
+            return;
+          }
+          box.union(meshBox);
+          robotMeshCount += 1;
+        });
+        if (robotMeshCount === 0) {
+          return { ok: false, meshCount: 0 };
+        }
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const camera = state.camera as THREE.PerspectiveCamera;
+        const controls = state.controls as
+          | { target?: THREE.Vector3; update?: () => void }
+          | undefined;
+        if (controls?.target) {
+          controls.target.set(center.x, center.y, center.z);
+          controls.update?.();
+        }
+        const fov = camera.fov ? THREE.MathUtils.degToRad(camera.fov) : Math.PI / 4;
+        const distance = (maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+        const dir = new THREE.Vector3();
+        if (controls?.target) {
+          dir.subVectors(camera.position, controls.target);
+        }
+        if (dir.lengthSq() === 0) {
+          dir.set(0.7, 0.5, 1);
+        }
+        dir.normalize();
+        camera.position.copy(center).addScaledVector(dir, distance);
+        // OrbitControls.update() ran against the *previous* camera position, so
+        // the cloned camera's quaternion may not actually face `center` after
+        // we repositioned. Force a lookAt so the bbox center is the view axis.
+        camera.lookAt(center);
+        camera.updateMatrixWorld();
+        state.invalidate?.();
+        return {
+          ok: true,
+          meshCount: robotMeshCount,
+          center: [
+            Number(center.x.toFixed(3)),
+            Number(center.y.toFixed(3)),
+            Number(center.z.toFixed(3)),
+          ],
+          size: [Number(size.x.toFixed(3)), Number(size.y.toFixed(3)), Number(size.z.toFixed(3))],
+          camPos: [
+            Number(camera.position.x.toFixed(3)),
+            Number(camera.position.y.toFixed(3)),
+            Number(camera.position.z.toFixed(3)),
+          ],
+        };
+      };
+    };
+
+    attach();
+
+    return () => {
+      disposed = true;
+      const api = window.__URDF_STUDIO_DEBUG__;
+      if (api) {
+        delete api.captureSnapshot;
+        delete api.setCameraZoom;
+        delete api.frameScene;
+      }
+    };
+  }, []);
+
   const viewerCanvasStateRef = useRef<RootState | null>(null);
   const transformPendingRef = useRef(false);
   const pendingUsdAssemblyFileRef = useRef<RobotFile | null>(null);
@@ -331,12 +527,7 @@ export function AppLayout({
     ) {
       clearAssemblySelection();
     }
-  }, [
-    assemblySelection.id,
-    assemblySelection.type,
-    assemblyState,
-    clearAssemblySelection,
-  ]);
+  }, [assemblySelection.id, assemblySelection.type, assemblyState, clearAssemblySelection]);
 
   const {
     updateProModeRoundtripBaseline,
@@ -394,16 +585,12 @@ export function AppLayout({
   // through AppLayout forces the tree and property sidebars into high-frequency re-render.
   const previewContextRobot = robot;
   const isPreviewingWorkspaceSource = false;
-  const {
-    ikDragActive,
-    isIkToolPanelOpen,
-    handleIkDragActiveChange,
-    handleOpenIkTool,
-  } = useIkDragPanelActions({
-    selection,
-    setSelection,
-    setViewOption,
-  });
+  const { ikDragActive, isIkToolPanelOpen, handleIkDragActiveChange, handleOpenIkTool } =
+    useIkDragPanelActions({
+      selection,
+      setSelection,
+      setViewOption,
+    });
   const {
     ikToolSelectionState,
     ikLinkOptions,
@@ -678,30 +865,27 @@ export function AppLayout({
     ],
   );
 
-  const {
-    handleCloseSnapshotDialog,
-    handleSnapshotPreviewCaptureActionChange,
-    handleSnapshot,
-  } = useSnapshotDialogController({
-    availableFiles,
-    groundPlaneOffset,
-    jointAngleState,
-    jointMotionState,
-    selectedFileFormat: selectedFile?.format ?? null,
-    showVisual,
-    theme,
-    urdfContentForViewer,
-    viewerAssets,
-    viewerCanvasStateRef,
-    viewerReloadKey,
-    viewerRobot,
-    viewerSourceFile,
-    viewerSourceFilePath,
-    viewerSourceFormat,
-    snapshotPreviewCaptureActionRef,
-    setIsSnapshotDialogOpen,
-    setSnapshotPreviewSession,
-  });
+  const { handleCloseSnapshotDialog, handleSnapshotPreviewCaptureActionChange, handleSnapshot } =
+    useSnapshotDialogController({
+      availableFiles,
+      groundPlaneOffset,
+      jointAngleState,
+      jointMotionState,
+      selectedFileFormat: selectedFile?.format ?? null,
+      showVisual,
+      theme,
+      urdfContentForViewer,
+      viewerAssets,
+      viewerCanvasStateRef,
+      viewerReloadKey,
+      viewerRobot,
+      viewerSourceFile,
+      viewerSourceFilePath,
+      viewerSourceFormat,
+      snapshotPreviewCaptureActionRef,
+      setIsSnapshotDialogOpen,
+      setSnapshotPreviewSession,
+    });
 
   const { items: toolboxItems, openTool } = useToolItems({
     t,
@@ -864,6 +1048,7 @@ export function AppLayout({
         handleSetShowVisual,
         handleSetDetailOptionsPanelVisibility,
         snapshotActionRef,
+        previewActionRef,
         viewerCanvasStateRef,
         availableFiles,
         urdfContentForViewer,

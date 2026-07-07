@@ -15,6 +15,7 @@ import type { ToolMode } from '@/features/editor';
 import type {
   SnapshotCaptureAction,
   SnapshotCaptureOptions,
+  SnapshotPreviewAction,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import type { Language, TranslationKeys } from '@/shared/i18n';
 import type { RobotFile } from '@/types';
@@ -95,13 +96,16 @@ export interface AppLayoutViewerSectionProps {
   handleViewerSelectWithBridgePreview: ViewerProps['onSelect'];
   handleViewerMeshSelectWithAssemblyClear: ViewerProps['onMeshSelect'];
   handleHover: ViewerProps['onHover'] & PropertyEditorProps['onHover'];
-  handleUpdate: ViewerProps['onUpdate'] & TreeEditorProps['onUpdate'] & PropertyEditorProps['onUpdate'];
+  handleUpdate: ViewerProps['onUpdate'] &
+    TreeEditorProps['onUpdate'] &
+    PropertyEditorProps['onUpdate'];
   viewerAssets: ViewerProps['assets'];
   allFileContents: ViewerProps['allFileContents'];
   showVisual: TreeEditorProps['showVisual'];
   handleSetShowVisual: TreeEditorProps['setShowVisual'];
   handleSetDetailOptionsPanelVisibility: ViewerProps['setShowOptionsPanel'];
   snapshotActionRef: React.RefObject<SnapshotCaptureAction | null>;
+  previewActionRef: React.RefObject<SnapshotPreviewAction | null>;
   viewerCanvasStateRef: React.MutableRefObject<RootState | null>;
   availableFiles: ViewerProps['availableFiles'];
   urdfContentForViewer: ViewerProps['urdfContent'];
@@ -150,7 +154,9 @@ export interface AppLayoutSidebarsProps {
   handleAddCollisionBody: TreeEditorProps['onAddCollisionBody'];
   handleDelete: TreeEditorProps['onDelete'];
   handleNameChange: TreeEditorProps['onNameChange'];
-  handleUpdate: ViewerProps['onUpdate'] & TreeEditorProps['onUpdate'] & PropertyEditorProps['onUpdate'];
+  handleUpdate: ViewerProps['onUpdate'] &
+    TreeEditorProps['onUpdate'] &
+    PropertyEditorProps['onUpdate'];
   showVisual: TreeEditorProps['showVisual'];
   handleSetShowVisual: TreeEditorProps['setShowVisual'];
   mergedAppMode: ViewerProps['mode'];
