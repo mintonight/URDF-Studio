@@ -12,6 +12,10 @@ export { AIConversationModal } from './components/AIConversationModal'
 // Services
 export { generateRobotFromPrompt, runRobotInspection } from './services/aiService'
 export { sendConversationTurn } from './services/conversationService'
+export {
+  isAiBackendEnabled,
+  setAiBackendAuthTokenProvider,
+} from './services/aiBackendTransport'
 
 // Utilities
 export {

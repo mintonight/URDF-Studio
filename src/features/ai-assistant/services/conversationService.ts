@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { translations, type Language } from '@/shared/i18n';
 import { getConversationSystemPrompt, type ConversationMode } from '../config/prompts';
+import { isAiBackendEnabled, streamAiBackendChat } from './aiBackendTransport';
 import { resolveAiRuntimeEnv } from './aiRuntimeEnv';
 
 export interface ConversationHistoryTurn {
@@ -173,6 +174,48 @@ export const sendConversationTurnStream = async ({
       error: buildConversationError('empty_user_message', text.emptyResponse),
       status: 'error',
     };
+  }
+
+  if (isAiBackendEnabled()) {
+    try {
+      const result = await streamAiBackendChat(
+        {
+          mode,
+          lang,
+          context,
+          history: (history || [])
+            .map(sanitizeHistoryTurn)
+            .filter((turn): turn is ConversationHistoryTurn => Boolean(turn))
+            .slice(-MAX_HISTORY_TURNS),
+          userMessage: trimmedMessage,
+        },
+        { signal, onDelta: onReplyDelta },
+      );
+
+      const normalizedReply = result.reply.trim();
+      if (result.status === 'aborted') {
+        return { reply: normalizedReply, error: null, status: 'aborted' };
+      }
+      if (!normalizedReply) {
+        return {
+          reply: '',
+          error: buildConversationError('empty_response', text.emptyResponse),
+          status: 'error',
+        };
+      }
+      return { reply: normalizedReply, error: null, status: 'completed' };
+    } catch (error) {
+      if (isConversationAbortError(error) || signal?.aborted) {
+        return { reply: '', error: null, status: 'aborted' };
+      }
+      const e = error as { message?: string };
+      console.error('Conversation request failed', error);
+      return {
+        reply: '',
+        error: buildConversationError('request_failed', text.requestFailed(e?.message)),
+        status: 'error',
+      };
+    }
   }
 
   const apiKey = getApiKey();

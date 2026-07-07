@@ -1,15 +1,37 @@
 # AI 助手与审阅
 
-> 最后更新：2026-04-15 | 覆盖源码：`src/features/ai-assistant/`
+> 最后更新：2026-07-07 | 覆盖源码：`src/features/ai-assistant/`
 > 交叉引用：[architecture.md](architecture.md)（ai-assistant <-> file-io 例外说明）
 
-## 1. 环境变量
+## 1. 环境变量与两种运行模式
+
+AI 功能（生成 / 审查 / 对话）有两种互斥的运行模式，由环境变量决定：
+
+**直连模式（BYOK，开源部署默认）** —— 浏览器内直接调用 OpenAI 兼容接口，key 由部署者自备：
 
 ```env
 VITE_OPENAI_API_KEY=your_key
 VITE_OPENAI_BASE_URL=https://api.openai.com/v1
 VITE_OPENAI_MODEL=deepseek-v3
 ```
+
+**托管模式（backend transport，官网部署）** —— 设置后端 AI 代理地址后，三个 AI 功能改为把
+**结构化上下文**（robot 快照、审查项、对话历史等）POST 给后端，提示词模板与 Provider key
+都在服务端（botbase → BotPilot），浏览器 bundle 里不存在任何 AI 密钥：
+
+```env
+VITE_AI_BACKEND_URL=/api/ai/urdf-studio
+```
+
+- 设置 `VITE_AI_BACKEND_URL`（或 `AI_BACKEND_URL`）即启用托管模式，忽略 BYOK 三件套。
+- 契约见 `services/aiBackendTransport.ts`：`/generate`、`/inspect` 返回
+  `{success, data:{content}}`（content 为模型原始输出，JSON 解析仍在前端，两种模式共用同一条
+  处理管线）；`/chat` 为 SSE（`data: {"delta"|"done"|"error"}`）。
+- 鉴权可插拔：宿主壳通过 `setAiBackendAuthTokenProvider(() => token)` 注册用户 JWT 提供者
+  （`features/ai-assistant/index.ts` 导出），请求以 `Authorization: Bearer` 携带；自部署自建代理
+  时可不注册。
+- 服务端提示词模板是本仓 `config/aiPromptTemplates.generated.ts` 的镜像（BotPilot
+  `workflows/urdf_studio/prompt_templates.py`）；改模板时两侧一起更新。
 
 ## 2. 审阅标准输入
 

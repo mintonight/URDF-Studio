@@ -22,6 +22,7 @@ import {
 import { normalizeAIRobotResponse } from '../utils/normalizeRobotData'
 import { processInspectionResults } from '../utils/processInspectionResults'
 import type { SelectedInspectionProfileMap } from '../utils/inspectionProfileSelection'
+import { isAiBackendEnabled, requestAiBackendContent } from './aiBackendTransport'
 import { resolveAiRuntimeEnv } from './aiRuntimeEnv'
 
 export type RobotInspectionStage =
@@ -96,6 +97,93 @@ export function __setInspectionOpenAIClientFactoryForTests(factory: (() => OpenA
  */
 const getModelName = (): string => {
   return resolveAiRuntimeEnv().model
+}
+
+interface GenerationContentRequest {
+  useBackend: boolean
+  prompt: string
+  robot: unknown
+  motorLibrary: unknown
+  lang: Language
+}
+
+/**
+ * Fetch the raw generation reply — backend proxy in managed mode, direct
+ * OpenAI-compatible call in BYOK mode. Parsing stays with the caller so both
+ * modes share one pipeline.
+ */
+const requestGenerationContent = async ({
+  useBackend,
+  prompt,
+  robot,
+  motorLibrary,
+  lang,
+}: GenerationContentRequest): Promise<string | null | undefined> => {
+  if (useBackend) {
+    return requestAiBackendContent('/generate', { prompt, robot, motorLibrary, lang })
+  }
+
+  const openai = createOpenAIClient()
+  const systemPrompt = getGenerationSystemPrompt({ robot, motorLibrary })
+  const response = await openai.chat.completions.create({
+    model: getModelName(),
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ],
+    response_format: {
+      type: 'json_object'
+    },
+    temperature: 0.7
+  })
+  return response.choices[0]?.message?.content
+}
+
+interface InspectionContentRequest {
+  useBackend: boolean
+  robot: unknown
+  criteriaDescription: string
+  inspectionNotes: string
+  lang: Language
+  signal?: AbortSignal
+}
+
+/** Inspection counterpart of requestGenerationContent. */
+const requestInspectionContent = async ({
+  useBackend,
+  robot,
+  criteriaDescription,
+  inspectionNotes,
+  lang,
+  signal,
+}: InspectionContentRequest): Promise<string | null | undefined> => {
+  if (useBackend) {
+    return requestAiBackendContent(
+      '/inspect',
+      { robot, criteriaDescription, inspectionNotes, lang },
+      { signal },
+    )
+  }
+
+  const openai = createOpenAIClient()
+  const systemPrompt = getInspectionSystemPrompt(lang, { criteriaDescription, inspectionNotes })
+  const response = await openai.chat.completions.create(
+    {
+      model: getModelName(),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Inspect this robot structure:\n${JSON.stringify(robot)}` }
+      ],
+      response_format: {
+        type: 'json_object'
+      },
+      temperature: 0.7
+    },
+    {
+      signal,
+    },
+  )
+  return response.choices[0]?.message?.content
 }
 
 /**
@@ -229,8 +317,9 @@ export const generateRobotFromPrompt = async (
     return easterEggResponse
   }
 
+  const useBackend = isAiBackendEnabled()
   const aiRuntimeEnv = resolveAiRuntimeEnv()
-  if (!aiRuntimeEnv.apiKey) {
+  if (!useBackend && !aiRuntimeEnv.apiKey) {
     logRegressionError('API Key missing')
     logRegressionError('Available env vars:', {
       API_KEY: 'missing',
@@ -242,9 +331,6 @@ export const generateRobotFromPrompt = async (
       actionType: 'advice'
     }
   }
-
-  const openai = createOpenAIClient()
-  const modelName = getModelName()
 
   const contextRobot = {
     name: currentRobot.name,
@@ -278,25 +364,15 @@ export const generateRobotFromPrompt = async (
     }))
   }))
 
-  const systemPrompt = getGenerationSystemPrompt({
-    robot: contextRobot,
-    motorLibrary: contextLibrary
-  })
-
   try {
-    const response = await openai.chat.completions.create({
-      model: modelName,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ],
-      response_format: {
-        type: 'json_object'
-      },
-      temperature: 0.7
+    const content = await requestGenerationContent({
+      useBackend,
+      prompt,
+      robot: contextRobot,
+      motorLibrary: contextLibrary,
+      lang
     })
 
-    const content = response.choices[0]?.message?.content
     if (!content) {
       logRegressionError('No content in API response')
       return {
@@ -385,7 +461,8 @@ export const runRobotInspection = async (
   options: RunRobotInspectionOptions = {},
 ): Promise<InspectionReport | null> => {
   const text = getAiServiceTexts(lang)
-  if (!resolveAiRuntimeEnv().apiKey) {
+  const useBackend = isAiBackendEnabled()
+  if (!useBackend && !resolveAiRuntimeEnv().apiKey) {
     logRegressionError('API Key missing')
     return {
       summary: text.apiKeyMissing,
@@ -402,36 +479,24 @@ export const runRobotInspection = async (
     }
   }
 
-  const openai = createOpenAIClient()
-  const modelName = getModelName()
   options.onStageChange?.('preparing-context')
   const contextRobot = buildInspectionRobotContext(robot)
   const localEvidence = buildInspectionEvidence(robot)
 
   const criteriaDescription = buildInspectionCriteriaDescription(selectedItems, lang)
   const inspectionNotes = buildInspectionPromptNotes(robot, selectedItems, lang)
-  const systemPrompt = getInspectionSystemPrompt(lang, { criteriaDescription, inspectionNotes })
 
   try {
     options.onStageChange?.('requesting-model')
-    const response = await openai.chat.completions.create(
-      {
-        model: modelName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Inspect this robot structure:\n${JSON.stringify(contextRobot)}` }
-        ],
-        response_format: {
-          type: 'json_object'
-        },
-        temperature: 0.7
-      },
-      {
-        signal: options.signal,
-      },
-    )
+    const content = await requestInspectionContent({
+      useBackend,
+      robot: contextRobot,
+      criteriaDescription,
+      inspectionNotes,
+      lang,
+      signal: options.signal,
+    })
 
-    const content = response.choices[0]?.message?.content
     if (!content) {
       return {
         summary: text.failedToGetInspectionResponse,

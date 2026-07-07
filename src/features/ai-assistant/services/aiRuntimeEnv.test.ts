@@ -20,7 +20,23 @@ test('resolveAiRuntimeEnv reads Vite-prefixed browser env first', () => {
     apiKey: 'vite-openai-key',
     baseUrl: 'https://example.test/v1',
     model: 'deepseek-v4-pro',
+    backendUrl: '',
   });
+});
+
+test('resolveAiRuntimeEnv prefers the Vite backend URL and strips trailing slashes', () => {
+  const runtimeEnv = resolveAiRuntimeEnv(
+    { VITE_AI_BACKEND_URL: ' /api/ai/urdf-studio/ ' },
+    { AI_BACKEND_URL: 'https://process.example/ai' },
+  );
+
+  assert.equal(runtimeEnv.backendUrl, '/api/ai/urdf-studio');
+});
+
+test('resolveAiRuntimeEnv falls back to the process backend URL', () => {
+  const runtimeEnv = resolveAiRuntimeEnv({}, { AI_BACKEND_URL: 'https://process.example/ai' });
+
+  assert.equal(runtimeEnv.backendUrl, 'https://process.example/ai');
 });
 
 test('resolveAiRuntimeEnv falls back to legacy process env names', () => {

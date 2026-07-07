@@ -229,3 +229,60 @@ test('sendConversationTurnStream clears partial streamed replies when the reques
     restoreApiKeyEnv(envSnapshot);
   }
 });
+
+test('sendConversationTurnStream uses the backend transport when AI_BACKEND_URL is set', async () => {
+  const previousBackendUrl = process.env.AI_BACKEND_URL;
+  process.env.AI_BACKEND_URL = 'https://backend.test/api/ai/urdf-studio';
+  const previousFetch = globalThis.fetch;
+
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    requests.push({ url: String(url), init: init ?? {} });
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"delta":"后端"}\n\n'));
+        controller.enqueue(encoder.encode('data: {"delta":"回复"}\n\ndata: {"done":true}\n\n'));
+        controller.close();
+      },
+    });
+    return { ok: true, status: 200, body, json: async () => null };
+  }) as typeof fetch;
+
+  try {
+    const streamedDeltas: string[] = [];
+    const result = await sendConversationTurnStream({
+      mode: 'general',
+      lang: 'zh',
+      context: '{"robot":{"name":"demo"}}',
+      history: [
+        { role: 'user', content: '  之前的问题  ' },
+        { role: 'assistant', content: '' },
+      ],
+      userMessage: '  这个机器人怎么样？ ',
+      onReplyDelta: (delta) => {
+        streamedDeltas.push(delta);
+      },
+    });
+
+    assert.deepEqual(streamedDeltas, ['后端', '回复']);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.reply, '后端回复');
+    assert.equal(result.error, null);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'https://backend.test/api/ai/urdf-studio/chat');
+    const sentPayload = JSON.parse(String(requests[0].init.body));
+    assert.equal(sentPayload.userMessage, '这个机器人怎么样？');
+    assert.equal(sentPayload.mode, 'general');
+    assert.equal(sentPayload.lang, 'zh');
+    assert.deepEqual(sentPayload.history, [{ role: 'user', content: '之前的问题' }]);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousBackendUrl === undefined) {
+      delete process.env.AI_BACKEND_URL;
+    } else {
+      process.env.AI_BACKEND_URL = previousBackendUrl;
+    }
+  }
+});
