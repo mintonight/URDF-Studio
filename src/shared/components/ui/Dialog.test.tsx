@@ -68,11 +68,17 @@ test('Dialog traps keyboard focus and restores focus on close', async () => {
       root.render(<Wrapper />);
     });
 
+    // The dialog container receives initial focus (NOT the header close
+    // button), so an in-flight Enter keyup that opened the dialog cannot
+    // immediately activate the close button.
+    const dialogEl = dom.window.document.querySelector('[role="dialog"]');
+    assert.ok(dialogEl instanceof dom.window.HTMLElement);
+    assert.equal(dom.window.document.activeElement, dialogEl);
+
     const closeButton = Array.from(
       dom.window.document.querySelectorAll('button[aria-label="Close keyboard dialog"]'),
     ).find((button) => button.getAttribute('tabindex') !== '-1');
     assert.ok(closeButton instanceof dom.window.HTMLButtonElement);
-    assert.equal(dom.window.document.activeElement, closeButton);
 
     const actionButtons = Array.from(dom.window.document.querySelectorAll('button')).filter(
       (button) => button.textContent?.includes('action'),

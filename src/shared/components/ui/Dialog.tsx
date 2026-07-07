@@ -72,7 +72,14 @@ export const Dialog: React.FC<DialogProps> = ({
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    const focusTarget = getFocusableElements(dialogRef.current)[0] ?? dialogRef.current;
+    // Focus the dialog container itself, NOT the first focusable child. The
+    // first focusable element is typically the backdrop or the header close
+    // button; auto-focusing it means an in-flight Enter keyup (e.g. the Enter
+    // that submitted the NumberInput which opened this dialog) would activate
+    // that button and dismiss the dialog instantly. The container is
+    // tabIndex={-1}, so it can receive focus without entering the Tab order,
+    // and Tab still cycles through the focusable children normally.
+    const focusTarget = dialogRef.current;
     focusTarget?.focus();
 
     return () => {
@@ -144,7 +151,16 @@ export const Dialog: React.FC<DialogProps> = ({
       <button
         type="button"
         className="absolute inset-0 bg-black/40 transition-opacity"
-        onClick={onClose}
+        onMouseDown={(event) => {
+          // Close only on a direct press of the backdrop itself, not on
+          // clicks that started inside the dialog content. Using mousedown
+          // (instead of click) also prevents the dialog from being dismissed
+          // by the same Enter keystroke that triggered it from a caller's
+          // input — Enter only synthesizes a `click`, never a mousedown.
+          if (event.target === event.currentTarget) {
+            onClose();
+          }
+        }}
         aria-label={closeLabel}
         tabIndex={-1}
       />
