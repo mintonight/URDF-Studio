@@ -938,6 +938,12 @@ export function useWorkspaceSourceSync({
     }
 
     if (selectedFile.format === 'urdf') {
+      // 属性面板改动后（hasSourceStoreEdits），源码编辑器显示基于当前 model 生成的 URDF 草稿，
+      // 而非磁盘原始文件——否则质量/惯量等修改无法反映到代码视图。用户在代码编辑器手动编辑
+      // 并保存后，selectedFile.content 成为新基线、hasSourceStoreEdits 归零，自动回退到原始文件。
+      if (hasSourceStoreEdits && viewerGeneratedUrdfContent) {
+        return viewerGeneratedUrdfContent;
+      }
       return selectedSourceRootNamePatchContent ?? selectedFile.content;
     }
 
@@ -976,6 +982,7 @@ export function useWorkspaceSourceSync({
     selectedSourceRootNamePatchContent,
     sourceCodeDocumentFlavor,
     shouldRenderAssembly,
+    viewerGeneratedUrdfContent,
   ]);
 
   const viewerSourceFormat = useMemo<'auto' | 'urdf' | 'mjcf' | 'sdf' | 'xacro'>(() => {
