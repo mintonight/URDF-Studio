@@ -227,7 +227,7 @@ export function HeaderActions({
   } = responsive;
 
   return (
-    <div className="flex items-center gap-0.5 shrink-0 justify-self-end">
+    <div className="flex items-center justify-end gap-0.5 shrink-0 justify-self-end">
       <InlineActionButton
         action={quickAction}
         show={showQuickActionInline}
