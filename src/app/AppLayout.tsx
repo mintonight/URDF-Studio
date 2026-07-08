@@ -504,6 +504,7 @@ export function AppLayout({
     handleJointChange: handleCommittedJointChange,
   } = useWorkspaceMutations({
     assemblyState: normalizedAssemblyState,
+    shouldRenderAssembly,
     robotLinks,
     rootLinkId,
     setName,

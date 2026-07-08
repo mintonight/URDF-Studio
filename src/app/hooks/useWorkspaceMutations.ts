@@ -42,6 +42,7 @@ import { useCollisionTransformHandlers } from './workspace-mutations/useCollisio
 
 export function useWorkspaceMutations({
   assemblyState,
+  shouldRenderAssembly,
   robotLinks,
   rootLinkId,
   setName,
@@ -187,7 +188,12 @@ export function useWorkspaceMutations({
       const latestAssemblyState = useRobotStore.getState().assemblyState;
       const robotEntityData = data as UrdfLink | UrdfJoint;
 
-      if (latestAssemblyState) {
+      // Only route through the assembly data flow when the workspace is
+      // actually rendering the assembly. A single-robot import leaves
+      // assemblyState populated but shouldRenderAssembly=false; in that case
+      // property-panel edits must hit the top-level robot store (which the
+      // property editor reads), not the assembly component copy.
+      if (shouldRenderAssembly && latestAssemblyState) {
         const handled = applyAssemblyUpdate({
           type,
           id,
@@ -206,6 +212,29 @@ export function useWorkspaceMutations({
           patchEditableSourceRenameEntities,
         });
         if (handled) {
+          // For a single-component workspace (one imported robot rendered
+          // through the assembly path), the property panel still reads the
+          // top-level robot store. Mirror the edit there too so the panel
+          // reflects it immediately instead of reverting on the next
+          // selection change. True multi-robot assemblies are unaffected
+          // because their links do not exist in the top-level store.
+          const componentCount = Object.keys(latestAssemblyState.components).length;
+          if (componentCount <= 1) {
+            if (type === 'link' && robotLinks[id]) {
+              updateLink(id, data as Partial<UrdfLink>, {
+                skipHistory: true,
+                label: 'Mirror edit to top-level store',
+              });
+            } else if (type === 'joint') {
+              const resolvedJointId = resolveJointKey(useRobotStore.getState().joints, id);
+              if (resolvedJointId) {
+                updateJoint(resolvedJointId, data as Partial<UrdfJoint>, {
+                  skipHistory: true,
+                  label: 'Mirror edit to top-level store',
+                });
+              }
+            }
+          }
           return;
         }
 
@@ -419,6 +448,7 @@ export function useWorkspaceMutations({
       updateJoint,
       updateLink,
       updateMjcfTendon,
+      shouldRenderAssembly,
     ],
   );
 
