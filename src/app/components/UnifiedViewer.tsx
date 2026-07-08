@@ -17,6 +17,7 @@ import {
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,
   type SnapshotCaptureAction,
+  type SnapshotPreviewAction,
   type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import {
@@ -98,6 +99,7 @@ interface UnifiedViewerProps {
   setShowVisual?: (show: boolean) => void;
   showUsageGuide?: boolean;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
+  previewAction?: React.RefObject<SnapshotPreviewAction | null>;
   onCanvasCreated?: (state: RootState) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
@@ -114,11 +116,7 @@ interface UnifiedViewerProps {
   onRuntimeSceneReadyForDisplay?: () => void;
   jointAngleState?: Record<string, number>;
   jointMotionState?: Record<string, ViewerJointMotionStateValue>;
-  onJointChange?: (
-    jointName: string,
-    angle: number,
-    context?: ViewerJointChangeContext,
-  ) => void;
+  onJointChange?: (jointName: string, angle: number, context?: ViewerJointChangeContext) => void;
   syncJointChangesToApp?: boolean;
   selection?: InteractionSelection;
   modelInteractionEnabled?: boolean;
@@ -191,6 +189,7 @@ export const UnifiedViewer = React.memo(
     setShowVisual,
     showUsageGuide,
     snapshotAction,
+    previewAction,
     onCanvasCreated,
     showOptionsPanel = true,
     setShowOptionsPanel,
@@ -593,6 +592,7 @@ export const UnifiedViewer = React.memo(
         renderKey={`viewer:stable:${viewerReloadKey}`}
         containerRef={viewerController.containerRef}
         snapshotAction={snapshotAction}
+        previewAction={previewAction}
         onCreated={onCanvasCreated}
         onPointerDownCapture={handleWorkspacePointerDownCapture}
         onPointerMissed={handleViewerPointerMissed}

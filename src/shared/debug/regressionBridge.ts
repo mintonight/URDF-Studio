@@ -24,11 +24,9 @@ import type {
   UsdSceneMaterialRecord,
   UsdSceneSnapshot,
 } from '@/types';
-import type {
-  RuntimeObject3D,
-  RuntimeRobotObject,
-} from '@/shared/components/3d/runtimeRobotTypes';
+import type { RuntimeObject3D, RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 import { DEFAULT_ORIGIN_AXES_SIZE } from '@/shared/components/3d/helpers/coordinateAxesSizing';
+import type { SnapshotCaptureOptions } from '@/shared/components/3d/scene/snapshotConfig';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
 import {
   getRegressionTransformGizmoSummaries,
@@ -455,6 +453,39 @@ export interface RegressionDebugApi {
     activeMode: string | null;
   };
   setViewerJointAngles: (jointAngles: Record<string, number>) => { ok: boolean; changed: boolean };
+  // Batch thumbnail automation: capture the current scene via SnapshotManager's
+  // preview pipeline (off-screen render target, supersampling, background fill)
+  // and return a base64-encoded image. Only present when a preview action is
+  // wired up (see AppLayout regressionDebug effect). Returns ok:false when no
+  // preview action is bound (e.g. before the viewer has mounted).
+  captureSnapshot?: (options?: Partial<SnapshotCaptureOptions>) => Promise<{
+    ok: boolean;
+    base64: string | null;
+    width: number;
+    height: number;
+    format: string;
+  }>;
+  // Batch thumbnail automation: dolly the active camera toward the orbit target
+  // by the given factor (2 = twice as close, 0.5 = twice as far). Applied on
+  // top of the auto-framed view before captureSnapshot runs. Only present when
+  // a viewer canvas state is wired up (see AppLayout regressionDebug effect).
+  setCameraZoom?: (factor: number) => { ok: boolean };
+  // Batch thumbnail automation: re-frame the active camera onto the unioned
+  // bounding box of the robot meshes in the scene (skipping the flat ground
+  // plane). Works around cameraFollowPrimary not converging for some SDF
+  // assets, which otherwise render off-frame.
+  frameScene?: () => {
+    ok: boolean;
+    meshCount?: number;
+    center?: number[];
+    size?: number[];
+    camPos?: number[];
+    // Full workspace-camera snapshot captured synchronously after re-framing.
+    // Pass this as `cameraSnapshot` in captureSnapshot options so the framing
+    // is applied to the off-screen capture camera, bypassing the per-frame
+    // auto-frame that would otherwise revert it for non-converging SDF assets.
+    cameraSnapshot?: SnapshotCaptureOptions['cameraSnapshot'];
+  };
 }
 
 declare global {
@@ -498,12 +529,9 @@ function toFixedArray(value: DebugVectorInput | undefined | null): [number, numb
   return [Number(value.x ?? 0), Number(value.y ?? 0), Number(value.z ?? 0)];
 }
 
-function toFixedQuaternionWxyz(value: ArrayLike<number> | undefined | null): [
-  number,
-  number,
-  number,
-  number,
-] | null {
+function toFixedQuaternionWxyz(
+  value: ArrayLike<number> | undefined | null,
+): [number, number, number, number] | null {
   if (!value || typeof value.length !== 'number' || value.length < 4) {
     return null;
   }
@@ -649,8 +677,12 @@ function getUsdCollisionDescriptorLinkPath(descriptor: UsdSceneMeshDescriptor): 
 
 function getUsdDescriptorPrimitiveType(descriptor: UsdSceneMeshDescriptor): string {
   return (
-    String(descriptor.primType || '').trim().toLowerCase() ||
-    String(descriptor.geometry?.topologyMode || '').trim().toLowerCase() ||
+    String(descriptor.primType || '')
+      .trim()
+      .toLowerCase() ||
+    String(descriptor.geometry?.topologyMode || '')
+      .trim()
+      .toLowerCase() ||
     'mesh'
   );
 }
@@ -784,11 +816,7 @@ function colorArrayToRegressionTuple(
     return null;
   }
 
-  const tuple: [number, number, number] = [
-    Number(source[0]),
-    Number(source[1]),
-    Number(source[2]),
-  ];
+  const tuple: [number, number, number] = [Number(source[0]), Number(source[1]), Number(source[2])];
   if (!tuple.every(Number.isFinite)) {
     return null;
   }
@@ -820,9 +848,7 @@ function summarizeRegressionUsdMaterial(
   const normalizedMaterialId =
     normalizeUsdDebugPathWithLeadingSlash(material.materialId || materialId || '') || null;
   const name =
-    String(material.name || '').trim() ||
-    getUsdPathBasename(normalizedMaterialId || '') ||
-    null;
+    String(material.name || '').trim() || getUsdPathBasename(normalizedMaterialId || '') || null;
   const type =
     String(material.shaderName || '').trim() ||
     String(material.shaderInfoId || '').trim() ||
@@ -839,9 +865,7 @@ function summarizeRegressionUsdMaterial(
   const colorSource = String(material.colorSource || '').trim() || null;
   const materialColorSpace = colorSource === 'authored' ? 'linear' : material.colorSpace;
   const authoredMaterialColorSpace =
-    colorSource === 'authored'
-      ? 'linear'
-      : material.authoredColorSpace || material.colorSpace;
+    colorSource === 'authored' ? 'linear' : material.authoredColorSpace || material.colorSpace;
   const emissiveMaterialColorSpace =
     colorSource === 'authored' ? 'linear' : material.emissiveColorSpace;
   const color = colorArrayToRegressionHex(material.color, material.opacity, materialColorSpace);
@@ -889,7 +913,8 @@ function summarizeRegressionUsdMaterial(
 function normalizeUsdMeshNormalDiagnostics(
   descriptor: UsdSceneMeshDescriptor,
 ): RegressionUsdNormalDiagnostics | null {
-  const rawDiagnostics = descriptor.normalDiagnostics ?? descriptor.geometry?.normalDiagnostics ?? null;
+  const rawDiagnostics =
+    descriptor.normalDiagnostics ?? descriptor.geometry?.normalDiagnostics ?? null;
   if (!rawDiagnostics || typeof rawDiagnostics !== 'object') {
     return null;
   }
@@ -1241,11 +1266,13 @@ function summarizeStoreLinkPoses(
   const storeLinks = Object.entries(robotState.links)
     .map(([linkId, link]) => {
       const matrix = linkWorldMatrices[linkId];
-      const transform = matrix ? buildMatrixTransformSummary(matrix) : {
-        position: null,
-        quaternion: null,
-        scale: null,
-      };
+      const transform = matrix
+        ? buildMatrixTransformSummary(matrix)
+        : {
+            position: null,
+            quaternion: null,
+            scale: null,
+          };
       return {
         linkId,
         linkName: String((link as UrdfLink | undefined)?.name || linkId || '').trim() || null,
@@ -1253,7 +1280,9 @@ function summarizeStoreLinkPoses(
       } satisfies RegressionUsdLinkPoseSummary;
     })
     .sort((left, right) =>
-      String(left.linkName || left.linkId || '').localeCompare(String(right.linkName || right.linkId || '')),
+      String(left.linkName || left.linkId || '').localeCompare(
+        String(right.linkName || right.linkId || ''),
+      ),
     );
 
   return {
@@ -1263,9 +1292,7 @@ function summarizeStoreLinkPoses(
   };
 }
 
-function summarizeUsdRobotMetadata(
-  snapshot: UsdSceneSnapshot,
-): RegressionUsdRobotMetadataSummary {
+function summarizeUsdRobotMetadata(snapshot: UsdSceneSnapshot): RegressionUsdRobotMetadataSummary {
   const robotMetadata = snapshot.robotMetadataSnapshot ?? null;
   const jointEntries = Array.from(robotMetadata?.jointCatalogEntries || []);
   const dynamicsEntries = Array.from(robotMetadata?.linkDynamicsEntries || []);
@@ -1537,7 +1564,7 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
         ),
       );
       const preferredVisualMaterial = linkPath
-        ? snapshot.render?.preferredVisualMaterialsByLinkPath?.[linkPath] ?? null
+        ? (snapshot.render?.preferredVisualMaterialsByLinkPath?.[linkPath] ?? null)
         : null;
       const materials = materialIds
         .map((materialId) =>
@@ -1705,7 +1732,9 @@ function summarizeLink(link: UrdfLink) {
   };
 }
 
-function summarizeJointVector3(value: { x?: unknown; y?: unknown; z?: unknown } | null | undefined) {
+function summarizeJointVector3(
+  value: { x?: unknown; y?: unknown; z?: unknown } | null | undefined,
+) {
   return value
     ? {
         x: Number(value.x ?? 0),
@@ -1717,12 +1746,7 @@ function summarizeJointVector3(value: { x?: unknown; y?: unknown; z?: unknown } 
 
 function summarizeJointQuaternionWxyz(value: ArrayLike<number> | null | undefined) {
   return value && typeof value.length === 'number' && value.length >= 4
-    ? [
-        Number(value[0] ?? 1),
-        Number(value[1] ?? 0),
-        Number(value[2] ?? 0),
-        Number(value[3] ?? 0),
-      ]
+    ? [Number(value[0] ?? 1), Number(value[1] ?? 0), Number(value[2] ?? 0), Number(value[3] ?? 0)]
     : null;
 }
 
@@ -1754,9 +1778,8 @@ function summarizeJoint(joint: UrdfJoint) {
       ? {
           damping: Number(joint.dynamics.damping ?? 0),
           friction: Number(joint.dynamics.friction ?? 0),
-          stiffness:
-            joint.dynamics.stiffness == null ? null : Number(joint.dynamics.stiffness),
-      }
+          stiffness: joint.dynamics.stiffness == null ? null : Number(joint.dynamics.stiffness),
+        }
       : null,
     hardware: joint.hardware ?? null,
     usdPhysics: joint.usdPhysics
@@ -1771,7 +1794,9 @@ function summarizeJoint(joint: UrdfJoint) {
   };
 }
 
-function summarizeRobotState(robotState: Pick<RobotState, 'name' | 'links' | 'joints' | 'rootLinkId'>) {
+function summarizeRobotState(
+  robotState: Pick<RobotState, 'name' | 'links' | 'joints' | 'rootLinkId'>,
+) {
   const links = Object.values(robotState.links || {});
   const joints = Object.values(robotState.joints || {});
   return {
@@ -1998,7 +2023,8 @@ function summarizeRuntimeRobot(robot: RegressionRuntimeRobot | null) {
             : runtimeChild.material
               ? [runtimeChild.material]
               : [];
-          const summarizedMaterials: RuntimeMaterialSummary[] = materials.map(summarizeRuntimeMaterial);
+          const summarizedMaterials: RuntimeMaterialSummary[] =
+            materials.map(summarizeRuntimeMaterial);
           if (summarizedMaterials.some(({ hasTexture }) => hasTexture)) {
             entry.texturedVisualMeshCount += 1;
           }
@@ -2325,7 +2351,9 @@ export function getRegressionSnapshot(): RegressionSnapshot {
 
 export function installRegressionDebugApi(targetWindow: Window): void {
   const resolveAvailableFile = (fileName: string): RobotFile | null =>
-    regressionDebugState.appHandlers?.getAvailableFiles().find((entry) => entry.name === fileName) ?? null;
+    regressionDebugState.appHandlers
+      ?.getAvailableFiles()
+      .find((entry) => entry.name === fileName) ?? null;
 
   const hasCommittedUsdSnapshot = (fileName: string, snapshot: RegressionSnapshot): boolean => {
     const committedEntry = getLatestUsdStageLoadDebugEntry(
@@ -2427,7 +2455,8 @@ export function installRegressionDebugApi(targetWindow: Window): void {
           }
         : null;
     },
-    getProjectedInteractionTargets: () => regressionDebugState.projectedInteractionTargetsProvider?.() ?? [],
+    getProjectedInteractionTargets: () =>
+      regressionDebugState.projectedInteractionTargetsProvider?.() ?? [],
     getTransformGizmoSummary: () => getRegressionTransformGizmoSummaries(),
     getAssetDebugState: () => {
       const appAssetDebugState = regressionDebugState.appHandlers?.getAssetDebugState?.() ?? {
@@ -2439,9 +2468,12 @@ export function installRegressionDebugApi(targetWindow: Window): void {
         appAssetKeys: appAssetDebugState.appAssetKeys,
         preparedUsdCacheKeysByFile: appAssetDebugState.preparedUsdCacheKeysByFile,
         viewerScopedAssetKeys: regressionDebugState.viewerResourceScopeState?.assetKeys ?? [],
-        viewerScopedAvailableFileNames: regressionDebugState.viewerResourceScopeState?.availableFileNames ?? [],
-        viewerScopedSourceFileName: regressionDebugState.viewerResourceScopeState?.sourceFileName ?? null,
-        viewerScopedSourceFilePath: regressionDebugState.viewerResourceScopeState?.sourceFilePath ?? null,
+        viewerScopedAvailableFileNames:
+          regressionDebugState.viewerResourceScopeState?.availableFileNames ?? [],
+        viewerScopedSourceFileName:
+          regressionDebugState.viewerResourceScopeState?.sourceFileName ?? null,
+        viewerScopedSourceFilePath:
+          regressionDebugState.viewerResourceScopeState?.sourceFilePath ?? null,
         viewerScopedSignature: regressionDebugState.viewerResourceScopeState?.signature ?? null,
       };
     },
@@ -2450,7 +2482,8 @@ export function installRegressionDebugApi(targetWindow: Window): void {
     getSelectedUsdNormalDiagnostics: () => summarizeSelectedUsdNormalDiagnostics(),
     getLastEditableSourceApplyResult: () => regressionDebugState.lastEditableSourceApplyResult,
     getMeshLoadPerformanceHistory: () => getMeshLoadPerformanceHistory(targetWindow),
-    getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(regressionDebugState.runtimeRobot),
+    getRuntimeSceneTransforms: () =>
+      summarizeRuntimeSceneTransforms(regressionDebugState.runtimeRobot),
     setBeforeUnloadPromptEnabled: (enabled: boolean) => {
       setRegressionBeforeUnloadPromptSuppressed(!enabled);
       return { ok: true, enabled };
