@@ -40,7 +40,7 @@
 //   --timeout <s>          Per-asset load timeout in seconds. Default: 240.
 //
 // Reference invocation (square transparent PNGs, studio lighting):
-//   node scripts/batch-export-thumbnails.mjs -i test/robots -o thumbnails --background transparent --aspect-ratio 1:1
+//   node scripts/tools/batch-export-thumbnails.mjs -i ~/Desktop/asset -o ~/Desktop/thumbnail --theme light --aspect-ratio 16:9 --long-edge 1920
 import { createServer } from "vite";
 import puppeteer from "puppeteer";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -306,6 +306,127 @@ async function evaluateWithRetry(page, fn, ...args) {
   }
 }
 
+// Wait until the runtime is present and the visual-mesh set has stabilized so
+// we don't capture a partially-mounted model (the "model not fully shown"
+// symptom). Two phases:
+//   1. Mount stable: the ::visual:: mesh set (count + names) stops changing for
+//      a few samples — i.e. no more meshes are being added. A single-sample
+//      "all current meshes resolved" check passes the moment ANY visual mesh
+//      exists, capturing a partial model while more are still mounting.
+//   2. Resolve grace: once mounted, give unresolved placeholder meshes a
+//      bounded window to swap to BufferGeometry, then capture as-is. Some
+//      meshes never resolve by design (e.g. irobot_hand's flexible finger
+//      links), so we must not block forever on unresolved===0.
+//
+// count===0 (assets whose meshes aren't named ::visual::, e.g. iss) can't be
+// tracked, so we fall back to a grace period after the runtime appears.
+// Overall deadline = the per-asset load timeout; if it lapses with a runtime
+// present we capture what we have (proceededAnyway) rather than dropping it.
+async function waitForSceneStable(page, deadlineMs) {
+  const deadline = Date.now() + deadlineMs;
+  const STABLE_SAMPLES = 3;
+  const INTERVAL = 500;
+  const COUNT_ZERO_GRACE = 15000;
+  const RESOLVE_GRACE = 12000;
+  let prevSig = null;
+  let stable = 0;
+  let runtimeReadySince = null;
+  let mountStableAt = null;
+  let last = { status: null, runtimePresent: false, count: 0, unresolved: 0 };
+  while (Date.now() < deadline) {
+    last = await evaluateWithRetry(page, () => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const s = api.getDocumentLoadState() ?? {};
+      const names = [];
+      let unresolved = 0;
+      const scene = window.scene;
+      if (scene) {
+        scene.traverse((o) => {
+          const name = o.name || o.parent?.name || "";
+          if (o.isMesh && name.includes("::visual::")) {
+            names.push(name);
+            if (o.geometry?.type !== "BufferGeometry") unresolved += 1;
+          }
+        });
+      }
+      names.sort();
+      return {
+        status: s.status ?? null,
+        error: s.error ?? null,
+        runtimePresent: Boolean(api.getRegressionSnapshot?.().runtime),
+        count: names.length,
+        unresolved,
+        sig: `${names.length}|${names.join(",")}`,
+      };
+    });
+    if (last.status === "error") {
+      return { ok: false, reason: `load error: ${last.error ?? "unknown"}` };
+    }
+    const runtimeReady = last.status === "ready" || last.runtimePresent;
+    if (!runtimeReady) {
+      stable = 0;
+      prevSig = null;
+      runtimeReadySince = null;
+      mountStableAt = null;
+      await sleep(INTERVAL);
+      continue;
+    }
+    if (runtimeReadySince === null) runtimeReadySince = Date.now();
+
+    // Primitive robot: no ::visual:: meshes and load is terminal.
+    if (last.count === 0 && last.status === "ready") {
+      return { ok: true, visualCount: 0 };
+    }
+
+    // Phase 1: mount stable?
+    let mountStable = false;
+    if (last.count > 0) {
+      if (last.sig === prevSig) {
+        stable += 1;
+        mountStable = stable >= STABLE_SAMPLES;
+      } else {
+        stable = 1;
+        prevSig = last.sig;
+        mountStableAt = null;
+      }
+    } else {
+      // count===0: can't track mounting (non-::visual:: meshes); grant a grace.
+      mountStable = Date.now() - runtimeReadySince >= COUNT_ZERO_GRACE;
+    }
+    if (!mountStable) {
+      await sleep(INTERVAL);
+      continue;
+    }
+    if (mountStableAt === null) mountStableAt = Date.now();
+
+    // Phase 2: bounded wait for placeholder meshes to resolve.
+    if (last.unresolved === 0) {
+      return { ok: true, visualCount: last.count };
+    }
+    if (Date.now() - mountStableAt >= RESOLVE_GRACE) {
+      return {
+        ok: true,
+        proceededAnyway: true,
+        visualCount: last.count,
+        reason: `${last.unresolved} visual mesh(es) still unresolved ${RESOLVE_GRACE / 1000}s after mount stabilized; capturing as-is`,
+      };
+    }
+    await sleep(INTERVAL);
+  }
+  if (last.runtimePresent) {
+    return {
+      ok: true,
+      proceededAnyway: true,
+      visualCount: last.count,
+      reason: `scene not stable by deadline (status=${last.status}, count=${last.count}, unresolved=${last.unresolved}); capturing as-is`,
+    };
+  }
+  return {
+    ok: false,
+    reason: `load timeout (last status=${last.status}, visualCount=${last.count})`,
+  };
+}
+
 // --- Per-asset pipeline --------------------------------------------------
 
 async function seedAssetFiles(page, asset) {
@@ -422,91 +543,37 @@ async function processAsset(page, asset, captureOpts, loadTimeoutMs, navUrl, the
     primaryName,
   );
 
-  // Poll for a terminal load state. Fresh page load => no stale state from a
-  // previous asset, so we do not need to gate on fileName.
-  const deadline = Date.now() + loadTimeoutMs;
-  let lastStatus = null;
-  let reachedUsable = false;
-  while (Date.now() < deadline) {
-    const docState = await evaluateWithRetry(page, () => {
-      const api = window.__URDF_STUDIO_DEBUG__;
-      const s = api.getDocumentLoadState() ?? {};
-      // External-mesh (dae/stl) assets: the runtime proxy appears before the
-      // mesh loader swaps the placeholder CylinderGeometry for the real
-      // BufferGeometry. Require every ::visual:: mesh to have resolved to a
-      // BufferGeometry before accepting a 'loading' state as capture-ready,
-      // otherwise we capture the placeholder cone/cylinder.
-      let hasVisual = false;
-      let allMeshResolved = true;
-      const scene = window.scene;
-      if (scene) {
-        scene.traverse((o) => {
-          const name = o.name || o.parent?.name || "";
-          if (o.isMesh && name.includes("::visual::")) {
-            hasVisual = true;
-            if (o.geometry?.type !== "BufferGeometry") allMeshResolved = false;
-          }
-        });
-      }
-      return {
-        status: s.status ?? null,
-        error: s.error ?? null,
-        runtimePresent: Boolean(api.getRegressionSnapshot?.().runtime),
-        meshesResolved: hasVisual && allMeshResolved,
-      };
-    });
-    lastStatus = docState.status ?? null;
-    if (docState.status === "error") {
-      return { ok: false, reason: `load error: ${docState.error ?? "unknown"}` };
-    }
-    // 'ready' is the normal terminal state (basic-primitive robots). For
-    // external-mesh robots documentLoadState can stall in 'loading' even once
-    // the runtime is built, so also accept a present runtime — but only once
-    // every visual mesh has resolved to its real geometry (no placeholders).
-    if (docState.status === "ready" || docState.runtimePresent) {
-      reachedUsable = true;
-      break;
-    }
-    await sleep(300);
+  // Wait for the runtime + a STABLE visual-mesh set so we don't capture a
+  // partially-mounted model. Uses the full per-asset load timeout (not a short
+  // fixed 20s deadline) so large/external-mesh assets under swiftshader get
+  // enough time; warns and captures as-is if still unsettled at the deadline.
+  const stable = await waitForSceneStable(page, loadTimeoutMs);
+  if (!stable.ok) {
+    return { ok: false, reason: stable.reason };
+  }
+  if (stable.proceededAnyway) {
+    console.log(`[batch]   WARN ${asset.dirName}: ${stable.reason}`);
   }
 
-  // External-mesh (dae/stl) assets: the runtime proxy appears before the mesh
-  // loader swaps the placeholder CylinderGeometry for the real BufferGeometry.
-  // Wait a bounded amount of time for that swap so we don't capture the
-  // placeholder cone; if meshes never resolve we proceed with what we have.
-  const meshDeadline = Date.now() + 20000;
-  while (Date.now() < meshDeadline) {
-    const resolved = await evaluateWithRetry(page, () => {
-      const scene = window.scene;
-      if (!scene) return false;
-      let hasVisual = false;
-      let all = true;
-      scene.traverse((o) => {
-        const name = o.name || o.parent?.name || "";
-        if (o.isMesh && name.includes("::visual::")) {
-          hasVisual = true;
-          if (o.geometry?.type !== "BufferGeometry") all = false;
-        }
-      });
-      return hasVisual && all;
-    });
-    if (resolved) break;
-    await sleep(400);
-  }
-  if (!reachedUsable) {
-    return { ok: false, reason: `load timeout (last status=${lastStatus})` };
-  }
-
-  // Give the viewer a beat to mount the runtime robot into the Three.js scene.
-  await sleep(1500);
+  // Brief settle for camera/environment after the scene stabilizes.
+  await sleep(800);
 
   // Force-frame onto the robot's bounding box. cameraFollowPrimary does not
   // converge for every asset (notably Gazebo SDF models), so without this the
   // robot can render off-frame and the thumbnail comes out blank.
-  await evaluateWithRetry(page, () => window.__URDF_STUDIO_DEBUG__?.frameScene?.());
+  // frameScene also returns a synchronous workspace-camera snapshot (captured
+  // in the same tick, before any animation frame). We pass that snapshot to
+  // captureSnapshot as `cameraSnapshot` so the framing is written directly to
+  // the off-screen capture camera — otherwise cameraFollowPrimary's per-frame
+  // update reverts frameScene during the capture warmup frames and the robot
+  // sinks to the bottom of the frame (the irobot_hand symptom under studio bg).
+  const framed = await evaluateWithRetry(page, () =>
+    window.__URDF_STUDIO_DEBUG__?.frameScene?.(),
+  );
 
   // Optional dolly zoom on top of the framed camera. Applied after frameScene
-  // so it tightens the converged framing rather than fighting it.
+  // so it tightens the converged framing rather than fighting it. Mirrored onto
+  // the camera snapshot below so the off-screen capture reflects it.
   if (captureOpts.__zoom) {
     await evaluateWithRetry(
       page,
@@ -517,17 +584,46 @@ async function processAsset(page, asset, captureOpts, loadTimeoutMs, navUrl, the
     );
   }
 
+  // Fold the zoom into the camera snapshot, replicating setCameraZoom's
+  // position.lerp(target, 1 - 1/factor). The snapshot drives the capture
+  // camera, so the zoom must live on it (not just the live workspace camera).
+  const cameraSnapshot = applyZoomToCameraSnapshot(
+    framed?.cameraSnapshot ?? null,
+    captureOpts.__zoom,
+  );
+
   // Capture via SnapshotManager's preview pipeline (off-screen render target,
-  // supersampling, background fill).
+  // supersampling, background fill). Passing cameraSnapshot locks frameScene's
+  // framing onto the capture camera, immune to the per-frame auto-frame.
   const shot = await evaluateWithRetry(
     page,
     (opts) => window.__URDF_STUDIO_DEBUG__.captureSnapshot(opts),
-    stripInternalOpts(captureOpts),
+    { ...stripInternalOpts(captureOpts), cameraSnapshot },
   );
   if (!shot?.ok || !shot.base64) {
     return { ok: false, reason: "captureSnapshot returned no data" };
   }
   return { ok: true, shot };
+}
+
+// Replicate AppLayout setCameraZoom's `position.lerp(target, 1 - 1/factor)` on
+// a serialized camera snapshot, so an off-screen capture driven by the
+// snapshot honours --zoom without depending on the (auto-frame-revertible)
+// live workspace camera.
+function applyZoomToCameraSnapshot(snapshot, zoom) {
+  if (!snapshot || !Number.isFinite(zoom) || zoom <= 0) {
+    return snapshot ?? null;
+  }
+  const { position: p, target: t } = snapshot;
+  const lerpT = 1 - 1 / zoom;
+  return {
+    ...snapshot,
+    position: {
+      x: p.x + (t.x - p.x) * lerpT,
+      y: p.y + (t.y - p.y) * lerpT,
+      z: p.z + (t.z - p.z) * lerpT,
+    },
+  };
 }
 
 function stripInternalOpts(opts) {
@@ -590,6 +686,9 @@ async function main() {
     groundStyle: args.ground,
     hideGrid: !args.grid,
     aspectRatioPreset: args.aspectRatio,
+    // The snapshot preview path caps output at 800px long-edge for the dialog
+    // preview; opt out so --long-edge actually controls export resolution.
+    bypassPreviewResolutionCap: true,
     __zoom: args.zoom,
   };
   console.log(

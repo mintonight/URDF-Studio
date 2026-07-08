@@ -466,6 +466,11 @@ export interface RegressionDebugApi {
     center?: number[];
     size?: number[];
     camPos?: number[];
+    // Full workspace-camera snapshot captured synchronously after re-framing.
+    // Pass this as `cameraSnapshot` in captureSnapshot options so the framing
+    // is applied to the off-screen capture camera, bypassing the per-frame
+    // auto-frame that would otherwise revert it for non-converging SDF assets.
+    cameraSnapshot?: SnapshotCaptureOptions['cameraSnapshot'];
   };
 }
 

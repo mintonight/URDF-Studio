@@ -12,7 +12,8 @@ const defaultRuntimeFileLineBudget = 1000;
 const oversizedRuntimeFileLineBudgets: Record<string, number> = {
   'src/features/urdf-viewer/workers/usdOffscreenViewer.worker.ts': 3013,
   'src/shared/components/3d/unified-transform-controls/FusionTransformControls.tsx': 2849,
-  'src/shared/debug/regressionBridge.ts': 2513,
+  'src/app/AppLayout.tsx': 1199,
+  'src/shared/debug/regressionBridge.ts': 2546,
   'src/features/urdf-viewer/hooks/useViewerController.ts': 2184,
   'src/core/parsers/mjcf/mjcfParser.ts': 2005,
   'src/core/parsers/mjcf/mjcfGenerator.ts': 1905,

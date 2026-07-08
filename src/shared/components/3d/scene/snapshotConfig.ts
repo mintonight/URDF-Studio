@@ -80,6 +80,12 @@ export interface SnapshotCaptureOptions {
   /** oxipng effort tier applied to PNG exports (lossless). Ignored for JPEG/WebP. */
   pngOptimizeLevel: PngOptimizeLevel;
   cameraSnapshot?: WorkspaceCameraSnapshot | null;
+  /**
+   * Opt out of the snapshot preview path's 800px long-edge cap. The cap keeps
+   * the on-screen snapshot dialog preview fast; only batch/automation callers
+   * that need the full requested resolution (e.g. --long-edge 1920) set this.
+   */
+  bypassPreviewResolutionCap?: boolean;
 }
 
 export type SnapshotCaptureAction = (options?: Partial<SnapshotCaptureOptions>) => Promise<void>;
@@ -260,6 +266,7 @@ export function normalizeSnapshotCaptureOptions(
     aspectRatioPreset: normalizeSnapshotAspectRatioPreset(options?.aspectRatioPreset),
     pngOptimizeLevel: normalizeSnapshotPngOptimizeLevel(options?.pngOptimizeLevel),
     cameraSnapshot: options?.cameraSnapshot ?? null,
+    bypassPreviewResolutionCap: Boolean(options?.bypassPreviewResolutionCap),
   };
 }
 

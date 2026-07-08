@@ -54,6 +54,10 @@ import type {
   SnapshotCaptureOptions,
   SnapshotPreviewAction,
 } from '@/shared/components/3d/scene/snapshotConfig';
+import {
+  captureWorkspaceCameraSnapshot,
+  type WorkspaceCameraSnapshot,
+} from '@/shared/components/3d';
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
@@ -267,6 +271,7 @@ export function AppLayout({
         center?: number[];
         size?: number[];
         camPos?: number[];
+        cameraSnapshot?: WorkspaceCameraSnapshot | null;
       } => {
         const state = viewerCanvasStateRef.current;
         if (!state?.scene || !state.camera) {
@@ -341,6 +346,17 @@ export function AppLayout({
         camera.lookAt(center);
         camera.updateMatrixWorld();
         state.invalidate?.();
+        // Snapshot the workspace camera synchronously — in the same tick, before
+        // any animation frame runs — so callers (batch thumbnail automation) can
+        // pass it to captureSnapshot and lock this framing onto the off-screen
+        // capture camera. Without it, cameraFollowPrimary's per-frame update
+        // reverts frameScene during the capture warmup frames for SDF assets
+        // whose auto-frame does not converge, leaving the robot off-frame.
+        const glDomElement = state.gl?.domElement ?? null;
+        const cameraSnapshot = captureWorkspaceCameraSnapshot(
+          state,
+          glDomElement?.parentElement ?? glDomElement,
+        );
         return {
           ok: true,
           meshCount: robotMeshCount,
@@ -355,6 +371,7 @@ export function AppLayout({
             Number(camera.position.y.toFixed(3)),
             Number(camera.position.z.toFixed(3)),
           ],
+          cameraSnapshot,
         };
       };
     };
