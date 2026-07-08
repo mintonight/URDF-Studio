@@ -1,7 +1,6 @@
-import { useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import { useEffect, useRef } from 'react';
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { useFrame, useThree } from '@react-three/fiber';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
   DEFAULT_WORKSPACE_ORBIT_CLIPPING,
   syncWorkspaceClipPlanes,
@@ -27,6 +26,8 @@ const WORKSPACE_ORBIT_CONTROL_TUNING = {
   zoomSpeed: 0.8,
   zoomToCursor: true,
   enableDamping: true,
+  minPolarAngle: 0.01,
+  maxPolarAngle: Math.PI - 0.01,
   ...DEFAULT_WORKSPACE_ORBIT_CLIPPING,
 } as const;
 
@@ -35,6 +36,9 @@ export interface WorkspaceOrbitControlsProps {
   onStart?: () => void;
   onEnd?: () => void;
   enableDamping?: boolean;
+  enableRotate?: boolean;
+  enablePan?: boolean;
+  enableZoom?: boolean;
   dampingFactor?: number;
   rotateSpeed?: number;
   panSpeed?: number;
@@ -44,9 +48,15 @@ export interface WorkspaceOrbitControlsProps {
   rotateSensitivity?: number;
   panSensitivity?: number;
   zoomToCursor?: boolean;
+  screenSpacePanning?: boolean;
+  mouseButtons?: OrbitControlsImpl['mouseButtons'];
+  touches?: OrbitControlsImpl['touches'];
+  minPolarAngle?: number;
+  maxPolarAngle?: number;
   minDistance?: number;
   maxDistance?: number;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
+  eventSource?: 'default' | 'canvas';
 }
 
 export function WorkspaceOrbitControls({
@@ -54,6 +64,9 @@ export function WorkspaceOrbitControls({
   onStart,
   onEnd,
   enableDamping = WORKSPACE_ORBIT_CONTROL_TUNING.enableDamping,
+  enableRotate = true,
+  enablePan = true,
+  enableZoom = true,
   dampingFactor = WORKSPACE_ORBIT_CONTROL_TUNING.dampingFactor,
   rotateSpeed = WORKSPACE_ORBIT_CONTROL_TUNING.rotateSpeed,
   panSpeed = WORKSPACE_ORBIT_CONTROL_TUNING.panSpeed,
@@ -62,12 +75,24 @@ export function WorkspaceOrbitControls({
   rotateSensitivity = 1,
   panSensitivity = 1,
   zoomToCursor = WORKSPACE_ORBIT_CONTROL_TUNING.zoomToCursor,
+  screenSpacePanning = true,
+  mouseButtons,
+  touches,
+  minPolarAngle = WORKSPACE_ORBIT_CONTROL_TUNING.minPolarAngle,
+  maxPolarAngle = WORKSPACE_ORBIT_CONTROL_TUNING.maxPolarAngle,
   minDistance = WORKSPACE_ORBIT_CONTROL_TUNING.minDistance,
   maxDistance,
   initialCameraSnapshot = null,
+  eventSource = 'default',
 }: WorkspaceOrbitControlsProps) {
   const camera = useThree((state) => state.camera);
-  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const gl = useThree((state) => state.gl);
+  const events = useThree((state) => state.events);
+  const invalidate = useThree((state) => state.invalidate);
+  const set = useThree((state) => state.set);
+  const get = useThree((state) => state.get);
+  const controls = useMemo(() => new OrbitControlsImpl(camera), [camera]);
+  const controlsRef = useRef<OrbitControlsImpl | null>(controls);
   const { getClipBounds, getPanBounds, invalidate: invalidateSceneBounds } = useSceneBoundsCache();
 
   // Fold the user sensitivity multiplier into the base tuning so the adaptive
@@ -76,6 +101,172 @@ export function WorkspaceOrbitControls({
   const effectiveRotateSpeed = rotateSpeed * rotateSensitivity;
   const effectivePanSpeed = panSpeed * panSensitivity;
   const effectiveZoomSpeed = zoomSpeed * zoomSensitivity;
+  const domElement = eventSource === 'canvas' ? gl.domElement : (events.connected ?? gl.domElement);
+
+  controlsRef.current = controls;
+  controls.enabled = enabled;
+  controls.enableDamping = enableDamping;
+  controls.enableRotate = enableRotate;
+  controls.enablePan = enablePan;
+  controls.enableZoom = enableZoom;
+  controls.dampingFactor = dampingFactor;
+  controls.rotateSpeed = effectiveRotateSpeed;
+  controls.panSpeed = effectivePanSpeed;
+  controls.zoomSpeed = effectiveZoomSpeed;
+  controls.zoomToCursor = zoomToCursor;
+  controls.screenSpacePanning = screenSpacePanning;
+  if (mouseButtons) {
+    controls.mouseButtons = mouseButtons;
+  }
+  if (touches) {
+    controls.touches = touches;
+  }
+  controls.minPolarAngle = minPolarAngle;
+  controls.maxPolarAngle = maxPolarAngle;
+  controls.minDistance = minDistance;
+  controls.maxDistance = maxDistance ?? Infinity;
+
+  useFrame(() => {
+    if (controls.enabled) {
+      const cameraChanged = controls.update() as unknown as boolean;
+      if (cameraChanged) {
+        invalidate();
+      }
+    }
+  }, -1);
+
+  useLayoutEffect(() => {
+    controls.connect(domElement);
+    return () => {
+      controls.dispose();
+    };
+  }, [controls, domElement, gl.domElement]);
+
+  useEffect(() => {
+    const previousControls = get().controls;
+    set({ controls });
+    return () => {
+      set({ controls: previousControls });
+    };
+  }, [controls, get, set]);
+
+  useEffect(() => {
+    let scheduledFrame: number | null = null;
+    const scheduleRender = () => {
+      if (!controls.enabled) {
+        return;
+      }
+
+      if (scheduledFrame !== null) {
+        return;
+      }
+
+      scheduledFrame = window.requestAnimationFrame(() => {
+        scheduledFrame = null;
+        if (!controls.enabled) {
+          return;
+        }
+
+        const { camera, gl, scene } = get();
+        const cameraChanged = controls.update() as unknown as boolean;
+        controls.dispatchEvent({ type: 'change', target: controls });
+        camera.updateMatrixWorld(true);
+        invalidate();
+
+        const previousShadowAutoUpdate = gl.shadowMap.autoUpdate;
+        const previousSceneMatrixWorldAutoUpdate = scene.matrixWorldAutoUpdate;
+        if (gl.shadowMap.enabled) {
+          gl.shadowMap.autoUpdate = false;
+        }
+        scene.matrixWorldAutoUpdate = false;
+        try {
+          gl.render(scene, camera);
+        } finally {
+          scene.matrixWorldAutoUpdate = previousSceneMatrixWorldAutoUpdate;
+          gl.shadowMap.autoUpdate = previousShadowAutoUpdate;
+        }
+
+        if (controls.enableDamping && cameraChanged) {
+          scheduleRender();
+        }
+      });
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.buttons !== 0) {
+        scheduleRender();
+      }
+    };
+
+    domElement.addEventListener('pointerdown', scheduleRender, { passive: true });
+    domElement.addEventListener('pointerup', scheduleRender, { passive: true });
+    domElement.addEventListener('pointercancel', scheduleRender, { passive: true });
+    domElement.addEventListener('pointermove', handlePointerMove, { passive: true });
+    domElement.addEventListener('wheel', scheduleRender, { passive: true });
+    domElement.addEventListener('touchstart', scheduleRender, { passive: true });
+    domElement.addEventListener('touchmove', scheduleRender, { passive: true });
+    domElement.addEventListener('touchend', scheduleRender, { passive: true });
+
+    return () => {
+      if (scheduledFrame !== null) {
+        window.cancelAnimationFrame(scheduledFrame);
+        scheduledFrame = null;
+      }
+      domElement.removeEventListener('pointerdown', scheduleRender);
+      domElement.removeEventListener('pointerup', scheduleRender);
+      domElement.removeEventListener('pointercancel', scheduleRender);
+      domElement.removeEventListener('pointermove', handlePointerMove);
+      domElement.removeEventListener('wheel', scheduleRender);
+      domElement.removeEventListener('touchstart', scheduleRender);
+      domElement.removeEventListener('touchmove', scheduleRender);
+      domElement.removeEventListener('touchend', scheduleRender);
+    };
+  }, [controls, domElement, get, invalidate]);
+
+  useEffect(() => {
+    controls.enabled = enabled;
+    controls.enableDamping = enableDamping;
+    controls.enableRotate = enableRotate;
+    controls.enablePan = enablePan;
+    controls.enableZoom = enableZoom;
+    controls.dampingFactor = dampingFactor;
+    controls.rotateSpeed = effectiveRotateSpeed;
+    controls.panSpeed = effectivePanSpeed;
+    controls.zoomSpeed = effectiveZoomSpeed;
+    controls.zoomToCursor = zoomToCursor;
+    controls.screenSpacePanning = screenSpacePanning;
+    if (mouseButtons) {
+      controls.mouseButtons = mouseButtons;
+    }
+    if (touches) {
+      controls.touches = touches;
+    }
+    controls.minPolarAngle = minPolarAngle;
+    controls.maxPolarAngle = maxPolarAngle;
+    controls.minDistance = minDistance;
+    controls.maxDistance = maxDistance ?? Infinity;
+    controls.update();
+    invalidate();
+  }, [
+    controls,
+    dampingFactor,
+    effectivePanSpeed,
+    effectiveRotateSpeed,
+    effectiveZoomSpeed,
+    enableDamping,
+    enablePan,
+    enableRotate,
+    enableZoom,
+    enabled,
+    invalidate,
+    maxPolarAngle,
+    maxDistance,
+    minPolarAngle,
+    minDistance,
+    mouseButtons,
+    screenSpacePanning,
+    touches,
+    zoomToCursor,
+  ]);
 
   useEffect(() => {
     if (!controlsRef.current) {
@@ -83,7 +274,8 @@ export function WorkspaceOrbitControls({
     }
 
     applyWorkspaceCameraSnapshot(camera, controlsRef.current, initialCameraSnapshot);
-  }, [camera, initialCameraSnapshot]);
+    invalidate();
+  }, [camera, initialCameraSnapshot, invalidate]);
 
   // Sync clip planes + pan/zoom speed on every controls 'change' event
   // (rotate / pan / zoom / damping ticks / programmatic controls.update())
@@ -143,27 +335,30 @@ export function WorkspaceOrbitControls({
     };
   }, [camera, getClipBounds, getPanBounds, minDistance, effectivePanSpeed, effectiveZoomSpeed]);
 
-  return (
-    <OrbitControls
-      ref={controlsRef}
-      makeDefault
-      enabled={enabled}
-      enableDamping={enableDamping}
-      dampingFactor={dampingFactor}
-      rotateSpeed={effectiveRotateSpeed}
-      panSpeed={effectivePanSpeed}
-      zoomSpeed={effectiveZoomSpeed}
-      zoomToCursor={zoomToCursor}
-      minDistance={minDistance}
-      maxDistance={maxDistance}
-      onStart={() => {
-        // Refresh bounds before a user interaction so any drift since the
-        // last compute (e.g. programmatic joint motion that did not mutate
-        // the scene tree) is rebuilt before pan/zoom tuning is evaluated.
-        invalidateSceneBounds();
-        onStart?.();
-      }}
-      onEnd={onEnd}
-    />
-  );
+  useEffect(() => {
+    const handleChange = () => {
+      invalidate();
+    };
+    const handleStart = () => {
+      // Refresh bounds before a user interaction so any drift since the
+      // last compute (e.g. programmatic joint motion that did not mutate
+      // the scene tree) is rebuilt before pan/zoom tuning is evaluated.
+      invalidateSceneBounds();
+      onStart?.();
+    };
+    const handleEnd = () => {
+      onEnd?.();
+    };
+
+    controls.addEventListener('change', handleChange);
+    controls.addEventListener('start', handleStart);
+    controls.addEventListener('end', handleEnd);
+    return () => {
+      controls.removeEventListener('change', handleChange);
+      controls.removeEventListener('start', handleStart);
+      controls.removeEventListener('end', handleEnd);
+    };
+  }, [controls, invalidate, invalidateSceneBounds, onEnd, onStart]);
+
+  return null;
 }

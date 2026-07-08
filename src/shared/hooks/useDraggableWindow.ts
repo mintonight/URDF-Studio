@@ -33,6 +33,7 @@ export interface DraggableWindowOptions {
   defaultPosition?: Position;
   defaultSize: WindowSize;
   minSize?: WindowSize;
+  viewportMinSize?: WindowSize;
   enableMinimize?: boolean;
   enableMaximize?: boolean;
   centerOnMount?: boolean;
@@ -78,7 +79,10 @@ const normalizeResizeDirection = (
   return 'corner';
 };
 
-const getViewportWindowSizeLimit = (shouldClampToViewport: boolean): WindowSize => {
+const getViewportWindowSizeLimit = (
+  shouldClampToViewport: boolean,
+  viewportMinSize: WindowSize = MIN_VIEWPORT_WINDOW_SIZE,
+): WindowSize => {
   if (typeof window === 'undefined' || !shouldClampToViewport) {
     return {
       width: Number.POSITIVE_INFINITY,
@@ -87,16 +91,17 @@ const getViewportWindowSizeLimit = (shouldClampToViewport: boolean): WindowSize 
   }
 
   return {
-    width: Math.max(MIN_VIEWPORT_WINDOW_SIZE.width, window.innerWidth - VIEWPORT_WINDOW_MARGIN),
-    height: Math.max(MIN_VIEWPORT_WINDOW_SIZE.height, window.innerHeight - VIEWPORT_WINDOW_MARGIN),
+    width: Math.max(viewportMinSize.width, window.innerWidth - VIEWPORT_WINDOW_MARGIN),
+    height: Math.max(viewportMinSize.height, window.innerHeight - VIEWPORT_WINDOW_MARGIN),
   };
 };
 
 const constrainWindowSizeToViewport = (
   nextSize: WindowSize,
   shouldClampToViewport: boolean,
+  viewportMinSize?: WindowSize,
 ): WindowSize => {
-  const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport);
+  const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport, viewportMinSize);
   return {
     width: Math.min(nextSize.width, viewportLimit.width),
     height: Math.min(nextSize.height, viewportLimit.height),
@@ -106,8 +111,9 @@ const constrainWindowSizeToViewport = (
 const getEffectiveMinWindowSize = (
   nextMinSize: WindowSize,
   shouldClampToViewport: boolean,
+  viewportMinSize?: WindowSize,
 ): WindowSize => {
-  const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport);
+  const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport, viewportMinSize);
   return {
     width: Math.min(nextMinSize.width, viewportLimit.width),
     height: Math.min(nextMinSize.height, viewportLimit.height),
@@ -119,6 +125,7 @@ export const useDraggableWindow = ({
   defaultPosition = { x: 100, y: 100 },
   defaultSize,
   minSize = { width: 600, height: 400 },
+  viewportMinSize = MIN_VIEWPORT_WINDOW_SIZE,
   enableMinimize = true,
   enableMaximize = true,
   centerOnMount = true,
@@ -129,7 +136,7 @@ export const useDraggableWindow = ({
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState<Position>(defaultPosition);
   const [size, setSize] = useState<WindowSize>(() =>
-    constrainWindowSizeToViewport(defaultSize, clampResizeToViewport),
+    constrainWindowSizeToViewport(defaultSize, clampResizeToViewport, viewportMinSize),
   );
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -294,7 +301,11 @@ export const useDraggableWindow = ({
     const handleMouseMove = (e: globalThis.MouseEvent) => {
       const deltaX = e.clientX - resizeStartRef.current.x;
       const deltaY = e.clientY - resizeStartRef.current.y;
-      const effectiveMinSize = getEffectiveMinWindowSize(minSize, clampResizeToViewport);
+      const effectiveMinSize = getEffectiveMinWindowSize(
+        minSize,
+        clampResizeToViewport,
+        viewportMinSize,
+      );
 
       if (resizeDirection === 'left') {
         const newWidth = clamp(
@@ -356,6 +367,8 @@ export const useDraggableWindow = ({
     minSize.width,
     resizeDirection,
     restoreBodyInteractionStyles,
+    viewportMinSize.height,
+    viewportMinSize.width,
   ]);
 
   useEffect(() => {
@@ -370,8 +383,16 @@ export const useDraggableWindow = ({
     if (typeof window === 'undefined' || !clampResizeToViewport) return;
 
     const handleViewportResize = () => {
-      const constrainedSize = constrainWindowSizeToViewport(sizeRef.current, clampResizeToViewport);
-      const effectiveMinSize = getEffectiveMinWindowSize(minSize, clampResizeToViewport);
+      const constrainedSize = constrainWindowSizeToViewport(
+        sizeRef.current,
+        clampResizeToViewport,
+        viewportMinSize,
+      );
+      const effectiveMinSize = getEffectiveMinWindowSize(
+        minSize,
+        clampResizeToViewport,
+        viewportMinSize,
+      );
       const nextSize = {
         width: clamp(constrainedSize.width, effectiveMinSize.width, constrainedSize.width),
         height: clamp(constrainedSize.height, effectiveMinSize.height, constrainedSize.height),
@@ -395,7 +416,14 @@ export const useDraggableWindow = ({
     handleViewportResize();
     window.addEventListener('resize', handleViewportResize);
     return () => window.removeEventListener('resize', handleViewportResize);
-  }, [clampResizeToViewport, getDragLimits, minSize.height, minSize.width]);
+  }, [
+    clampResizeToViewport,
+    getDragLimits,
+    minSize.height,
+    minSize.width,
+    viewportMinSize.height,
+    viewportMinSize.width,
+  ]);
 
   const handleDragStart = useCallback(
     (e: MouseEvent) => {
@@ -457,6 +485,7 @@ export const useDraggableWindow = ({
           const restoredSize = constrainWindowSizeToViewport(
             preMaximizeRef.current.size,
             clampResizeToViewport,
+            viewportMinSize,
           );
           const limits = getDragLimits(restoredSize);
           setPosition({
@@ -475,7 +504,7 @@ export const useDraggableWindow = ({
       setIsMinimized(false);
       return true;
     });
-  }, [clampResizeToViewport, enableMaximize, getDragLimits]);
+  }, [clampResizeToViewport, enableMaximize, getDragLimits, viewportMinSize]);
 
   const toggleMinimize = useCallback(() => {
     if (!enableMinimize) return;

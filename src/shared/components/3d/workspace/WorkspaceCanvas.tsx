@@ -73,11 +73,16 @@ interface WorkspaceCanvasProps {
   environmentIntensity?: number;
   environmentIntensityByTheme?: WorkspaceCanvasEnvironmentIntensityByTheme;
   groundOffset?: number;
+  enableShadows?: boolean;
+  shadowMapSize?: number;
+  maxDpr?: number;
   toneMapping?: THREE.ToneMapping;
   toneMappingExposure?: number;
   cameraFollowPrimary?: boolean;
   orbitControlsProps?: Partial<WorkspaceOrbitControlsProps>;
+  orbitControlsEventSource?: WorkspaceOrbitControlsProps['eventSource'];
   controlLayerKey?: string;
+  showGroundShadow?: boolean;
   background?: {
     light: string;
     dark: string;
@@ -165,11 +170,16 @@ export const WorkspaceCanvas = ({
   environmentIntensity = 0.36,
   environmentIntensityByTheme,
   groundOffset = 0,
+  enableShadows = true,
+  shadowMapSize,
+  maxDpr,
   toneMapping = THREE.ACESFilmicToneMapping,
   toneMappingExposure,
   cameraFollowPrimary = false,
   orbitControlsProps,
+  orbitControlsEventSource = 'default',
   controlLayerKey = 'default',
+  showGroundShadow = true,
   background = WORKSPACE_CANVAS_BACKGROUND,
   showWorldOriginAxes = true,
   showUsageGuide = true,
@@ -488,6 +498,9 @@ export const WorkspaceCanvas = ({
   const shouldRenderCanvas = webglSupport?.supported === true && !canvasFailure;
   const rootClassName = `${className} [&_canvas]:!h-full [&_canvas]:!w-full`;
   const resizeOptions = resolveWorkspaceCanvasResizeOptions(layoutResizeActive);
+  const effectiveDpr =
+    Number.isFinite(maxDpr) && Number(maxDpr) > 0 ? Math.min(dpr, Number(maxDpr)) : dpr;
+  const shouldEnableShadows = enableShadows || snapshotRenderActive;
 
   useEffect(() => {
     if (!shouldRenderCanvas) {
@@ -529,8 +542,8 @@ export const WorkspaceCanvas = ({
         >
           <Canvas
             key={canvasResetKey}
-            dpr={dpr}
-            shadows
+            dpr={effectiveDpr}
+            shadows={shouldEnableShadows}
             resize={resizeOptions}
             frameloop="demand"
             camera={canvasCamera}
@@ -578,7 +591,8 @@ export const WorkspaceCanvas = ({
                   // material recompile hitch) while orbiting/dragging. The
                   // per-frame cost is removed inside SceneLighting via
                   // shadowMap.autoUpdate, not by disabling shadows here.
-                  enableShadows
+                  enableShadows={enableShadows}
+                  shadowMapSize={shadowMapSize}
                 />
                 <SnapshotManager
                   actionRef={snapshotAction}
@@ -594,7 +608,7 @@ export const WorkspaceCanvas = ({
                   <AdaptiveGroundPlane
                     theme={effectiveTheme}
                     groundOffset={groundOffset}
-                    showShadow
+                    showShadow={showGroundShadow && shouldEnableShadows}
                     subscribeInvalidation={subscribeGroundPlaneInvalidation}
                   />
                 ) : null}
@@ -603,6 +617,7 @@ export const WorkspaceCanvas = ({
                   key={`orbit-${controlLayerKey}`}
                   initialCameraSnapshot={initialCameraSnapshot}
                   {...finalOrbitControlsProps}
+                  eventSource={orbitControlsEventSource}
                 />
                 {showViewportGizmo && !snapshotRenderActive && (
                   <GizmoHelper

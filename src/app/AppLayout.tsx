@@ -678,30 +678,32 @@ export function AppLayout({
     ],
   );
 
-  const {
-    handleCloseSnapshotDialog,
-    handleSnapshotPreviewCaptureActionChange,
-    handleSnapshot,
-  } = useSnapshotDialogController({
-    availableFiles,
-    groundPlaneOffset,
-    jointAngleState,
-    jointMotionState,
-    selectedFileFormat: selectedFile?.format ?? null,
-    showVisual,
-    theme,
-    urdfContentForViewer,
-    viewerAssets,
-    viewerCanvasStateRef,
-    viewerReloadKey,
-    viewerRobot,
-    viewerSourceFile,
-    viewerSourceFilePath,
-    viewerSourceFormat,
-    snapshotPreviewCaptureActionRef,
-    setIsSnapshotDialogOpen,
-    setSnapshotPreviewSession,
-  });
+  const { handleCloseSnapshotDialog, handleSnapshotPreviewCaptureActionChange, handleSnapshot } =
+    useSnapshotDialogController({
+      availableFiles,
+      groundPlaneOffset,
+      jointAngleState,
+      jointMotionState,
+      selectedFileFormat: selectedFile?.format ?? null,
+      theme,
+      urdfContentForViewer,
+      viewerAssets,
+      viewerCanvasStateRef,
+      viewerDocumentReady:
+        documentLoadLifecycleState.status === 'ready' &&
+        (!selectedFile ||
+          (documentLoadLifecycleState.fileName === selectedFile.name &&
+            documentLoadLifecycleState.format === selectedFile.format)),
+      viewerReloadKey,
+      viewerRobot,
+      viewerShowVisual: showVisual,
+      viewerSourceFile,
+      viewerSourceFilePath,
+      viewerSourceFormat,
+      snapshotPreviewCaptureActionRef,
+      setIsSnapshotDialogOpen,
+      setSnapshotPreviewSession,
+    });
 
   const { items: toolboxItems, openTool } = useToolItems({
     t,

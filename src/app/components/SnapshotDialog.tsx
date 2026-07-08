@@ -33,31 +33,37 @@ const SNAPSHOT_RESOLUTION_OPTIONS = [
 ] as const;
 
 const PANEL_SECTION_CLASS_NAME =
-  'rounded-lg border border-border-black bg-panel-bg px-3 py-2 shadow-sm';
-const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center gap-2';
-const FIELD_LABEL_CLASS_NAME =
-  'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
+  'rounded-lg border border-border-black bg-panel-bg px-2.5 py-1.5 shadow-sm';
+const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[68px_minmax(0,1fr)] items-center gap-1.5';
+const FIELD_LABEL_CLASS_NAME = 'truncate text-[9px] font-medium text-text-secondary';
+const SNAPSHOT_SEGMENTED_CLASS_NAME = 'w-full !min-h-[24px] !rounded-md';
+const SNAPSHOT_SEGMENTED_ITEM_CLASS_NAME = '!h-[21px] px-1.5 text-[10px]';
 const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
-  width: 600,
-  height: 690,
+  width: 520,
+  height: 590,
 } as const;
 const SNAPSHOT_DIALOG_MIN_SIZE = {
-  width: 360,
+  width: 320,
   height: 420,
+} as const;
+const SNAPSHOT_DIALOG_VIEWPORT_MIN_SIZE = {
+  width: 320,
+  height: 320,
 } as const;
 const SNAPSHOT_DIALOG_HEADER_HEIGHT = 40;
 const SNAPSHOT_DIALOG_VIEWPORT_MARGIN = 24;
 const SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT = 320;
-const SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH = 520;
-const SNAPSHOT_PREVIEW_MIN_WIDTH = 220;
+const SNAPSHOT_DIALOG_DESKTOP_MAX_HEIGHT = 660;
+const SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH = 500;
+const SNAPSHOT_PREVIEW_MIN_WIDTH = 200;
 // Horizontal chrome around the preview frame (scroll body padding + preview card
 // padding + scrollbar slack). The frame fills the remaining card width instead of
 // being capped at a fixed max, so the preview reads as the hero element.
-const SNAPSHOT_PREVIEW_WIDTH_GUTTER = 56;
+const SNAPSHOT_PREVIEW_WIDTH_GUTTER = 52;
 // Upper bound on the preview height so portrait/tall aspect ratios don't push the
 // dialog past the viewport; landscape previews stay width-driven and fill the card.
-const SNAPSHOT_PREVIEW_MAX_HEIGHT = 460;
-const SNAPSHOT_PREVIEW_VIEWPORT_HEIGHT_RATIO = 0.42;
+const SNAPSHOT_PREVIEW_MAX_HEIGHT = 300;
+const SNAPSHOT_PREVIEW_VIEWPORT_HEIGHT_RATIO = 0.38;
 
 const clamp = (value: number, min: number, max: number) => {
   if (max < min) {
@@ -79,9 +85,13 @@ const resolveSnapshotDialogHeight = ({
     SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT,
     viewportHeight - SNAPSHOT_DIALOG_VIEWPORT_MARGIN,
   );
-  const minHeight = Math.min(SNAPSHOT_DIALOG_MIN_SIZE.height, viewportLimit);
+  const adaptiveViewportLimit =
+    viewportHeight >= 720
+      ? Math.min(viewportLimit, SNAPSHOT_DIALOG_DESKTOP_MAX_HEIGHT)
+      : viewportLimit;
+  const minHeight = Math.min(SNAPSHOT_DIALOG_MIN_SIZE.height, adaptiveViewportLimit);
   const naturalHeight = SNAPSHOT_DIALOG_HEADER_HEIGHT + footerHeight + scrollContentHeight;
-  return clamp(naturalHeight, minHeight, viewportLimit);
+  return clamp(naturalHeight, minHeight, adaptiveViewportLimit);
 };
 
 interface SnapshotDialogProps {
@@ -98,9 +108,7 @@ interface SnapshotDialogProps {
 function SnapshotSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className={PANEL_SECTION_CLASS_NAME}>
-      <div className="mb-1.5 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
-        {title}
-      </div>
+      <div className="mb-1 text-[9px] font-semibold text-text-tertiary">{title}</div>
       {children}
     </div>
   );
@@ -156,11 +164,14 @@ export function SnapshotDialog({
   });
   const scrollBodyRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
+  const previewFrameAreaRef = useRef<HTMLDivElement | null>(null);
+  const [previewFrameAreaWidth, setPreviewFrameAreaWidth] = useState<number | null>(null);
 
   const windowState = useDraggableWindow({
     isOpen,
     defaultSize: SNAPSHOT_DIALOG_DEFAULT_SIZE,
     minSize: SNAPSHOT_DIALOG_MIN_SIZE,
+    viewportMinSize: SNAPSHOT_DIALOG_VIEWPORT_MIN_SIZE,
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -231,6 +242,40 @@ export function SnapshotDialog({
     previewState?.aspectRatio,
     windowState.setSize,
   ]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setPreviewFrameAreaWidth(null);
+      return;
+    }
+
+    const previewFrameArea = previewFrameAreaRef.current;
+    if (!previewFrameArea) {
+      return;
+    }
+
+    const measurePreviewFrameArea = () => {
+      const rect = previewFrameArea.getBoundingClientRect();
+      const nextWidth = Math.floor(rect.width || previewFrameArea.clientWidth || 0);
+      setPreviewFrameAreaWidth((currentWidth) => {
+        const normalizedWidth = nextWidth > 0 ? nextWidth : null;
+        return currentWidth === normalizedWidth ? currentWidth : normalizedWidth;
+      });
+    };
+
+    measurePreviewFrameArea();
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(measurePreviewFrameArea)
+        : null;
+    resizeObserver?.observe(previewFrameArea);
+    window.addEventListener('resize', measurePreviewFrameArea);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', measurePreviewFrameArea);
+    };
+  }, [isOpen, windowState.size.width]);
 
   useEffect(() => {
     if (imageFormat === 'jpeg' && backgroundStyle === 'transparent') {
@@ -416,10 +461,10 @@ export function SnapshotDialog({
   const effectivePreviewState = previewState ?? internalPreviewState;
   const isCompactLayout = windowState.size.width <= SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH;
   const settingsGridClassName = isCompactLayout
-    ? 'grid grid-cols-1 gap-y-1.5'
-    : 'grid grid-cols-2 gap-x-3 gap-y-1.5';
-  const previewCardClassName = `rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm ${
-    isCompactLayout ? 'flex min-h-[220px] flex-1 flex-col' : 'flex min-h-[260px] flex-1 flex-col'
+    ? 'grid grid-cols-1 gap-y-1'
+    : 'grid grid-cols-2 gap-x-2.5 gap-y-1';
+  const previewCardClassName = `flex shrink-0 flex-col rounded-lg border border-border-black bg-element-bg px-2.5 py-1.5 shadow-sm ${
+    isCompactLayout ? 'min-h-[190px]' : 'min-h-[220px]'
   }`;
   const previewStatusText =
     effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
@@ -435,10 +480,11 @@ export function SnapshotDialog({
   const previewAspectRatio =
     selectedPreviewAspectRatio ??
     (effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9);
-  const previewAvailableWidth = Math.max(
+  const fallbackPreviewAvailableWidth = Math.max(
     SNAPSHOT_PREVIEW_MIN_WIDTH,
     windowState.size.width - SNAPSHOT_PREVIEW_WIDTH_GUTTER,
   );
+  const previewAvailableWidth = previewFrameAreaWidth ?? fallbackPreviewAvailableWidth;
   const previewMaxHeight =
     typeof window !== 'undefined'
       ? clamp(
@@ -449,9 +495,15 @@ export function SnapshotDialog({
       : SNAPSHOT_PREVIEW_MAX_HEIGHT;
   // Fill the available card width, but never let a tall aspect ratio exceed the
   // height ceiling — derive the width back from that ceiling when it would.
-  const previewFrameMaxWidth = clamp(
-    Math.min(previewAvailableWidth, previewMaxHeight * previewAspectRatio),
+  const previewHeightBoundedWidth = Math.max(1, Math.floor(previewMaxHeight * previewAspectRatio));
+  const previewFrameMinWidth = Math.min(
     SNAPSHOT_PREVIEW_MIN_WIDTH,
+    previewAvailableWidth,
+    previewHeightBoundedWidth,
+  );
+  const previewFrameMaxWidth = clamp(
+    Math.min(previewAvailableWidth, previewHeightBoundedWidth),
+    previewFrameMinWidth,
     previewAvailableWidth,
   );
 
@@ -472,9 +524,7 @@ export function SnapshotDialog({
           <div className="rounded-lg border border-border-black bg-panel-bg p-1 text-system-blue shadow-sm">
             <Camera className="h-3 w-3" />
           </div>
-          <div className="text-[12px] font-semibold tracking-[0.01em] text-text-primary">
-            {t.snapshotCapture}
-          </div>
+          <div className="text-[11px] font-semibold text-text-primary">{t.snapshotCapture}</div>
         </div>
       }
       className="overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl pointer-events-auto"
@@ -500,7 +550,7 @@ export function SnapshotDialog({
       <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden bg-panel-bg">
         <div
           ref={scrollBodyRef}
-          className="flex flex-1 min-h-0 flex-col gap-1.5 overflow-y-auto px-2.5 py-2"
+          className="flex flex-1 min-h-0 flex-col gap-1 overflow-y-auto px-2 py-1.5"
         >
           <SnapshotSection title={compactLabels.output}>
             <div className={settingsGridClassName}>
@@ -540,7 +590,8 @@ export function SnapshotDialog({
                   value={detailLevel}
                   options={antialiasOptions}
                   disabled={isCapturing}
-                  className="w-full"
+                  className={SNAPSHOT_SEGMENTED_CLASS_NAME}
+                  itemClassName={SNAPSHOT_SEGMENTED_ITEM_CLASS_NAME}
                   stretch
                   onChange={(value) =>
                     setDetailLevel(value as SnapshotCaptureOptions['detailLevel'])
@@ -552,7 +603,8 @@ export function SnapshotDialog({
                   value={compressionControlValue}
                   options={compressionOptions}
                   disabled={isCapturing}
-                  className="w-full"
+                  className={SNAPSHOT_SEGMENTED_CLASS_NAME}
+                  itemClassName={SNAPSHOT_SEGMENTED_ITEM_CLASS_NAME}
                   stretch
                   onChange={(value) => {
                     if (typeof value !== 'number') {
@@ -644,14 +696,14 @@ export function SnapshotDialog({
 
           <div data-testid="snapshot-preview-card" className={previewCardClassName}>
             <div
-              className={`mb-2 flex shrink-0 gap-3 ${isCompactLayout ? 'flex-col items-start' : 'items-start justify-between'}`}
+              className={`mb-1.5 flex shrink-0 gap-2 ${isCompactLayout ? 'flex-col items-start' : 'items-start justify-between'}`}
             >
               <div className="min-w-0">
-                <div className="text-[10px] font-semibold tracking-[0.02em] text-text-primary">
+                <div className="text-[9px] font-semibold text-text-primary">
                   {t.snapshotPreviewTitle}
                 </div>
               </div>
-              <div className="shrink-0 rounded-md border border-border-black bg-panel-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
+              <div className="shrink-0 rounded-md border border-border-black bg-panel-bg px-1.5 py-0.5 text-[8px] font-medium text-text-secondary">
                 {previewStatusText}
               </div>
             </div>
@@ -662,7 +714,10 @@ export function SnapshotDialog({
                 then centers the oversized frame so it overflows onto the title and
                 summary rows. Keeping the real height also lets the dialog's
                 scrollHeight auto-sizing grow to fit instead of under-sizing. */}
-            <div className="flex min-h-[160px] shrink-0 items-center justify-center">
+            <div
+              ref={previewFrameAreaRef}
+              className="flex min-h-[130px] shrink-0 items-center justify-center"
+            >
               <div
                 data-testid="snapshot-preview-frame-shell"
                 className="w-full"
@@ -673,7 +728,7 @@ export function SnapshotDialog({
                   className="w-full overflow-hidden rounded-lg border border-border-black bg-panel-bg"
                   style={{ aspectRatio: String(previewAspectRatio) }}
                 >
-                  {previewSession && !previewState ? (
+                  {previewSession ? (
                     <SnapshotPreviewRenderer
                       isOpen={isOpen}
                       lang={lang}
@@ -694,7 +749,7 @@ export function SnapshotDialog({
                       className="h-full w-full object-contain"
                     />
                   ) : (
-                    <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
+                    <div className="flex h-full min-h-[100px] items-center justify-center px-4 text-center text-[10px] text-text-secondary">
                       {effectivePreviewState.status === 'error'
                         ? t.snapshotPreviewFailed
                         : t.snapshotPreviewLoading}
@@ -705,7 +760,7 @@ export function SnapshotDialog({
             </div>
 
             <div
-              className={`mt-2 flex shrink-0 gap-3 text-[10px] text-text-secondary ${
+              className={`mt-1.5 flex shrink-0 gap-2 text-[9px] text-text-secondary ${
                 isCompactLayout ? 'flex-col items-start' : 'items-start justify-between'
               }`}
             >
@@ -714,7 +769,7 @@ export function SnapshotDialog({
               </div>
               {effectivePreviewState.status === 'error' ? (
                 <div
-                  className={`text-[10px] text-danger ${isCompactLayout ? '' : 'shrink-0 text-right'}`}
+                  className={`text-[9px] text-danger ${isCompactLayout ? '' : 'shrink-0 text-right'}`}
                 >
                   {t.snapshotPreviewRetryingHint}
                 </div>
@@ -725,7 +780,7 @@ export function SnapshotDialog({
 
         <div
           ref={footerRef}
-          className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm"
+          className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2 backdrop-blur-sm"
         >
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <Button

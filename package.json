@@ -92,6 +92,7 @@
     "test:browser:source-apply-mujoco": "node scripts/test/browser/test_source_apply_mujoco.mjs",
     "test:browser:mujoco-assembly": "node scripts/test/browser/test_mujoco_assembly.mjs",
     "test:browser:mujoco-viewer": "node scripts/test/browser/test_mujoco_viewer.mjs",
+    "test:browser:mujoco-snapshot-preview": "node scripts/test/browser/test_mujoco_snapshot_preview.mjs",
     "test:browser:mujoco-export": "node scripts/test/browser/test_mujoco_export.mjs",
     "test:browser:urdf-import": "node scripts/test/browser/test_urdf_model_import.mjs",
     "test:browser:urdf-tree-crud": "node scripts/test/browser/test_urdf_tree_crud.mjs",

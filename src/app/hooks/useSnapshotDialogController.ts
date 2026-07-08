@@ -1,9 +1,91 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { RootState } from '@react-three/fiber';
 import type { SnapshotCaptureAction } from '@/shared/components/3d/scene/snapshotConfig';
-import type { RobotFile } from '@/types';
+import type { RobotData, RobotFile, UrdfVisual } from '@/types';
 import type { SnapshotPreviewSession } from '../components/snapshot-preview/types';
 import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
+
+export function resolveSnapshotPreviewShowVisual() {
+  return true;
+}
+
+function resolveSnapshotPreviewVisual(visual: UrdfVisual): UrdfVisual {
+  return {
+    ...visual,
+    visible: true,
+  };
+}
+
+export function resolveSnapshotPreviewRobot(robot: RobotData): RobotData {
+  return {
+    ...robot,
+    links: Object.fromEntries(
+      Object.entries(robot.links).map(([linkId, link]) => [
+        linkId,
+        {
+          ...link,
+          visible: true,
+          visual: resolveSnapshotPreviewVisual(link.visual),
+          visualBodies: link.visualBodies?.map(resolveSnapshotPreviewVisual),
+        },
+      ]),
+    ),
+  };
+}
+
+const SNAPSHOT_PREVIEW_SOURCE_FORMATS = new Set<RobotFile['format']>([
+  'urdf',
+  'mjcf',
+  'sdf',
+  'xacro',
+  'usd',
+]);
+
+export function resolveSnapshotPreviewSourceFile({
+  viewerSourceFile,
+  viewerSourceFilePath,
+  viewerSourceFormat,
+  availableFiles,
+  urdfContentForViewer,
+  robotName,
+}: {
+  viewerSourceFile: RobotFile | null;
+  viewerSourceFilePath?: string;
+  viewerSourceFormat?: SnapshotPreviewSession['viewerSourceFormat'];
+  availableFiles: RobotFile[];
+  urdfContentForViewer: string;
+  robotName: string;
+}): RobotFile | null {
+  const inlineContent = urdfContentForViewer.trim();
+  if (viewerSourceFile) {
+    return {
+      ...viewerSourceFile,
+      name: viewerSourceFilePath ?? viewerSourceFile.name,
+      content: inlineContent || viewerSourceFile.content,
+    };
+  }
+
+  if (inlineContent) {
+    const inlineFormat =
+      viewerSourceFormat === 'mjcf' ||
+      viewerSourceFormat === 'sdf' ||
+      viewerSourceFormat === 'xacro'
+        ? viewerSourceFormat
+        : 'urdf';
+    const inlineExtension = inlineFormat === 'mjcf' ? 'xml' : inlineFormat;
+    return {
+      name: `${robotName || 'robot'}-snapshot-preview.${inlineExtension}`,
+      content: inlineContent,
+      format: inlineFormat,
+    };
+  }
+
+  return (
+    availableFiles.find(
+      (file) => SNAPSHOT_PREVIEW_SOURCE_FORMATS.has(file.format) && file.content.trim(),
+    ) ?? null
+  );
+}
 
 interface UseSnapshotDialogControllerParams {
   availableFiles: RobotFile[];
@@ -11,13 +93,14 @@ interface UseSnapshotDialogControllerParams {
   jointAngleState?: SnapshotPreviewSession['jointAngleState'];
   jointMotionState?: SnapshotPreviewSession['jointMotionState'];
   selectedFileFormat: RobotFile['format'] | null;
-  showVisual: boolean;
   theme: SnapshotPreviewSession['theme'];
   urdfContentForViewer: string;
   viewerAssets: Record<string, string>;
   viewerCanvasStateRef: MutableRefObject<RootState | null>;
+  viewerDocumentReady: boolean;
   viewerReloadKey: number;
   viewerRobot: SnapshotPreviewSession['robot'];
+  viewerShowVisual: boolean;
   viewerSourceFile: RobotFile | null;
   viewerSourceFilePath?: string;
   viewerSourceFormat?: SnapshotPreviewSession['viewerSourceFormat'];
@@ -32,13 +115,14 @@ export function useSnapshotDialogController({
   jointAngleState,
   jointMotionState,
   selectedFileFormat,
-  showVisual,
   theme,
   urdfContentForViewer,
   viewerAssets,
   viewerCanvasStateRef,
+  viewerDocumentReady,
   viewerReloadKey,
   viewerRobot,
+  viewerShowVisual,
   viewerSourceFile,
   viewerSourceFilePath,
   viewerSourceFormat,
@@ -64,9 +148,8 @@ export function useSnapshotDialogController({
     let cameraSnapshot: SnapshotPreviewSession['cameraSnapshot'] = null;
     if (viewerCanvasState) {
       try {
-        const { captureWorkspaceCameraSnapshot } = await import(
-          '@/shared/components/3d/workspace/workspaceCameraSnapshot'
-        );
+        const { captureWorkspaceCameraSnapshot } =
+          await import('@/shared/components/3d/workspace/workspaceCameraSnapshot');
         const viewportElement =
           viewerCanvasState.gl.domElement.parentElement ?? viewerCanvasState.gl.domElement;
         cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState, viewportElement);
@@ -80,23 +163,35 @@ export function useSnapshotDialogController({
       (viewerCanvasState?.size.width && viewerCanvasState.size.height
         ? viewerCanvasState.size.width / viewerCanvasState.size.height
         : 16 / 9);
+    const previewSourceFile = resolveSnapshotPreviewSourceFile({
+      viewerSourceFile,
+      viewerSourceFilePath,
+      viewerSourceFormat,
+      availableFiles,
+      urdfContentForViewer,
+      robotName: viewerRobot.name,
+    });
+    const previewUrdfContent =
+      urdfContentForViewer.trim() || previewSourceFile?.content.trim() || '';
+    const previewRobot = resolveSnapshotPreviewRobot(viewerRobot);
+    const previewCameraSnapshot = viewerShowVisual && viewerDocumentReady ? cameraSnapshot : null;
 
     snapshotPreviewCaptureActionRef.current = null;
     setSnapshotPreviewSession({
       theme,
-      cameraSnapshot,
+      cameraSnapshot: previewCameraSnapshot,
       viewportAspectRatio,
-      robotName: viewerRobot.name || 'robot',
-      robot: viewerRobot,
+      robotName: previewRobot.name || 'robot',
+      robot: previewRobot,
       assets: viewerAssets,
       availableFiles,
-      urdfContent: urdfContentForViewer,
+      urdfContent: previewUrdfContent,
       viewerSourceFormat,
-      sourceFilePath: viewerSourceFilePath,
-      sourceFile: viewerSourceFile,
+      sourceFilePath: previewSourceFile?.name ?? viewerSourceFilePath,
+      sourceFile: previewSourceFile,
       jointAngleState,
       jointMotionState,
-      showVisual,
+      showVisual: resolveSnapshotPreviewShowVisual(),
       isMeshPreview: selectedFileFormat === 'mesh',
       viewerReloadKey,
       groundPlaneOffset,
@@ -110,14 +205,15 @@ export function useSnapshotDialogController({
     selectedFileFormat,
     setIsSnapshotDialogOpen,
     setSnapshotPreviewSession,
-    showVisual,
     snapshotPreviewCaptureActionRef,
     theme,
     urdfContentForViewer,
     viewerAssets,
     viewerCanvasStateRef,
+    viewerDocumentReady,
     viewerReloadKey,
     viewerRobot,
+    viewerShowVisual,
     viewerSourceFile,
     viewerSourceFilePath,
     viewerSourceFormat,

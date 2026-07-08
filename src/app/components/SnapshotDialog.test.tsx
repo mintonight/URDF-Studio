@@ -9,6 +9,12 @@ import { DEFAULT_LINK } from '@/types/constants';
 import type { RobotData } from '@/types';
 import { SnapshotDialog } from './SnapshotDialog';
 import type { SnapshotPreviewSession } from './snapshot-preview/types';
+import {
+  resolveSnapshotPreviewRobot,
+  resolveSnapshotPreviewShowVisual,
+  resolveSnapshotPreviewSourceFile,
+} from '../hooks/useSnapshotDialogController';
+import { resolveSnapshotPreviewRuntimeReady } from './snapshot-preview/SnapshotPreviewRenderer';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -80,6 +86,117 @@ function createPreviewSession(): SnapshotPreviewSession {
     groundPlaneOffset: 0,
   };
 }
+
+test('snapshot preview sessions keep visual geometry enabled for exports', () => {
+  assert.equal(resolveSnapshotPreviewShowVisual(), true);
+});
+
+test('snapshot preview robot restores visual visibility without mutating the source robot', () => {
+  const sourceRobot = createPreviewRobot();
+  sourceRobot.links.base_link = {
+    ...sourceRobot.links.base_link,
+    visible: false,
+    visual: {
+      ...sourceRobot.links.base_link.visual,
+      visible: false,
+    },
+    visualBodies: [
+      {
+        ...sourceRobot.links.base_link.visual,
+        name: 'secondary_visual',
+        visible: false,
+      },
+    ],
+  };
+
+  const previewRobot = resolveSnapshotPreviewRobot(sourceRobot);
+
+  assert.equal(previewRobot.links.base_link.visible, true);
+  assert.equal(previewRobot.links.base_link.visual.visible, true);
+  assert.equal(previewRobot.links.base_link.visualBodies?.[0]?.visible, true);
+  assert.equal(sourceRobot.links.base_link.visible, false);
+  assert.equal(sourceRobot.links.base_link.visual.visible, false);
+  assert.equal(sourceRobot.links.base_link.visualBodies?.[0]?.visible, false);
+});
+
+test('snapshot preview source falls back to the available robot file', () => {
+  const sourceFile = resolveSnapshotPreviewSourceFile({
+    viewerSourceFile: null,
+    availableFiles: [
+      {
+        name: 'snapshot_visual_probe.urdf',
+        content: '<robot name="snapshot_visual_probe" />',
+        format: 'urdf',
+      },
+    ],
+    urdfContentForViewer: '',
+    robotName: 'snapshot_visual_probe',
+  });
+
+  assert.equal(sourceFile?.name, 'snapshot_visual_probe.urdf');
+  assert.equal(sourceFile?.format, 'urdf');
+});
+
+test('snapshot preview source keeps MJCF effective path and content aligned', () => {
+  const sourceFile = resolveSnapshotPreviewSourceFile({
+    viewerSourceFile: {
+      name: 'mujoco_menagerie-main/unitree_go2/scene.xml',
+      content: '<mujoco model="scene"><include file="go2.xml"/></mujoco>',
+      format: 'mjcf',
+    },
+    viewerSourceFilePath: 'mujoco_menagerie-main/unitree_go2/go2.xml',
+    viewerSourceFormat: 'mjcf',
+    availableFiles: [],
+    urdfContentForViewer: '<mujoco model="go2"><worldbody /></mujoco>',
+    robotName: 'go2',
+  });
+
+  assert.equal(sourceFile?.name, 'mujoco_menagerie-main/unitree_go2/go2.xml');
+  assert.equal(sourceFile?.format, 'mjcf');
+  assert.equal(sourceFile?.content, '<mujoco model="go2"><worldbody /></mujoco>');
+});
+
+test('snapshot preview source does not synthesize URDF for inline MJCF content', () => {
+  const sourceFile = resolveSnapshotPreviewSourceFile({
+    viewerSourceFile: null,
+    viewerSourceFilePath: undefined,
+    viewerSourceFormat: 'mjcf',
+    availableFiles: [],
+    urdfContentForViewer: '<mujoco model="inline"><worldbody /></mujoco>',
+    robotName: 'inline_mjcf',
+  });
+
+  assert.equal(sourceFile?.name, 'inline_mjcf-snapshot-preview.xml');
+  assert.equal(sourceFile?.format, 'mjcf');
+  assert.equal(sourceFile?.content, '<mujoco model="inline"><worldbody /></mujoco>');
+});
+
+test('snapshot preview stays interactive after a runtime refresh follows initial warmup', () => {
+  assert.equal(
+    resolveSnapshotPreviewRuntimeReady({
+      previewLoadRevision: 0,
+      previewWarmupRevision: 0,
+      hasCompletedWarmup: false,
+    }),
+    false,
+  );
+  assert.equal(
+    resolveSnapshotPreviewRuntimeReady({
+      previewLoadRevision: 2,
+      previewWarmupRevision: 1,
+      hasCompletedWarmup: false,
+    }),
+    false,
+  );
+  assert.equal(
+    resolveSnapshotPreviewRuntimeReady({
+      previewLoadRevision: 2,
+      previewWarmupRevision: 0,
+      hasCompletedWarmup: true,
+    }),
+    true,
+  );
+});
 
 test('SnapshotDialog reuses the segmented surface tone for AA choices', async () => {
   const dom = installDom();
@@ -157,8 +274,8 @@ test('SnapshotDialog opens wide enough for the interactive preview canvas', asyn
     assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
     assert.equal(
       windowRoot.style.width,
-      '600px',
-      'snapshot dialog should default to a width that leaves enough room to orbit the preview',
+      '520px',
+      'snapshot dialog should default to a compact width that still leaves enough room to orbit the preview',
     );
   } finally {
     await act(async () => {
@@ -374,6 +491,49 @@ test('SnapshotDialog renders an interactive preview canvas when a preview sessio
   }
 });
 
+test('SnapshotDialog keeps the interactive preview when stale image state is present', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewSession: createPreviewSession(),
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:stale-preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    assert.ok(
+      container.querySelector('[data-testid="snapshot-preview-canvas"]'),
+      'snapshot dialog should keep the interactive preview canvas when a session is available',
+    );
+    assert.equal(
+      container.querySelector('img[alt="Snapshot live preview"]'),
+      null,
+      'snapshot dialog should not fall back to a static image while live preview can be dragged',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('SnapshotDialog keeps the live preview inside the scrollable content area', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -444,7 +604,7 @@ test('SnapshotDialog keeps the live preview inside an adaptive shell instead of 
     assert.match(
       scrollableContent.className,
       /\bflex-col\b/,
-      'scrollable body should stack sections in a flex column so the preview can consume extra height',
+      'scrollable body should stack sections in a flex column so preview content stays in order',
     );
 
     const previewCard = container.querySelector(
@@ -453,8 +613,13 @@ test('SnapshotDialog keeps the live preview inside an adaptive shell instead of 
     assert.ok(previewCard, 'snapshot dialog should render the preview card');
     assert.match(
       previewCard.className,
+      /\bshrink-0\b/,
+      'preview card should keep its content height instead of shrinking the frame out of its border',
+    );
+    assert.doesNotMatch(
+      previewCard.className,
       /\bflex-1\b/,
-      'preview card should expand to use spare dialog height',
+      'preview card should not flex-shrink around an aspect-ratio driven frame',
     );
 
     const previewShell = container.querySelector(
@@ -463,7 +628,7 @@ test('SnapshotDialog keeps the live preview inside an adaptive shell instead of 
     assert.ok(previewShell, 'snapshot dialog should render the preview frame shell');
     assert.equal(
       previewShell.style.maxWidth,
-      '544px',
+      '468px',
       'default snapshot dialog width should let the preview use the available interactive area',
     );
 
@@ -550,8 +715,8 @@ test('SnapshotDialog auto-fits its default height to the rendered content when t
     assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
     assert.equal(
       windowRoot.style.height,
-      '682px',
-      'snapshot dialog should shrink to the content-fitted desktop height instead of keeping a fixed tall shell',
+      '660px',
+      'snapshot dialog should cap the fitted desktop height instead of keeping a tall shell',
     );
   } finally {
     if (originalInnerHeightDescriptor) {
@@ -778,12 +943,79 @@ test('SnapshotDialog shrinks the preview cap further on narrow layouts so the se
     assert.ok(previewShell, 'snapshot dialog should render the compact preview shell');
     assert.equal(
       previewShell.style.maxWidth,
-      '350px',
+      '354px',
       'narrow layouts should reduce the preview cap so the preview does not overwhelm the dialog',
     );
   } finally {
     if (originalInnerWidthDescriptor) {
       Object.defineProperty(dom.window, 'innerWidth', originalInnerWidthDescriptor);
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog fits phone-width viewports and caps portrait preview height', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const originalInnerWidthDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerWidth');
+  const originalInnerHeightDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerHeight');
+
+  Object.defineProperty(dom.window, 'innerWidth', {
+    value: 340,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'innerHeight', {
+    value: 620,
+    configurable: true,
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 9 / 16,
+          },
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
+    assert.equal(
+      windowRoot.style.width,
+      '320px',
+      'phone-width viewports should use the snapshot-specific compact minimum width',
+    );
+
+    const previewShell = container.querySelector(
+      '[data-testid="snapshot-preview-frame-shell"]',
+    ) as HTMLElement | null;
+    assert.ok(previewShell, 'snapshot dialog should render the portrait preview shell');
+    assert.equal(
+      previewShell.style.maxWidth,
+      '132px',
+      'portrait preview width should shrink enough to respect the viewport-height cap',
+    );
+  } finally {
+    if (originalInnerWidthDescriptor) {
+      Object.defineProperty(dom.window, 'innerWidth', originalInnerWidthDescriptor);
+    }
+    if (originalInnerHeightDescriptor) {
+      Object.defineProperty(dom.window, 'innerHeight', originalInnerHeightDescriptor);
     }
     await act(async () => {
       root.unmount();
