@@ -329,8 +329,32 @@ export function AppLayout({
           controls.target.set(center.x, center.y, center.z);
           controls.update?.();
         }
-        const fov = camera.fov ? THREE.MathUtils.degToRad(camera.fov) : Math.PI / 4;
-        const distance = (maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+        // Frame by the bounding sphere with an aspect-aware distance so the
+        // whole bbox fits regardless of orientation. The old maxDim/tan(fov)
+        // formula under-distance for flat models viewed at an oblique angle
+        // (their projected footprint is larger than the bbox dimension), which
+        // clipped them at the frame edge (e.g. iscas_museum). Mirrors the
+        // bounding-sphere framing used by computeCameraFrame.
+        const boundingSphere = new THREE.Sphere();
+        box.getBoundingSphere(boundingSphere);
+        const radius =
+          Number.isFinite(boundingSphere.radius) && boundingSphere.radius > 0
+            ? boundingSphere.radius
+            : maxDim / 2 || 0.25;
+        const verticalFov = camera.fov ? THREE.MathUtils.degToRad(camera.fov) : Math.PI / 4;
+        const aspect = Number.isFinite(camera.aspect) && camera.aspect > 0 ? camera.aspect : 1;
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+        const distance =
+          Math.max(radius / Math.sin(verticalFov / 2), radius / Math.sin(horizontalFov / 2)) * 1.15;
+        // Grow the far plane to contain the whole model at the framed distance.
+        // The viewer's default far is calibrated for typical robots and is far
+        // too small for large scenes (iscas_museum / ksql_airport /
+        // sonoma_raceway), so most of the model ends up beyond it and gets
+        // clipped away, leaving a blank / ground-only frame.
+        if (Number.isFinite(distance) && distance + radius * 2 > camera.far) {
+          camera.far = distance + radius * 2;
+          camera.updateProjectionMatrix();
+        }
         const dir = new THREE.Vector3();
         if (controls?.target) {
           dir.subVectors(camera.position, controls.target);

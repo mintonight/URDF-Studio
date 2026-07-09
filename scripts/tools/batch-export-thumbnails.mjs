@@ -306,57 +306,74 @@ async function evaluateWithRetry(page, fn, ...args) {
   }
 }
 
-// Wait until the runtime is present and the visual-mesh set has stabilized so
-// we don't capture a partially-mounted model (the "model not fully shown"
-// symptom). Two phases:
-//   1. Mount stable: the ::visual:: mesh set (count + names) stops changing for
-//      a few samples — i.e. no more meshes are being added. A single-sample
-//      "all current meshes resolved" check passes the moment ANY visual mesh
-//      exists, capturing a partial model while more are still mounting.
-//   2. Resolve grace: once mounted, give unresolved placeholder meshes a
-//      bounded window to swap to BufferGeometry, then capture as-is. Some
-//      meshes never resolve by design (e.g. irobot_hand's flexible finger
-//      links), so we must not block forever on unresolved===0.
+// Wait until the runtime is present and the robot meshes have mounted AND all
+// placeholder meshes have resolved, so we don't capture a blank or placeholder
+// frame — the symptom for large DAE assets (iscas_museum, iss, raceway,
+// airport) whose worker parse takes tens of seconds.
 //
-// count===0 (assets whose meshes aren't named ::visual::, e.g. iss) can't be
-// tracked, so we fall back to a grace period after the runtime appears.
-// Overall deadline = the per-asset load timeout; if it lapses with a runtime
-// present we capture what we have (proceededAnyway) rather than dropping it.
+// Progress-driven (not a fixed grace): as long as meshes are still mounting
+// (count/identity changing) or placeholders are still resolving (unresolved
+// decreasing), keep waiting. Only when there is NO progress for STALL_SAMPLES
+// (~30s) — or the overall per-asset deadline lapses — do we capture as-is
+// (proceededAnyway), so stuck / never-resolving meshes (missing deps, LFS
+// pointers) don't block the whole batch. count===0 while still loading keeps
+// waiting (the DAE may mount its meshes in one burst after a long parse);
+// count===0 with terminal 'ready' status is a primitive robot (accept).
 async function waitForSceneStable(page, deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   const STABLE_SAMPLES = 3;
   const INTERVAL = 500;
-  const COUNT_ZERO_GRACE = 15000;
-  const RESOLVE_GRACE = 12000;
+  const STALL_SAMPLES = 60;
   let prevSig = null;
-  let stable = 0;
-  let runtimeReadySince = null;
-  let mountStableAt = null;
+  let prevUnresolved = -1;
+  let mountStable = 0;
+  let stall = 0;
   let last = { status: null, runtimePresent: false, count: 0, unresolved: 0 };
   while (Date.now() < deadline) {
     last = await evaluateWithRetry(page, () => {
       const api = window.__URDF_STUDIO_DEBUG__;
       const s = api.getDocumentLoadState() ?? {};
-      const names = [];
+      let count = 0;
       let unresolved = 0;
       const scene = window.scene;
       if (scene) {
         scene.traverse((o) => {
-          const name = o.name || o.parent?.name || "";
-          if (o.isMesh && name.includes("::visual::")) {
-            names.push(name);
-            if (o.geometry?.type !== "BufferGeometry") unresolved += 1;
+          if (!o.isMesh) return;
+          const helperName = (o.name || o.parent?.name || "").toLowerCase();
+          // Skip scene helpers (ground plane / grid / shadow catcher / gizmos) —
+          // they are not robot meshes and would pollute the mount-stability
+          // count. Mirrors frameScene's helper-name filter. Track ALL other
+          // meshes (not just ::visual::-named ones) so assets whose meshes use
+          // different naming (e.g. iscas_museum's Collada scene tree) are still
+          // awaited for mount + placeholder resolution.
+          if (
+            helperName.includes("ground") ||
+            helperName.includes("grid") ||
+            helperName.includes("shadow") ||
+            helperName.includes("axes") ||
+            helperName.includes("gizmo") ||
+            helperName.includes("plane")
+          ) {
+            return;
           }
+          count += 1;
+          // A real placeholder (waiting for an STL/DAE mesh to swap in) is
+          // marked userData.isPlaceholder. Primitive geometry is NOT a
+          // placeholder — it is the final geometry — so don't flag it.
+          if (o.userData?.isPlaceholder) unresolved += 1;
         });
       }
-      names.sort();
+      // Keep this evaluate light: huge scenes (sonoma_raceway) have thousands
+      // of meshes, and building/sorting/joining a uuid array on every poll made
+      // the evaluate heavy enough for puppeteer v24 to GC its promise ("Promise
+      // was collected"). Count alone is enough for mount-stability detection.
       return {
         status: s.status ?? null,
         error: s.error ?? null,
         runtimePresent: Boolean(api.getRegressionSnapshot?.().runtime),
-        count: names.length,
+        count,
         unresolved,
-        sig: `${names.length}|${names.join(",")}`,
+        sig: String(count),
       };
     });
     if (last.status === "error") {
@@ -364,53 +381,56 @@ async function waitForSceneStable(page, deadlineMs) {
     }
     const runtimeReady = last.status === "ready" || last.runtimePresent;
     if (!runtimeReady) {
-      stable = 0;
       prevSig = null;
-      runtimeReadySince = null;
-      mountStableAt = null;
+      prevUnresolved = -1;
+      mountStable = 0;
+      stall = 0;
       await sleep(INTERVAL);
       continue;
     }
-    if (runtimeReadySince === null) runtimeReadySince = Date.now();
 
-    // Primitive robot: no ::visual:: meshes and load is terminal.
+    // Primitive robot done: terminal status, no robot meshes.
     if (last.count === 0 && last.status === "ready") {
       return { ok: true, visualCount: 0 };
     }
 
-    // Phase 1: mount stable?
-    let mountStable = false;
-    if (last.count > 0) {
-      if (last.sig === prevSig) {
-        stable += 1;
-        mountStable = stable >= STABLE_SAMPLES;
-      } else {
-        stable = 1;
-        prevSig = last.sig;
-        mountStableAt = null;
-      }
+    // Progress = meshes still mounting (sig changed) OR placeholders still
+    // resolving (unresolved decreased). Large DAE assets (iscas_museum, iss,
+    // raceway, airport) parse for tens of seconds; keep waiting while progress
+    // is being made so we don't capture a blank / placeholder frame.
+    const mountProgress = last.sig !== prevSig;
+    const resolveProgress = prevUnresolved >= 0 && last.unresolved < prevUnresolved;
+    if (mountProgress || resolveProgress) {
+      stall = 0;
     } else {
-      // count===0: can't track mounting (non-::visual:: meshes); grant a grace.
-      mountStable = Date.now() - runtimeReadySince >= COUNT_ZERO_GRACE;
+      stall += 1;
     }
-    if (!mountStable) {
-      await sleep(INTERVAL);
-      continue;
+    if (last.count > 0 && last.sig === prevSig) {
+      mountStable += 1;
+    } else {
+      mountStable = 0;
     }
-    if (mountStableAt === null) mountStableAt = Date.now();
 
-    // Phase 2: bounded wait for placeholder meshes to resolve.
-    if (last.unresolved === 0) {
+    // Accept once meshes have mounted AND all placeholders resolved.
+    if (last.count > 0 && last.unresolved === 0 && mountStable >= STABLE_SAMPLES) {
       return { ok: true, visualCount: last.count };
     }
-    if (Date.now() - mountStableAt >= RESOLVE_GRACE) {
+
+    // Stalled (no progress for a while) with meshes already present: capture
+    // as-is rather than blocking to the deadline — covers meshes that never
+    // resolve (missing deps, LFS pointers). count===0 keeps waiting, because
+    // the DAE may still be parsing and mount its meshes in one burst.
+    if (stall >= STALL_SAMPLES && last.count > 0) {
       return {
         ok: true,
         proceededAnyway: true,
         visualCount: last.count,
-        reason: `${last.unresolved} visual mesh(es) still unresolved ${RESOLVE_GRACE / 1000}s after mount stabilized; capturing as-is`,
+        reason: `scene stalled for ${(STALL_SAMPLES * INTERVAL) / 1000}s (${last.unresolved} unresolved); capturing as-is`,
       };
     }
+
+    prevSig = last.sig;
+    prevUnresolved = last.unresolved;
     await sleep(INTERVAL);
   }
   if (last.runtimePresent) {
@@ -716,20 +736,25 @@ async function main() {
         "--ignore-gpu-blocklist",
       ],
     });
-    const page = await browser.newPage();
-    // deviceScaleFactor drives window.devicePixelRatio, which the renderer
-    // samples for its drawing buffer. Match the on-screen ~2x DPR so the
-    // off-screen capture (which reads the live scene) stays crisp.
-    await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 2 });
-    page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-    page.on("console", (m) => {
-      if (m.type() === "error") console.log("[browser:error]", m.text());
-    });
-
-    console.log("[batch] exporting thumbnails (serial; fresh page load per asset)...");
+    console.log("[batch] exporting thumbnails (serial; fresh page per asset)...");
     for (const asset of assets) {
       const a0 = Date.now();
+      // Fresh page per asset (closed in finally below): a single reused page
+      // accumulates WASM workers / rendered geometry across navigations, and
+      // after a handful of assets the browser is memory-pressured enough that
+      // the next page.goto never reaches its load event (Navigation timeout
+      // 120000 ms). A fresh page releases that state between assets.
+      let page;
       try {
+        page = await browser.newPage();
+        // deviceScaleFactor drives window.devicePixelRatio, which the renderer
+        // samples for its drawing buffer. Match the on-screen ~2x DPR so the
+        // off-screen capture (which reads the live scene) stays crisp.
+        await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 2 });
+        page.on("pageerror", (e) => console.log("[pageerror]", e.message));
+        page.on("console", (m) => {
+          if (m.type() === "error") console.log("[browser:error]", m.text());
+        });
         const result = await processAsset(
           page,
           asset,
@@ -755,6 +780,14 @@ async function main() {
       } catch (e) {
         console.log(`[batch]   ERROR ${asset.dirName}: ${e?.message || e} (${((Date.now() - a0) / 1000).toFixed(1)}s)`);
         failures.push({ name: asset.dirName, reason: String(e?.message || e) });
+      } finally {
+        if (page) {
+          try {
+            await page.close();
+          } catch {
+            // best-effort cleanup
+          }
+        }
       }
     }
 
