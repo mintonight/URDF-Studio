@@ -155,17 +155,6 @@ export function HeaderOverflowMenu({
                     {t.snapshot}
                   </HeaderMenuItem>
                 )}
-                {showSettings && (
-                  <HeaderMenuItem
-                    icon={Settings}
-                    onClick={() => {
-                      onOpenSettings();
-                      setActiveMenu(null);
-                    }}
-                  >
-                    {t.settings}
-                  </HeaderMenuItem>
-                )}
                 {showLanguage && (
                   <HeaderMenuItem
                     icon={Languages}
@@ -193,6 +182,17 @@ export function HeaderOverflowMenu({
                     }}
                   >
                     {t.toggleTheme}
+                  </HeaderMenuItem>
+                )}
+                {showSettings && (
+                  <HeaderMenuItem
+                    icon={Settings}
+                    onClick={() => {
+                      onOpenSettings();
+                      setActiveMenu(null);
+                    }}
+                  >
+                    {t.settings}
                   </HeaderMenuItem>
                 )}
               </>

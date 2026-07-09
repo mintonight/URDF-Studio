@@ -12,6 +12,7 @@ import type { MJCFRenameOperation } from '../utils/mjcfEditableSourcePatch';
 
 export interface UseWorkspaceMutationsParams {
   assemblyState: AssemblyState | null;
+  shouldRenderAssembly: boolean;
   robotLinks: Record<string, UrdfLink>;
   rootLinkId: string;
   setName: (name: string) => void;

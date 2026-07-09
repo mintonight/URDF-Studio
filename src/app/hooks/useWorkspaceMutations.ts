@@ -42,6 +42,7 @@ import { useCollisionTransformHandlers } from './workspace-mutations/useCollisio
 
 export function useWorkspaceMutations({
   assemblyState,
+  shouldRenderAssembly,
   robotLinks,
   rootLinkId,
   setName,
@@ -105,14 +106,20 @@ export function useWorkspaceMutations({
 
   const handleNameChange = useCallback(
     (name: string) => {
-      if (assemblyState) {
+      if (shouldRenderAssembly && assemblyState) {
         useRobotStore.getState().setAssembly({ ...assemblyState, name });
+        // Single-component workspace: also update the top-level robot name so
+        // the property panel and source editor reflect the rename.
+        if (Object.keys(assemblyState.components).length <= 1) {
+          setName(name);
+          patchEditableSourceRobotName?.({ name });
+        }
       } else {
         setName(name);
         patchEditableSourceRobotName?.({ name });
       }
     },
-    [assemblyState, patchEditableSourceRobotName, setName],
+    [assemblyState, patchEditableSourceRobotName, setName, shouldRenderAssembly],
   );
 
   const scheduleAssemblyComponentJointSync = useCallback(
@@ -187,7 +194,12 @@ export function useWorkspaceMutations({
       const latestAssemblyState = useRobotStore.getState().assemblyState;
       const robotEntityData = data as UrdfLink | UrdfJoint;
 
-      if (latestAssemblyState) {
+      // Only route through the assembly data flow when the workspace is
+      // actually rendering the assembly. A single-robot import leaves
+      // assemblyState populated but shouldRenderAssembly=false; in that case
+      // property-panel edits must hit the top-level robot store (which the
+      // property editor reads), not the assembly component copy.
+      if (shouldRenderAssembly && latestAssemblyState) {
         const handled = applyAssemblyUpdate({
           type,
           id,
@@ -206,6 +218,29 @@ export function useWorkspaceMutations({
           patchEditableSourceRenameEntities,
         });
         if (handled) {
+          // For a single-component workspace (one imported robot rendered
+          // through the assembly path), the property panel still reads the
+          // top-level robot store. Mirror the edit there too so the panel
+          // reflects it immediately instead of reverting on the next
+          // selection change. True multi-robot assemblies are unaffected
+          // because their links do not exist in the top-level store.
+          const componentCount = Object.keys(latestAssemblyState.components).length;
+          if (componentCount <= 1) {
+            if (type === 'link' && robotLinks[id]) {
+              updateLink(id, data as Partial<UrdfLink>, {
+                skipHistory: true,
+                label: 'Mirror edit to top-level store',
+              });
+            } else if (type === 'joint') {
+              const resolvedJointId = resolveJointKey(useRobotStore.getState().joints, id);
+              if (resolvedJointId) {
+                updateJoint(resolvedJointId, data as Partial<UrdfJoint>, {
+                  skipHistory: true,
+                  label: 'Mirror edit to top-level store',
+                });
+              }
+            }
+          }
           return;
         }
 
@@ -419,6 +454,7 @@ export function useWorkspaceMutations({
       updateJoint,
       updateLink,
       updateMjcfTendon,
+      shouldRenderAssembly,
     ],
   );
 
@@ -441,6 +477,7 @@ export function useWorkspaceMutations({
     handleCollisionTransformPendingChange,
   } = useCollisionTransformHandlers({
     robotLinks,
+    shouldRenderAssembly,
     setPendingCollisionTransform,
     clearPendingCollisionTransform,
     handleTransformPendingChange,
@@ -599,7 +636,7 @@ export function useWorkspaceMutations({
 
   const handleAddChild = useCallback(
     (parentId: string) => {
-      if (assemblyState) {
+      if (shouldRenderAssembly && assemblyState) {
         commitPendingAssemblyHistory();
 
         for (const component of Object.values(assemblyState.components)) {
@@ -645,6 +682,15 @@ export function useWorkspaceMutations({
           } else if (jointId) {
             setSelection({ type: 'joint', id: jointId });
           }
+          // Single-component workspace: mirror the new child into the
+          // top-level robot store so the tree editor and property panel
+          // (which read the top-level store) reflect the addition.
+          if (Object.keys(assemblyState.components).length <= 1) {
+            useRobotStore.setState({
+              links: nextRobotState.links,
+              joints: nextRobotState.joints,
+            });
+          }
           return;
         }
       }
@@ -678,13 +724,14 @@ export function useWorkspaceMutations({
       focusOn,
       patchEditableSourceAddChild,
       setSelection,
+      shouldRenderAssembly,
       updateComponentRobot,
     ],
   );
 
   const handleAddCollisionBody = useCallback(
     (parentId: string) => {
-      if (assemblyState) {
+      if (shouldRenderAssembly && assemblyState) {
         commitPendingAssemblyHistory();
 
         for (const component of Object.values(assemblyState.components)) {
@@ -726,6 +773,15 @@ export function useWorkspaceMutations({
             objectIndex: nextObjectIndex,
           });
           focusOn(resolvedParentId);
+          // Single-component workspace: mirror the collision-body change into
+          // the top-level robot store so the property panel (which reads the
+          // top-level store) reflects it immediately.
+          if (Object.keys(assemblyState.components).length <= 1 && robotLinks[resolvedParentId]) {
+            updateLink(resolvedParentId, updatedParentLink, {
+              skipHistory: true,
+              label: 'Mirror collision body edit to top-level store',
+            });
+          }
           return;
         }
         return;
@@ -759,6 +815,7 @@ export function useWorkspaceMutations({
       patchEditableSourceAddCollisionBody,
       robotLinks,
       setSelection,
+      shouldRenderAssembly,
       updateComponentRobot,
       updateLink,
     ],
@@ -766,7 +823,7 @@ export function useWorkspaceMutations({
 
   const handleDelete = useCallback(
     (linkId: string) => {
-      if (assemblyState) {
+      if (shouldRenderAssembly && assemblyState) {
         for (const component of Object.values(assemblyState.components)) {
           if (!component.robot.links[linkId]) continue;
           const targetLinkName = component.robot.links[linkId]?.name;
@@ -812,6 +869,14 @@ export function useWorkspaceMutations({
           });
 
           setSelection({ type: null, id: null });
+          // Single-component workspace: mirror the deletion into the top-level
+          // robot store so the tree editor and property panel reflect it.
+          if (Object.keys(assemblyState.components).length <= 1) {
+            useRobotStore.setState({
+              links: nextLinks,
+              joints: nextJoints,
+            });
+          }
           return;
         }
         return;
@@ -833,6 +898,7 @@ export function useWorkspaceMutations({
       removeComponent,
       rootLinkId,
       setSelection,
+      shouldRenderAssembly,
       updateComponentRobot,
     ],
   );

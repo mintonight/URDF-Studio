@@ -7,6 +7,7 @@ import type { UpdateCommitMode, UpdateCommitOptions } from '@/types/viewer';
 
 interface CollisionTransformParams {
   robotLinks: Record<string, UrdfLink>;
+  shouldRenderAssembly: boolean;
   setPendingCollisionTransform: (transform: PendingCollisionTransform) => void;
   clearPendingCollisionTransform: () => void;
   handleTransformPendingChange: (pending: boolean) => void;
@@ -20,6 +21,7 @@ interface CollisionTransformParams {
 
 export function useCollisionTransformHandlers({
   robotLinks,
+  shouldRenderAssembly,
   setPendingCollisionTransform,
   clearPendingCollisionTransform,
   handleTransformPendingChange,
@@ -35,7 +37,7 @@ export function useCollisionTransformHandlers({
     ) => {
       const latestAssemblyState = useRobotStore.getState().assemblyState;
 
-      if (latestAssemblyState) {
+      if (shouldRenderAssembly && latestAssemblyState) {
         for (const comp of Object.values(latestAssemblyState.components)) {
           const resolvedLinkId = resolveLinkKey(comp.robot.links, linkId);
           if (!resolvedLinkId) continue;
@@ -78,7 +80,7 @@ export function useCollisionTransformHandlers({
         commitMode,
       });
     },
-    [applyUpdate],
+    [applyUpdate, shouldRenderAssembly],
   );
 
   const handleCollisionTransformPreview = useCallback(

@@ -191,9 +191,29 @@ export function AIInspectionModal({
         .join('\u0000'),
     [normalInspectionPlan],
   );
+  // Size the inspection window to the viewport on open so it never overshoots
+  // a narrow screen. Keep the 1080x720 design size on large screens, fall back
+  // to viewport-minus-margin on narrower/shorter ones, clamped to the minimums.
+  const defaultWindowSize = useMemo(() => {
+    const DESIGN_WIDTH = 1080;
+    const DESIGN_HEIGHT = 720;
+    const MIN_WIDTH = 760;
+    const MIN_HEIGHT = 520;
+    const VIEWPORT_MARGIN = 80;
+    const VERTICAL_RESERVE = 120; // header bar + top offset + bottom breathing room
+    const hasWindow = typeof window !== 'undefined';
+    const viewportWidth = hasWindow ? window.innerWidth : DESIGN_WIDTH;
+    const viewportHeight = hasWindow ? window.innerHeight : DESIGN_HEIGHT;
+    const width = Math.max(MIN_WIDTH, Math.min(DESIGN_WIDTH, viewportWidth - VIEWPORT_MARGIN));
+    const height = Math.max(
+      MIN_HEIGHT,
+      Math.min(DESIGN_HEIGHT, viewportHeight - VERTICAL_RESERVE),
+    );
+    return { width, height };
+  }, []);
   const windowState = useDraggableWindow({
     isOpen,
-    defaultSize: { width: 1080, height: 720 },
+    defaultSize: defaultWindowSize,
     minSize: { width: 760, height: 520 },
     centerOnMount: true,
     enableMinimize: true,
@@ -888,6 +908,7 @@ export function AIInspectionModal({
         }
         interactionClassName="select-none"
         showMinimizeButton={false}
+        showMaximizeButton={false}
         minimizeTitle={t.minimize}
         maximizeTitle={t.maximize}
         restoreTitle={t.restore}

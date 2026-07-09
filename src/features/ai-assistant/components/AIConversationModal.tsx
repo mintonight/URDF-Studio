@@ -553,6 +553,7 @@ export function AIConversationModal({
         headerClassName="h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
         interactionClassName="select-none"
         showMinimizeButton={false}
+        showMaximizeButton={false}
         minimizeTitle={t.minimize}
         maximizeTitle={t.maximize}
         restoreTitle={t.restore}
