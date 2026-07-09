@@ -18,9 +18,8 @@
  * Loaded from VITE_HANDOFF_ORIGINS env (comma-separated, supports `*` wildcard).
  * Falls back to localhost-only defaults when env is unset.
  */
-const handoffOriginsEnv = (
-  import.meta as ImportMeta & { env?: { VITE_HANDOFF_ORIGINS?: string } }
-).env?.VITE_HANDOFF_ORIGINS;
+const handoffOriginsEnv = (import.meta as ImportMeta & { env?: { VITE_HANDOFF_ORIGINS?: string } })
+  .env?.VITE_HANDOFF_ORIGINS;
 
 export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
   handoffOriginsEnv || 'http://localhost:*,http://127.0.0.1:*'
@@ -133,21 +132,10 @@ export function isAllowedHandoffOrigin(origin: string): boolean {
 export const IMPORT_QUERY_PARAM = 'import';
 export const FROM_QUERY_PARAM = 'from';
 export const IMPORT_PROTOCOL_VERSION = 2;
-export const POPUP_HANDOFF_QUERY_PARAM = 'handoff';
 
 export interface AssetImportParams {
   assetId: string;
   fromOrigin: string;
-}
-
-export interface PopupHandoffArchiveRecord {
-  id: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  sourceOrigin: string;
-  createdAt: number;
-  zipBlob: Blob;
 }
 
 /** Read asset import parameters from a full URL string. Returns null if absent. */
@@ -159,31 +147,12 @@ export function readImportParamsFromUrl(url: string): AssetImportParams | null {
   return { assetId, fromOrigin };
 }
 
-/** Read the legacy popup handoff id from a full URL string. Returns null if absent. */
-export function readHandoffIdFromUrl(url: string): string | null {
-  const resolvedUrl = new URL(url, 'http://localhost');
-  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId.length > 0 ? handoffId : null;
-}
-
 /** Remove asset import query parameters from a URL string, returning the cleaned URL. */
 export function stripImportParamsFromUrl(url: string): string {
   const resolvedUrl = new URL(url);
   resolvedUrl.searchParams.delete(IMPORT_QUERY_PARAM);
   resolvedUrl.searchParams.delete(FROM_QUERY_PARAM);
   resolvedUrl.searchParams.delete('jwt');
-  return resolvedUrl.toString();
-}
-
-/** Remove the legacy popup handoff query parameter from a URL string. */
-export function stripHandoffParamFromUrl(url: string): string {
-  const resolvedUrl = new URL(url, 'http://localhost');
-  resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
-
-  if (resolvedUrl.origin === 'http://localhost') {
-    return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;
-  }
-
   return resolvedUrl.toString();
 }
 

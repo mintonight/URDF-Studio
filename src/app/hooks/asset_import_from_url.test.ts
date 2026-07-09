@@ -8,6 +8,10 @@ import {
   resolveAllowedRemoteImportOrigin,
   type FileDownloadInfo,
 } from './useAssetImportFromUrl.ts';
+import {
+  isAllowedHandoffOrigin,
+  normalizeHandoffOrigin,
+} from '@/shared/utils/popupHandoffProtocol.ts';
 
 test('resolveAllowedRemoteImportOrigin rejects userinfo origin confusion', () => {
   assert.equal(resolveAllowedRemoteImportOrigin('http://localhost:80@evil.example'), null);
@@ -42,4 +46,15 @@ test('remote import size checks reject oversized content-length and blobs', () =
     () => assertRemoteImportBlobWithinLimits(oversizedBlob, 512 * 1024 * 1024 + 1),
     /Remote import is too large/i,
   );
+});
+
+test('handoff origin allowlist rejects userinfo host confusion at the protocol layer', () => {
+  // Arrange: an origin embedding userinfo to confuse host parsing
+  const maliciousOrigin = 'http://localhost:80@evil.example';
+
+  // Assert: normalization drops it and the allowlist rejects it,
+  // while a plain localhost origin is still accepted.
+  assert.equal(normalizeHandoffOrigin(maliciousOrigin), null);
+  assert.equal(isAllowedHandoffOrigin(maliciousOrigin), false);
+  assert.equal(isAllowedHandoffOrigin('http://localhost:5173'), true);
 });

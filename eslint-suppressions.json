@@ -195,11 +195,6 @@
       "count": 1
     }
   },
-  "src/app/utils/popupHandoffImport.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/app/utils/simpleModeDrafts.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
