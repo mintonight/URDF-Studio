@@ -15,7 +15,10 @@ import {
 
 test('resolveAllowedRemoteImportOrigin rejects userinfo origin confusion', () => {
   assert.equal(resolveAllowedRemoteImportOrigin('http://localhost:80@evil.example'), null);
-  assert.equal(resolveAllowedRemoteImportOrigin('http://localhost:5173'), 'http://localhost:5173');
+  assert.equal(
+    resolveAllowedRemoteImportOrigin('https://botworld.enkeebot.com'),
+    'https://botworld.enkeebot.com',
+  );
 });
 
 test('remote import file list rejects excessive file counts before download', () => {
@@ -48,13 +51,16 @@ test('remote import size checks reject oversized content-length and blobs', () =
   );
 });
 
-test('handoff origin allowlist rejects userinfo host confusion at the protocol layer', () => {
+test('handoff origin allowlist strips userinfo and validates the real host', () => {
   // Arrange: an origin embedding userinfo to confuse host parsing
   const maliciousOrigin = 'http://localhost:80@evil.example';
 
-  // Assert: normalization drops it and the allowlist rejects it,
-  // while a plain localhost origin is still accepted.
-  assert.equal(normalizeHandoffOrigin(maliciousOrigin), null);
+  // Assert: normalization strips userinfo (leaving the real host),
+  // the allowlist then rejects the real host (evil.example not allowed),
+  // Default fallback (no env) accepts production enkeebot domains but rejects
+  // localhost (which must be added via env for local development).
+  assert.equal(normalizeHandoffOrigin(maliciousOrigin), 'http://evil.example');
   assert.equal(isAllowedHandoffOrigin(maliciousOrigin), false);
-  assert.equal(isAllowedHandoffOrigin('http://localhost:5173'), true);
+  assert.equal(isAllowedHandoffOrigin('https://botworld.enkeebot.com'), true);
+  assert.equal(isAllowedHandoffOrigin('http://localhost:5173'), false);
 });

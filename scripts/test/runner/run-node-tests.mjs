@@ -17,7 +17,7 @@ const FAST_APP_TESTS = [
   'src/app/utils/importPreparation.workerSafe.test.ts',
   'src/app/utils/viewerDocumentLifecycleCallbacks.test.ts',
   'src/app/components/UnifiedViewer.typecheck.test.ts',
-  'src/app/utils/popupHandoffImport.test.ts',
+  'src/app/hooks/asset_import_from_url.test.ts',
 ];
 
 function toPosixPath(filePath) {

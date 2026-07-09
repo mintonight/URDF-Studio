@@ -16,112 +16,56 @@
 /**
  * Origin patterns allowed for handoff communication.
  * Loaded from VITE_HANDOFF_ORIGINS env (comma-separated, supports `*` wildcard).
- * Falls back to localhost-only defaults when env is unset.
+ * Falls back to production domains (*.enkeebot.com / *.enkeebot.cn) when env is unset.
  */
 const handoffOriginsEnv = (import.meta as ImportMeta & { env?: { VITE_HANDOFF_ORIGINS?: string } })
   .env?.VITE_HANDOFF_ORIGINS;
 
 export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
-  handoffOriginsEnv || 'http://localhost:*,http://127.0.0.1:*'
+  handoffOriginsEnv || 'https://*.enkeebot.com,https://*.enkeebot.cn'
 )
   .split(',')
   .map((s: string) => s.trim())
   .filter(Boolean);
 
-interface ParsedHandoffOrigin {
-  hostname: string;
-  port: string;
-  protocol: string;
-}
-
-interface ParsedHandoffOriginPattern extends ParsedHandoffOrigin {
-  hostnamePattern: string;
-  portPattern: string;
-}
-
-function parseHandoffOrigin(value: string): ParsedHandoffOrigin | null {
+/**
+ * Extract a normalized origin from an input string.
+ * Accepts full URLs (https://example.com/path) and bare origins (https://example.com);
+ * pathname, search, hash and userinfo are stripped by the URL parser.
+ * Returns null if the input is not a parseable http(s) URL.
+ */
+export function normalizeHandoffOrigin(input: string): string | null {
   try {
-    const url = new URL(value);
-    if (url.username || url.password || url.search || url.hash) {
-      return null;
-    }
-    if (url.pathname && url.pathname !== '/') {
-      return null;
-    }
+    const url = new URL(input);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       return null;
     }
-
-    return {
-      hostname: url.hostname.toLowerCase(),
-      port: url.port,
-      protocol: url.protocol,
-    };
+    const isDefaultPort =
+      (url.protocol === 'https:' && url.port === '443') ||
+      (url.protocol === 'http:' && url.port === '80');
+    const port = isDefaultPort || !url.port ? '' : `:${url.port}`;
+    return `${url.protocol}//${url.hostname}${port}`;
   } catch {
     return null;
   }
 }
 
-function parseHandoffOriginPattern(pattern: string): ParsedHandoffOriginPattern | null {
-  const match = pattern.match(/^(https?):\/\/(\[[^\]]+\]|[^/?#@:]+)(?::(\*|\d+))?$/i);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    hostname: match[2].toLowerCase(),
-    hostnamePattern: match[2].toLowerCase(),
-    port: match[3] ?? '',
-    portPattern: match[3] ?? '',
-    protocol: `${match[1].toLowerCase()}:`,
-  };
-}
-
-function wildcardPatternMatches(value: string, pattern: string): boolean {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp('^' + escaped.replace(/\*/g, '[^.]*') + '$', 'i');
-  return regex.test(value);
-}
-
-function handoffOriginMatchesPattern(
-  origin: ParsedHandoffOrigin,
-  pattern: ParsedHandoffOriginPattern,
-): boolean {
-  if (origin.protocol !== pattern.protocol) {
-    return false;
-  }
-
-  if (
-    pattern.hostnamePattern.includes('*')
-      ? !wildcardPatternMatches(origin.hostname, pattern.hostnamePattern)
-      : origin.hostname !== pattern.hostname
-  ) {
-    return false;
-  }
-
-  return pattern.portPattern === '*' || origin.port === pattern.portPattern;
-}
-
-export function normalizeHandoffOrigin(origin: string): string | null {
-  const parsed = parseHandoffOrigin(origin);
-  if (!parsed) {
-    return null;
-  }
-
-  const port = parsed.port ? `:${parsed.port}` : '';
-  return `${parsed.protocol}//${parsed.hostname}${port}`;
-}
-
-/** Check whether an origin matches any allowed pattern (with `*` wildcard support). */
-export function isAllowedHandoffOrigin(origin: string): boolean {
-  const parsedOrigin = parseHandoffOrigin(origin);
-  if (!parsedOrigin) {
+/**
+ * Check whether an origin matches any allowed pattern (with `*` wildcard support).
+ * `*` matches any sequence of characters, so multi-level subdomains are accepted
+ * (e.g. `*.enkeebot.com` matches `a.b.enkeebot.com`).
+ */
+export function isAllowedHandoffOrigin(originInput: string): boolean {
+  const origin = normalizeHandoffOrigin(originInput);
+  if (!origin) {
     return false;
   }
 
   return ALLOWED_HANDOFF_ORIGINS.some((pattern) => {
-    const parsedPattern = parseHandoffOriginPattern(pattern);
-    return parsedPattern ? handoffOriginMatchesPattern(parsedOrigin, parsedPattern) : false;
+    if (!pattern.includes('*')) return pattern === origin;
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
+    return regex.test(origin);
   });
 }
 
