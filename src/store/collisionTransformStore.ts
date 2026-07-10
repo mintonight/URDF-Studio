@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 export interface PendingCollisionTransform {
+  componentId: string;
   linkId: string;
   objectIndex: number;
   position: { x: number; y: number; z: number };
@@ -19,7 +20,8 @@ function isSamePendingTransform(
 ): boolean {
   if (!current) return false;
 
-  return current.linkId === next.linkId
+  return current.componentId === next.componentId
+    && current.linkId === next.linkId
     && current.objectIndex === next.objectIndex
     && current.position.x === next.position.x
     && current.position.y === next.position.y

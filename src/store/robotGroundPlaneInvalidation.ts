@@ -1,15 +1,15 @@
-import { useRobotStore } from './robotStore';
+import { useWorkspaceStore } from './workspaceStore';
 
 export type GroundPlaneInvalidationListener = () => void;
 export type GroundPlaneInvalidationSubscription = (
   listener: GroundPlaneInvalidationListener,
 ) => () => void;
 
-export const subscribeRobotGroundPlaneInvalidation: GroundPlaneInvalidationSubscription = (
+export const subscribeWorkspaceGroundPlaneInvalidation: GroundPlaneInvalidationSubscription = (
   listener,
 ) =>
-  useRobotStore.subscribe((state, previousState) => {
-    if (state.joints !== previousState.joints || state.links !== previousState.links) {
+  useWorkspaceStore.subscribe((state, previousState) => {
+    if (state.revision !== previousState.revision) {
       listener();
     }
   });

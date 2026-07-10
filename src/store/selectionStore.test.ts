@@ -1,334 +1,406 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import { useSelectionStore, validateSelection } from './selectionStore.ts';
+import { createComponentSourceDraft, createSingleComponentWorkspace } from '@/core/robot';
+import { buildCanonicalWorkspaceSourceDocuments } from '@/app/utils/sourceCodeDocuments';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  JointType,
+  type AssemblyState,
+  type EntityRef,
+  type RobotData,
+  type WorkspaceSelection,
+} from '@/types';
+import {
+  matchesSelection,
+  repairWorkspaceSelection,
+  useSelectionStore,
+  validateEntityRef,
+} from './selectionStore.ts';
+import { useWorkspaceStore } from './workspaceStore.ts';
 
-function resetSelectionStore() {
+function createRobot(name: string): RobotData {
+  return {
+    name,
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: `${name} display base`,
+        visible: true,
+      },
+      tool_link: {
+        ...DEFAULT_LINK,
+        id: 'tool_link',
+        name: `${name} display tool`,
+        visible: true,
+      },
+    },
+    joints: {
+      tool_joint: {
+        ...DEFAULT_JOINT,
+        id: 'tool_joint',
+        name: `${name} display joint`,
+        type: JointType.FIXED,
+        parentLinkId: 'base_link',
+        childLinkId: 'tool_link',
+      },
+    },
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 0,
+        tendonCount: 1,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [],
+        tendons: [{
+          name: 'shared_tendon',
+          type: 'fixed',
+          attachmentRefs: ['tool_joint'],
+          attachments: [{ type: 'joint', ref: 'tool_joint', coef: 1 }],
+          actuatorNames: [],
+        }],
+      },
+    },
+  };
+}
+
+function createWorkspace(): AssemblyState {
+  const workspace = createSingleComponentWorkspace(createRobot('left'), {
+    workspaceName: 'selection_workspace',
+    componentId: 'left',
+  });
+  workspace.components.right = createSingleComponentWorkspace(createRobot('right'), {
+    componentId: 'right',
+  }).components.right;
+  workspace.bridges.mount = {
+    id: 'mount',
+    name: 'mount',
+    parentComponentId: 'left',
+    parentLinkId: 'base_link',
+    childComponentId: 'right',
+    childLinkId: 'base_link',
+    joint: {
+      ...DEFAULT_JOINT,
+      id: 'mount',
+      name: 'mount_joint',
+      type: JointType.FIXED,
+      parentLinkId: 'base_link',
+      childLinkId: 'base_link',
+    },
+  };
+  return workspace;
+}
+
+function selection(entity: EntityRef): WorkspaceSelection {
+  return { entity };
+}
+
+function resetSelectionStore(): void {
   const state = useSelectionStore.getState();
   state.setInteractionGuard(null);
   state.setHoverFrozen(false);
   while (useSelectionStore.getState().hoverBlockCount > 0) {
     useSelectionStore.getState().endHoverBlock();
   }
+  state.clearSelection();
   state.clearHover();
-  state.setSelection({ type: null, id: null });
-  state.setHoveredSelection({ type: null, id: null });
-  state.setAttentionSelection({ type: null, id: null });
+  state.clearAttentionSelection();
   state.setFocusTarget(null);
 }
 
-test('setHoverFrozen preserves the visible hover and applies the last hover intent on release', () => {
+test('explicit selection APIs preserve component ownership for identical local IDs', () => {
   resetSelectionStore();
+  const leftRef = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
+  const rightRef = { type: 'link', componentId: 'right', entityId: 'base_link' } as const;
 
-  const state = useSelectionStore.getState();
-  state.setHoveredSelection({ type: 'link', id: 'base_link', subType: 'visual', objectIndex: 0 });
-  state.setHoverFrozen(true);
-
-  let nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
+  useSelectionStore.getState().selectLink(leftRef, {
     subType: 'visual',
     objectIndex: 0,
   });
-  assert.deepEqual(nextState.deferredHoveredSelection, {
-    type: 'link',
-    id: 'base_link',
+  const leftSelection = useSelectionStore.getState().selection;
+  assert.deepEqual(leftSelection, {
+    entity: leftRef,
     subType: 'visual',
     objectIndex: 0,
   });
 
-  nextState.setHoveredSelection({
-    type: 'link',
-    id: 'arm_link',
-    subType: 'collision',
-    objectIndex: 2,
-  });
-  nextState.hoverJoint('joint_1');
-  nextState = useSelectionStore.getState();
-
-  assert.deepEqual(nextState.hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'joint', id: 'joint_1' });
-
-  nextState.setHoverFrozen(false);
-  nextState = useSelectionStore.getState();
-  assert.deepEqual(nextState.hoveredSelection, { type: 'joint', id: 'joint_1' });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  useSelectionStore.getState().selectLink(rightRef);
+  const rightSelection = useSelectionStore.getState().selection;
+  assert.deepEqual(rightSelection, { entity: rightRef });
+  assert.equal(matchesSelection(leftSelection, rightSelection), false);
 });
 
-test('clearHover during a frozen drag clears the deferred hover so release does not restore stale highlight', () => {
+test('owned selections centrally switch active component and canonical source documents', () => {
   resetSelectionStore();
+  const workspace = createWorkspace();
+  workspace.components.left!.sourceFile = 'left.urdf';
+  workspace.components.right!.sourceFile = 'right.urdf';
+  useWorkspaceStore.getState().replaceWorkspace(workspace, { resetHistory: true });
+  useWorkspaceStore.getState().setActiveComponent('left');
+  const drafts = {
+    left: createComponentSourceDraft({
+      componentId: 'left',
+      format: 'urdf',
+      content: '<robot name="left" />',
+      robot: workspace.components.left!.robot,
+    }),
+    right: createComponentSourceDraft({
+      componentId: 'right',
+      format: 'urdf',
+      content: '<robot name="right" />',
+      robot: workspace.components.right!.robot,
+    }),
+  };
 
+  useSelectionStore.getState().selectLink({
+    type: 'link', componentId: 'right', entityId: 'base_link',
+  });
+  assert.equal(useWorkspaceStore.getState().activeComponentId, 'right');
+  const source = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: useWorkspaceStore.getState().activeComponentId,
+    componentSourceDrafts: drafts,
+    availableFiles: [
+      { name: 'left.urdf', format: 'urdf', content: '<library-left />' },
+      { name: 'right.urdf', format: 'urdf', content: '<library-right />' },
+    ],
+    allFileContents: {},
+  });
+  assert.equal(source.componentId, 'right');
+
+  useSelectionStore.getState().selectBridge('mount');
+  useSelectionStore.getState().clearSelection();
+  assert.equal(useWorkspaceStore.getState().activeComponentId, 'right');
+});
+
+test('assembly, component, bridge, joint, and tendon APIs produce EntityRef selections', () => {
+  resetSelectionStore();
   const state = useSelectionStore.getState();
-  state.setHoveredSelection({ type: 'link', id: 'base_link' });
+
+  state.selectAssembly();
+  assert.deepEqual(useSelectionStore.getState().selection, selection({ type: 'assembly' }));
+  state.selectComponent('left');
+  assert.deepEqual(
+    useSelectionStore.getState().selection,
+    selection({ type: 'component', componentId: 'left' }),
+  );
+  state.selectBridge('mount');
+  assert.deepEqual(
+    useSelectionStore.getState().selection,
+    selection({ type: 'bridge', bridgeId: 'mount' }),
+  );
+  state.selectJoint({ type: 'joint', componentId: 'right', entityId: 'tool_joint' });
+  assert.deepEqual(
+    useSelectionStore.getState().selection,
+    selection({ type: 'joint', componentId: 'right', entityId: 'tool_joint' }),
+  );
+  state.selectTendon({ type: 'tendon', componentId: 'left', entityId: 'shared_tendon' });
+  assert.deepEqual(
+    useSelectionStore.getState().selection,
+    selection({ type: 'tendon', componentId: 'left', entityId: 'shared_tendon' }),
+  );
+});
+
+test('matchesSelection compares every optional detail unless explicitly ignored', () => {
+  const ref = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
+  const first: WorkspaceSelection = {
+    entity: ref,
+    subType: 'visual',
+    objectIndex: 0,
+    helperKind: 'center-of-mass',
+    highlightObjectId: 10,
+  };
+  const second: WorkspaceSelection = {
+    entity: ref,
+    subType: 'collision',
+    objectIndex: 1,
+    helperKind: 'inertia',
+    highlightObjectId: 20,
+  };
+
+  assert.equal(matchesSelection(first, second), false);
+  assert.equal(matchesSelection(first, second, {
+    ignoreSubType: true,
+    ignoreObjectIndex: true,
+    ignoreHelperKind: true,
+    ignoreHighlightObjectId: true,
+  }), true);
+  assert.equal(matchesSelection(null, null), true);
+  assert.equal(matchesSelection(first, null), false);
+});
+
+test('interaction guard receives owned selections while null always clears', () => {
+  resetSelectionStore();
+  let guardCalls = 0;
+  useSelectionStore.getState().setInteractionGuard((candidate) => {
+    guardCalls += 1;
+    return candidate.entity.type === 'component' && candidate.entity.componentId === 'left';
+  });
+
+  useSelectionStore.getState().selectComponent('right');
+  assert.equal(useSelectionStore.getState().selection, null);
+  useSelectionStore.getState().selectComponent('left');
+  assert.deepEqual(
+    useSelectionStore.getState().selection,
+    selection({ type: 'component', componentId: 'left' }),
+  );
+  useSelectionStore.getState().clearSelection();
+  assert.equal(useSelectionStore.getState().selection, null);
+  assert.equal(useSelectionStore.getState().isInteractionAllowed(null), true);
+  assert.equal(guardCalls, 2);
+});
+
+test('hover freeze preserves visible hover and applies the latest deferred intent', () => {
+  resetSelectionStore();
+  const left = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
+  const right = { type: 'link', componentId: 'right', entityId: 'base_link' } as const;
+  const state = useSelectionStore.getState();
+  state.hoverLink(left, { subType: 'visual', objectIndex: 0 });
   state.setHoverFrozen(true);
 
-  let nextState = useSelectionStore.getState();
-  nextState.setHoveredSelection({
-    type: 'link',
-    id: 'arm_link',
+  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
+    entity: left,
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  state.hoverLink(right, { subType: 'collision', objectIndex: 1 });
+  assert.deepEqual(useSelectionStore.getState().deferredHoveredSelection, {
+    entity: right,
     subType: 'collision',
     objectIndex: 1,
   });
-  nextState.clearHover();
-
-  nextState = useSelectionStore.getState();
-  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
-
-  nextState.setHoverFrozen(false);
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
-});
-
-test('setHoverFrozen(false) preserves the current hover when hover is already unfrozen', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setHoveredSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
 
   state.setHoverFrozen(false);
-
-  const nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, false);
-  assert.deepEqual(nextState.hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
+  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
+    entity: right,
+    subType: 'collision',
+    objectIndex: 1,
   });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  assert.equal(useSelectionStore.getState().deferredHoveredSelection, null);
 });
 
-test('hover blocks preserve the existing hover intent and do not let new hover updates replace it before release', () => {
+test('hover blocks hide and restore the existing intent while ignoring new hover targets', () => {
   resetSelectionStore();
-
+  const left = selection({ type: 'link', componentId: 'left', entityId: 'base_link' });
+  const right = selection({ type: 'link', componentId: 'right', entityId: 'base_link' });
   const state = useSelectionStore.getState();
-  state.setHoveredSelection({ type: 'link', id: 'base_link' });
+  state.setHoveredSelection(left);
   state.beginHoverBlock();
 
-  let nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
+  assert.equal(useSelectionStore.getState().hoveredSelection, null);
+  assert.deepEqual(useSelectionStore.getState().deferredHoveredSelection, left);
+  state.setHoveredSelection(right);
+  assert.deepEqual(useSelectionStore.getState().deferredHoveredSelection, left);
 
-  nextState.setHoveredSelection({ type: 'link', id: 'arm_link' });
-
-  nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
-
-  nextState.endHoverBlock();
-  nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, false);
-  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
+  state.endHoverBlock();
+  assert.deepEqual(useSelectionStore.getState().hoveredSelection, left);
+  assert.equal(useSelectionStore.getState().deferredHoveredSelection, null);
 });
 
-test('beginHoverBlock preserves the current hover as deferred intent so quick blank clicks do not flash the highlight away', () => {
+test('null clears frozen hover intent and guard-rejected hover targets', () => {
   resetSelectionStore();
-
   const state = useSelectionStore.getState();
-  state.setHoveredSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-
-  state.beginHoverBlock();
-
-  let nextState = useSelectionStore.getState();
-  assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
-  assert.deepEqual(nextState.deferredHoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-
-  nextState.endHoverBlock();
-  nextState = useSelectionStore.getState();
-
-  assert.equal(nextState.hoverFrozen, false);
-  assert.deepEqual(nextState.hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
-});
-
-test('interaction guard blocks invalid selections without preventing clearing', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setInteractionGuard((selection) => selection.id === 'allowed_link');
-
-  state.setSelection({ type: 'link', id: 'blocked_link' });
-  assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
-
-  state.setSelection({ type: 'link', id: 'allowed_link' });
-  assert.deepEqual(useSelectionStore.getState().selection, { type: 'link', id: 'allowed_link' });
-
-  state.clearSelection();
-  assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
-});
-
-test('interaction guard clears invalid hover targets instead of keeping the previous highlight', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setInteractionGuard((selection) => selection.id === 'allowed_link');
-  state.setHoveredSelection({ type: 'link', id: 'allowed_link' });
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
-    type: 'link',
-    id: 'allowed_link',
-  });
-
-  state.setHoveredSelection({ type: 'link', id: 'blocked_link' });
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
-});
-
-test('hover state updates when helper identity changes on the same link', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setHoveredSelection({ type: 'link', id: 'base_link', helperKind: 'center-of-mass' });
-  state.setHoveredSelection({ type: 'link', id: 'base_link', helperKind: 'inertia' });
-
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    helperKind: 'inertia',
-  });
-});
-
-test('hover state updates when the highlighted object changes on the same link', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setHoveredSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-    highlightObjectId: 101,
-  });
-  state.setHoveredSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-    highlightObjectId: 202,
-  });
-
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-    highlightObjectId: 202,
-  });
-});
-
-test('selection state preserves an explicit primary geometry objectIndex after a generic geometry select', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-  });
-  state.setSelection({
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-
-  assert.deepEqual(useSelectionStore.getState().selection, {
-    type: 'link',
-    id: 'base_link',
-    subType: 'visual',
-    objectIndex: 0,
-  });
-});
-
-test('empty string ids are normalized to the empty selection state', () => {
-  resetSelectionStore();
-
-  const state = useSelectionStore.getState();
-  state.setSelection({ type: 'link', id: '' });
-  assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
-
-  state.setHoveredSelection({ type: 'link', id: '' });
-  assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
-});
-
-test('validateSelection accepts runtime names in addition to canonical link and joint keys', () => {
-  assert.equal(
-    validateSelection(
-      { type: 'link', id: 'base_link' },
-      {
-        link_key: { name: 'base_link' },
-      },
-      {},
-    ),
-    true,
+  state.setHoveredSelection(
+    selection({ type: 'component', componentId: 'left' }),
   );
-  assert.equal(
-    validateSelection(
-      { type: 'joint', id: 'shoulder_joint' },
-      {},
-      {
-        joint_key: { name: 'shoulder_joint' },
-      },
-    ),
-    true,
+  state.setHoverFrozen(true);
+  state.clearHover();
+  assert.equal(useSelectionStore.getState().deferredHoveredSelection, null);
+  state.setHoverFrozen(false);
+  assert.equal(useSelectionStore.getState().hoveredSelection, null);
+
+  state.setInteractionGuard((candidate) =>
+    candidate.entity.type === 'component' && candidate.entity.componentId === 'left');
+  state.hoverComponent('left');
+  assert.deepEqual(
+    useSelectionStore.getState().hoveredSelection,
+    selection({ type: 'component', componentId: 'left' }),
   );
+  state.hoverComponent('right');
+  assert.equal(useSelectionStore.getState().hoveredSelection, null);
 });
 
-test('validateSelection keeps tendon selections when the MJCF tendon still exists', () => {
-  assert.equal(
-    validateSelection(
-      { type: 'tendon', id: 'finger_tendon' },
-      {},
-      {},
-      {
-        mjcf: {
-          tendons: [{ name: 'finger_tendon' }],
-        },
-      },
-    ),
-    true,
-  );
-});
-
-test('focusOn re-arms the same target so repeated locate actions can retrigger camera focus', async () => {
+test('pulse and focus timers clear canonical targets and explicit null cancels pending work', async () => {
   resetSelectionStore();
+  const target = selection({ type: 'joint', componentId: 'left', entityId: 'tool_joint' });
+  useSelectionStore.getState().pulseSelection(target, 5);
+  assert.deepEqual(useSelectionStore.getState().attentionSelection, target);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(useSelectionStore.getState().attentionSelection, null);
 
-  const state = useSelectionStore.getState();
-  state.focusOn('base_link');
-  assert.equal(useSelectionStore.getState().focusTarget, 'base_link');
-
-  state.focusOn('base_link');
+  const focusRef = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
+  useSelectionStore.getState().focusOn(focusRef, 5);
+  assert.deepEqual(useSelectionStore.getState().focusTarget, focusRef);
+  await new Promise((resolve) => setTimeout(resolve, 15));
   assert.equal(useSelectionStore.getState().focusTarget, null);
 
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(useSelectionStore.getState().focusTarget, 'base_link');
-
+  useSelectionStore.getState().focusOn(focusRef, 50);
+  useSelectionStore.getState().focusOn(focusRef, 50);
+  assert.equal(useSelectionStore.getState().focusTarget, null);
   useSelectionStore.getState().setFocusTarget(null);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(useSelectionStore.getState().focusTarget, null);
+});
+
+test('validateEntityRef uses exact component-local keys and keeps duplicate IDs distinct', () => {
+  const workspace = createWorkspace();
+  assert.equal(validateEntityRef(workspace, {
+    type: 'link', componentId: 'left', entityId: 'base_link',
+  }), true);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'link', componentId: 'right', entityId: 'base_link',
+  }), true);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'joint', componentId: 'right', entityId: 'tool_joint',
+  }), true);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'tendon', componentId: 'left', entityId: 'shared_tendon',
+  }), true);
+  assert.equal(validateEntityRef(workspace, { type: 'bridge', bridgeId: 'mount' }), true);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'link', componentId: 'left', entityId: 'left display base',
+  }), false);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'link', componentId: 'missing', entityId: 'base_link',
+  }), false);
+  assert.equal(validateEntityRef(workspace, {
+    type: 'link', componentId: 'toString', entityId: 'base_link',
+  }), false);
+});
+
+test('repairWorkspaceSelection preserves valid refs and repairs stale refs deterministically', () => {
+  const workspace = createWorkspace();
+  const valid: WorkspaceSelection = {
+    entity: { type: 'link', componentId: 'right', entityId: 'base_link' },
+    subType: 'visual',
+    objectIndex: 0,
+  };
+  assert.equal(repairWorkspaceSelection(workspace, valid, 'left'), valid);
+  assert.equal(repairWorkspaceSelection(workspace, null, 'left'), null);
+
+  assert.deepEqual(
+    repairWorkspaceSelection(workspace, selection({
+      type: 'joint', componentId: 'right', entityId: 'missing_joint',
+    }), 'left'),
+    selection({ type: 'component', componentId: 'right' }),
+  );
+  assert.deepEqual(
+    repairWorkspaceSelection(workspace, selection({
+      type: 'link', componentId: 'missing', entityId: 'base_link',
+    }), 'right'),
+    selection({ type: 'component', componentId: 'right' }),
+  );
+  assert.deepEqual(
+    repairWorkspaceSelection(workspace, selection({ type: 'bridge', bridgeId: 'missing' }), null),
+    selection({ type: 'component', componentId: 'left' }),
+  );
+  assert.deepEqual(
+    repairWorkspaceSelection(workspace, selection({
+      type: 'component', componentId: 'missing',
+    }), 'also_missing'),
+    selection({ type: 'component', componentId: 'left' }),
+  );
 });

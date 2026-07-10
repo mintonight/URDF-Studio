@@ -1,100 +1,131 @@
-/**
- * Selection Store - Manages selection state for robot elements
- * Handles link/joint selection and hover state for synchronized highlighting
- */
+/** Canonical workspace selection, hover, attention, and camera-focus state. */
 import { create } from 'zustand';
-import type { InteractionSelection } from '@/types';
 
-// Selection type matching RobotState['selection'] plus hover-only helper overlays.
-export type Selection = InteractionSelection;
+import {
+  areEntityRefsEqual,
+  type AssemblyState,
+  type EntityRef,
+  type WorkspaceSelection,
+} from '@/types';
+import { useWorkspaceStore } from './workspaceStore';
 
-export type SelectionGuard = (selection: Selection) => boolean;
+export type WorkspaceSelectionValue = NonNullable<WorkspaceSelection>;
+export type WorkspaceSelectionDetails = Omit<WorkspaceSelectionValue, 'entity'>;
+export type LinkEntityRef = Extract<EntityRef, { type: 'link' }>;
+export type JointEntityRef = Extract<EntityRef, { type: 'joint' }>;
+export type TendonEntityRef = Extract<EntityRef, { type: 'tendon' }>;
 
-interface SelectionState {
-  // Current selection
-  selection: Selection;
+export type SelectionGuard = (selection: WorkspaceSelectionValue) => boolean;
+
+export interface SelectionMatchOptions {
+  ignoreSubType?: boolean;
+  ignoreObjectIndex?: boolean;
+  ignoreHelperKind?: boolean;
+  ignoreHighlightObjectId?: boolean;
+}
+
+export interface SelectionState {
+  selection: WorkspaceSelection;
   interactionGuard: SelectionGuard | null;
   setInteractionGuard: (guard: SelectionGuard | null) => void;
-  isInteractionAllowed: (selection: Selection) => boolean;
-  setSelection: (selection: Selection) => void;
-  selectLink: (id: string, subType?: 'visual' | 'collision', objectIndex?: number) => void;
-  selectJoint: (id: string) => void;
+  isInteractionAllowed: (selection: WorkspaceSelection) => boolean;
+  setSelection: (selection: WorkspaceSelection) => void;
+  selectAssembly: () => void;
+  selectComponent: (componentId: string) => void;
+  selectBridge: (bridgeId: string) => void;
+  selectLink: (ref: LinkEntityRef, details?: WorkspaceSelectionDetails) => void;
+  selectJoint: (ref: JointEntityRef, details?: WorkspaceSelectionDetails) => void;
+  selectTendon: (ref: TendonEntityRef, details?: WorkspaceSelectionDetails) => void;
   clearSelection: () => void;
 
-  // Hover state for synchronized highlighting across components
-  hoveredSelection: Selection;
-  deferredHoveredSelection: Selection;
+  hoveredSelection: WorkspaceSelection;
+  deferredHoveredSelection: WorkspaceSelection;
   hoverFrozen: boolean;
   interactionHoverFrozen: boolean;
   hoverBlockCount: number;
   setHoverFrozen: (frozen: boolean) => void;
   beginHoverBlock: () => void;
   endHoverBlock: () => void;
-  setHoveredSelection: (selection: Selection) => void;
-  hoverLink: (id: string) => void;
-  hoverJoint: (id: string) => void;
+  setHoveredSelection: (selection: WorkspaceSelection) => void;
+  hoverAssembly: () => void;
+  hoverComponent: (componentId: string) => void;
+  hoverBridge: (bridgeId: string) => void;
+  hoverLink: (ref: LinkEntityRef, details?: WorkspaceSelectionDetails) => void;
+  hoverJoint: (ref: JointEntityRef, details?: WorkspaceSelectionDetails) => void;
+  hoverTendon: (ref: TendonEntityRef, details?: WorkspaceSelectionDetails) => void;
   clearHover: () => void;
 
-  // Transient emphasis for auto-jumped tree rows
-  attentionSelection: Selection;
-  setAttentionSelection: (selection: Selection) => void;
-  pulseSelection: (selection: Selection, durationMs?: number) => void;
+  attentionSelection: WorkspaceSelection;
+  setAttentionSelection: (selection: WorkspaceSelection) => void;
+  pulseSelection: (selection: WorkspaceSelection, durationMs?: number) => void;
   clearAttentionSelection: () => void;
 
-  // Focus target for camera focusing
-  focusTarget: string | null;
-  setFocusTarget: (id: string | null) => void;
-  focusOn: (id: string) => void;
+  focusTarget: EntityRef | null;
+  setFocusTarget: (ref: EntityRef | null) => void;
+  focusOn: (ref: EntityRef, durationMs?: number) => void;
 }
 
-const emptySelection: Selection = { type: null, id: null };
-
-function isSelectionEmpty(selection: Selection): boolean {
-  return !selection.type || !selection.id;
+function createSelection(
+  entity: EntityRef,
+  details?: WorkspaceSelectionDetails,
+): WorkspaceSelectionValue {
+  return details ? { entity, ...details } : { entity };
 }
 
-function normalizeSelection(selection: Selection): Selection {
-  return isSelectionEmpty(selection) ? emptySelection : selection;
-}
-
-function hasOwnSelectionField<T extends keyof Selection>(selection: Selection, field: T): boolean {
-  return Object.prototype.hasOwnProperty.call(selection, field);
-}
-
-function matchesStoredSelection(selection: Selection, target: Selection): boolean {
+export function matchesSelection(
+  selection: WorkspaceSelection,
+  target: WorkspaceSelection,
+  options: SelectionMatchOptions = {},
+): boolean {
+  if (selection === null || target === null) {
+    return selection === target;
+  }
+  if (!areEntityRefsEqual(selection.entity, target.entity)) {
+    return false;
+  }
+  if (!options.ignoreSubType && selection.subType !== target.subType) {
+    return false;
+  }
+  if (!options.ignoreObjectIndex && selection.objectIndex !== target.objectIndex) {
+    return false;
+  }
+  if (!options.ignoreHelperKind && selection.helperKind !== target.helperKind) {
+    return false;
+  }
   if (
-    !matchesSelection(selection, target, {
-      ignoreObjectIndex: false,
-      ignoreHelperKind: false,
-      ignoreHighlightObjectId: false,
-    })
+    !options.ignoreHighlightObjectId
+    && selection.highlightObjectId !== target.highlightObjectId
   ) {
     return false;
   }
-
-  if (
-    hasOwnSelectionField(selection, 'objectIndex') !== hasOwnSelectionField(target, 'objectIndex')
-  ) {
-    return false;
-  }
-
-  if (
-    hasOwnSelectionField(selection, 'highlightObjectId') !==
-    hasOwnSelectionField(target, 'highlightObjectId')
-  ) {
-    return false;
-  }
-
   return true;
 }
 
-function isSelectionAllowed(selection: Selection, guard: SelectionGuard | null): boolean {
-  return isSelectionEmpty(selection) || !guard || guard(selection);
+function isSelectionAllowed(
+  selection: WorkspaceSelection,
+  guard: SelectionGuard | null,
+): boolean {
+  return selection === null || guard === null || guard(selection);
 }
 
-function sanitizeSelection(selection: Selection, guard: SelectionGuard | null): Selection {
-  const normalizedSelection = normalizeSelection(selection);
-  return isSelectionAllowed(normalizedSelection, guard) ? normalizedSelection : emptySelection;
+function sanitizeSelection(
+  selection: WorkspaceSelection,
+  guard: SelectionGuard | null,
+): WorkspaceSelection {
+  return isSelectionAllowed(selection, guard) ? selection : null;
+}
+
+function resolveSelectionUpdate(
+  state: Pick<SelectionState, 'selection' | 'interactionGuard'>,
+  selection: WorkspaceSelection,
+): Pick<SelectionState, 'selection'> | typeof state {
+  if (
+    !isSelectionAllowed(selection, state.interactionGuard)
+    || matchesSelection(state.selection, selection)
+  ) {
+    return state;
+  }
+  return { selection };
 }
 
 function resolveHoverStateUpdate(
@@ -106,32 +137,20 @@ function resolveHoverStateUpdate(
     | 'deferredHoveredSelection'
     | 'interactionGuard'
   >,
-  selection: Selection,
+  selection: WorkspaceSelection,
 ) {
   const nextSelection = sanitizeSelection(selection, state.interactionGuard);
-
   if (state.hoverBlockCount > 0) {
-    return matchesSelection(state.deferredHoveredSelection, emptySelection, {
-      ignoreHelperKind: false,
-      ignoreHighlightObjectId: false,
-    })
-      ? state
+    return selection === null && state.deferredHoveredSelection !== null
+      ? { deferredHoveredSelection: null }
       : state;
   }
-
   if (state.hoverFrozen) {
-    return matchesSelection(state.deferredHoveredSelection, nextSelection, {
-      ignoreHelperKind: false,
-      ignoreHighlightObjectId: false,
-    })
+    return matchesSelection(state.deferredHoveredSelection, nextSelection)
       ? state
       : { deferredHoveredSelection: nextSelection };
   }
-
-  return matchesSelection(state.hoveredSelection, nextSelection, {
-    ignoreHelperKind: false,
-    ignoreHighlightObjectId: false,
-  })
+  return matchesSelection(state.hoveredSelection, nextSelection)
     ? state
     : { hoveredSelection: nextSelection };
 }
@@ -149,325 +168,318 @@ function resolveHoverFreezeState(
   interactionHoverFrozen: boolean,
   hoverBlockCount: number,
 ) {
-  const clampedHoverBlockCount = Math.max(0, hoverBlockCount);
-  const nextHoverFrozen = interactionHoverFrozen || clampedHoverBlockCount > 0;
-  const sanitizedHoveredSelection = sanitizeSelection(
+  const nextBlockCount = Math.max(0, hoverBlockCount);
+  const nextHoverFrozen = interactionHoverFrozen || nextBlockCount > 0;
+  const hoveredSelection = sanitizeSelection(
     state.hoveredSelection,
     state.interactionGuard,
   );
+  const deferredHoveredSelection = sanitizeSelection(
+    state.deferredHoveredSelection,
+    state.interactionGuard,
+  );
 
-  if (clampedHoverBlockCount > 0) {
-    const nextDeferredHoveredSelection = state.interactionHoverFrozen
-      ? emptySelection
-      : sanitizedHoveredSelection;
-
-    return state.interactionHoverFrozen === interactionHoverFrozen &&
-      state.hoverBlockCount === clampedHoverBlockCount &&
-      state.hoverFrozen === nextHoverFrozen &&
-      matchesSelection(state.hoveredSelection, emptySelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      }) &&
-      matchesSelection(state.deferredHoveredSelection, nextDeferredHoveredSelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      })
-      ? state
-      : {
-          interactionHoverFrozen,
-          hoverBlockCount: clampedHoverBlockCount,
-          hoverFrozen: nextHoverFrozen,
-          hoveredSelection: emptySelection,
-          deferredHoveredSelection: nextDeferredHoveredSelection,
-        };
+  if (nextBlockCount > 0) {
+    const enteringBlock = state.hoverBlockCount === 0;
+    const nextDeferredSelection = enteringBlock && !state.interactionHoverFrozen
+      ? hoveredSelection
+      : deferredHoveredSelection;
+    if (
+      state.interactionHoverFrozen === interactionHoverFrozen
+      && state.hoverBlockCount === nextBlockCount
+      && state.hoverFrozen === nextHoverFrozen
+      && state.hoveredSelection === null
+      && matchesSelection(state.deferredHoveredSelection, nextDeferredSelection)
+    ) {
+      return state;
+    }
+    return {
+      interactionHoverFrozen,
+      hoverBlockCount: nextBlockCount,
+      hoverFrozen: nextHoverFrozen,
+      hoveredSelection: null,
+      deferredHoveredSelection: nextDeferredSelection,
+    };
   }
 
   if (interactionHoverFrozen) {
-    const nextHoveredSelection = sanitizedHoveredSelection;
-    const nextDeferredHoveredSelection = state.hoverFrozen
-      ? state.deferredHoveredSelection
-      : nextHoveredSelection;
-
-    return state.interactionHoverFrozen === interactionHoverFrozen &&
-      state.hoverBlockCount === clampedHoverBlockCount &&
-      state.hoverFrozen === nextHoverFrozen &&
-      matchesSelection(state.hoveredSelection, nextHoveredSelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      }) &&
-      matchesSelection(state.deferredHoveredSelection, nextDeferredHoveredSelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      })
-      ? state
-      : {
-          interactionHoverFrozen,
-          hoverBlockCount: clampedHoverBlockCount,
-          hoverFrozen: nextHoverFrozen,
-          hoveredSelection: nextHoveredSelection,
-          deferredHoveredSelection: nextDeferredHoveredSelection,
-        };
+    const enteringInteractionFreeze = !state.interactionHoverFrozen;
+    const nextDeferredSelection = enteringInteractionFreeze
+      ? hoveredSelection
+      : deferredHoveredSelection;
+    if (
+      state.interactionHoverFrozen === interactionHoverFrozen
+      && state.hoverBlockCount === nextBlockCount
+      && state.hoverFrozen === nextHoverFrozen
+      && matchesSelection(state.hoveredSelection, hoveredSelection)
+      && matchesSelection(state.deferredHoveredSelection, nextDeferredSelection)
+    ) {
+      return state;
+    }
+    return {
+      interactionHoverFrozen,
+      hoverBlockCount: nextBlockCount,
+      hoverFrozen: nextHoverFrozen,
+      hoveredSelection,
+      deferredHoveredSelection: nextDeferredSelection,
+    };
   }
 
   const nextHoveredSelection = state.hoverFrozen
-    ? sanitizeSelection(state.deferredHoveredSelection, state.interactionGuard)
-    : sanitizedHoveredSelection;
-
-  return state.interactionHoverFrozen === interactionHoverFrozen &&
-    state.hoverBlockCount === clampedHoverBlockCount &&
-    state.hoverFrozen === nextHoverFrozen &&
-    matchesSelection(state.hoveredSelection, nextHoveredSelection, {
-      ignoreHelperKind: false,
-      ignoreHighlightObjectId: false,
-    }) &&
-    matchesSelection(state.deferredHoveredSelection, emptySelection, {
-      ignoreHelperKind: false,
-      ignoreHighlightObjectId: false,
-    })
-    ? state
-    : {
-        interactionHoverFrozen,
-        hoverBlockCount: clampedHoverBlockCount,
-        hoverFrozen: nextHoverFrozen,
-        hoveredSelection: nextHoveredSelection,
-        deferredHoveredSelection: emptySelection,
-      };
-}
-
-export function matchesSelection(
-  selection: Selection,
-  target: Selection,
-  options: {
-    ignoreSubType?: boolean;
-    ignoreObjectIndex?: boolean;
-    ignoreHelperKind?: boolean;
-    ignoreHighlightObjectId?: boolean;
-  } = {},
-): boolean {
-  const ignoreHelperKind = options.ignoreHelperKind ?? true;
-  const ignoreHighlightObjectId = options.ignoreHighlightObjectId ?? true;
-
-  if (selection.type !== target.type || selection.id !== target.id) {
-    return false;
-  }
-
-  if (!options.ignoreSubType && selection.subType !== target.subType) {
-    return false;
-  }
-
-  if (!options.ignoreObjectIndex && (selection.objectIndex ?? 0) !== (target.objectIndex ?? 0)) {
-    return false;
-  }
-
-  if (!ignoreHelperKind && selection.helperKind !== target.helperKind) {
-    return false;
-  }
-
+    ? deferredHoveredSelection
+    : hoveredSelection;
   if (
-    !ignoreHighlightObjectId &&
-    (selection.highlightObjectId ?? null) !== (target.highlightObjectId ?? null)
+    state.interactionHoverFrozen === interactionHoverFrozen
+    && state.hoverBlockCount === nextBlockCount
+    && state.hoverFrozen === nextHoverFrozen
+    && matchesSelection(state.hoveredSelection, nextHoveredSelection)
+    && state.deferredHoveredSelection === null
   ) {
-    return false;
+    return state;
   }
-
-  return true;
+  return {
+    interactionHoverFrozen,
+    hoverBlockCount: nextBlockCount,
+    hoverFrozen: nextHoverFrozen,
+    hoveredSelection: nextHoveredSelection,
+    deferredHoveredSelection: null,
+  };
 }
 
-export const useSelectionStore = create<SelectionState>()((set, get) => ({
-  // Current selection
-  selection: emptySelection,
-  interactionGuard: null,
-  setInteractionGuard: (guard) =>
-    set((state) => {
-      const nextHoveredSelection = sanitizeSelection(state.hoveredSelection, guard);
-      const nextDeferredHoveredSelection = sanitizeSelection(state.deferredHoveredSelection, guard);
+function hasOwnEntry(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
 
-      return state.interactionGuard === guard &&
-        matchesSelection(state.hoveredSelection, nextHoveredSelection, {
-          ignoreHelperKind: false,
-          ignoreHighlightObjectId: false,
-        }) &&
-        matchesSelection(state.deferredHoveredSelection, nextDeferredHoveredSelection, {
-          ignoreHelperKind: false,
-          ignoreHighlightObjectId: false,
-        })
-        ? state
-        : {
-            interactionGuard: guard,
-            hoveredSelection: nextHoveredSelection,
-            deferredHoveredSelection: nextDeferredHoveredSelection,
-          };
-    }),
-  isInteractionAllowed: (selection) => isSelectionAllowed(selection, get().interactionGuard),
-  setSelection: (selection) =>
-    set((state) => {
-      const nextSelection = normalizeSelection(selection);
-      if (
-        (!isSelectionEmpty(nextSelection) &&
-          !isSelectionAllowed(nextSelection, state.interactionGuard)) ||
-        matchesStoredSelection(state.selection, nextSelection)
-      ) {
-        return state;
-      }
+function getComponent(
+  workspace: AssemblyState,
+  componentId: string,
+): AssemblyState['components'][string] | null {
+  return hasOwnEntry(workspace.components, componentId)
+    ? workspace.components[componentId] ?? null
+    : null;
+}
 
-      return { selection: nextSelection };
-    }),
-  selectLink: (id, subType, objectIndex) =>
-    set((state) => {
-      const selection = { type: 'link' as const, id, subType, objectIndex };
-      if (
-        !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesStoredSelection(state.selection, selection)
-      ) {
-        return state;
-      }
+/** Exact canonical lookup. Display names and renderer-global IDs are never considered. */
+export function validateEntityRef(workspace: AssemblyState, ref: EntityRef): boolean {
+  switch (ref.type) {
+    case 'assembly':
+      return true;
+    case 'component':
+      return hasOwnEntry(workspace.components, ref.componentId);
+    case 'bridge':
+      return hasOwnEntry(workspace.bridges, ref.bridgeId);
+    case 'link': {
+      const component = getComponent(workspace, ref.componentId);
+      return Boolean(component && hasOwnEntry(component.robot.links, ref.entityId));
+    }
+    case 'joint': {
+      const component = getComponent(workspace, ref.componentId);
+      return Boolean(component && hasOwnEntry(component.robot.joints, ref.entityId));
+    }
+    case 'tendon': {
+      const component = getComponent(workspace, ref.componentId);
+      return Boolean(
+        component?.robot.inspectionContext?.mjcf?.tendons.some(
+          (tendon) => tendon.name === ref.entityId,
+        ),
+      );
+    }
+  }
+}
 
-      return { selection };
-    }),
-  selectJoint: (id) =>
-    set((state) => {
-      const selection = { type: 'joint' as const, id };
-      if (
-        !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesStoredSelection(state.selection, selection)
-      ) {
-        return state;
-      }
+function createFallbackComponentSelection(
+  workspace: AssemblyState,
+  activeComponentId: string | null | undefined,
+): WorkspaceSelection {
+  const componentId = activeComponentId && hasOwnEntry(workspace.components, activeComponentId)
+    ? activeComponentId
+    : Object.keys(workspace.components)[0];
+  return componentId
+    ? { entity: { type: 'component', componentId } }
+    : { entity: { type: 'assembly' } };
+}
 
-      return { selection };
-    }),
-  clearSelection: () => set({ selection: emptySelection }),
+/** Repair a stale committed selection without guessing entity ownership from IDs. */
+export function repairWorkspaceSelection(
+  workspace: AssemblyState,
+  selection: WorkspaceSelection,
+  activeComponentId: string | null | undefined,
+): WorkspaceSelection {
+  if (selection === null || validateEntityRef(workspace, selection.entity)) {
+    return selection;
+  }
+  const ref = selection.entity;
+  if (
+    (ref.type === 'link' || ref.type === 'joint' || ref.type === 'tendon')
+    && hasOwnEntry(workspace.components, ref.componentId)
+  ) {
+    return { entity: { type: 'component', componentId: ref.componentId } };
+  }
+  return createFallbackComponentSelection(workspace, activeComponentId);
+}
 
-  // Hover state
-  hoveredSelection: emptySelection,
-  deferredHoveredSelection: emptySelection,
-  hoverFrozen: false,
-  interactionHoverFrozen: false,
-  hoverBlockCount: 0,
-  setHoverFrozen: (frozen) =>
-    set((state) => resolveHoverFreezeState(state, frozen, state.hoverBlockCount)),
-  beginHoverBlock: () =>
-    set((state) =>
-      resolveHoverFreezeState(state, state.interactionHoverFrozen, state.hoverBlockCount + 1),
-    ),
-  endHoverBlock: () =>
-    set((state) =>
-      resolveHoverFreezeState(state, state.interactionHoverFrozen, state.hoverBlockCount - 1),
-    ),
-  setHoveredSelection: (selection) => set((state) => resolveHoverStateUpdate(state, selection)),
-  hoverLink: (id) => set((state) => resolveHoverStateUpdate(state, { type: 'link', id })),
-  hoverJoint: (id) => set((state) => resolveHoverStateUpdate(state, { type: 'joint', id })),
-  clearHover: () =>
-    set((state) =>
-      state.hoverFrozen
-        ? matchesSelection(state.deferredHoveredSelection, emptySelection, {
-            ignoreHelperKind: false,
-            ignoreHighlightObjectId: false,
-          })
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+}
+
+export const useSelectionStore = create<SelectionState>()((set, get) => {
+  let attentionTimeout: ReturnType<typeof setTimeout> | null = null;
+  let focusResetTimeout: ReturnType<typeof setTimeout> | null = null;
+  let focusRefocusTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const cancelAttentionTimeout = () => {
+    if (attentionTimeout !== null) {
+      clearTimeout(attentionTimeout);
+      attentionTimeout = null;
+    }
+  };
+  const cancelFocusTimeouts = () => {
+    if (focusResetTimeout !== null) {
+      clearTimeout(focusResetTimeout);
+      focusResetTimeout = null;
+    }
+    if (focusRefocusTimeout !== null) {
+      clearTimeout(focusRefocusTimeout);
+      focusRefocusTimeout = null;
+    }
+  };
+  const scheduleFocusReset = (durationMs: number) => {
+    focusResetTimeout = setTimeout(() => {
+      focusResetTimeout = null;
+      set({ focusTarget: null });
+    }, Math.max(0, durationMs));
+    unrefTimer(focusResetTimeout);
+  };
+  const syncActiveComponent = (selection: WorkspaceSelection) => {
+    const ref = selection?.entity;
+    if (!ref || !('componentId' in ref)) return;
+    const workspaceState = useWorkspaceStore.getState();
+    if (
+      workspaceState.activeComponentId !== ref.componentId
+      && workspaceState.workspace.components[ref.componentId]
+    ) {
+      workspaceState.setActiveComponent(ref.componentId);
+    }
+  };
+  const setCanonicalSelection = (selection: WorkspaceSelection) => {
+    set((state) => resolveSelectionUpdate(state, selection));
+    syncActiveComponent(get().selection);
+  };
+  const setSelectedEntity = (entity: EntityRef, details?: WorkspaceSelectionDetails) => {
+    setCanonicalSelection(createSelection(entity, details));
+  };
+  const setHoveredEntity = (entity: EntityRef, details?: WorkspaceSelectionDetails) => {
+    set((state) => resolveHoverStateUpdate(state, createSelection(entity, details)));
+  };
+
+  return {
+    selection: null,
+    interactionGuard: null,
+    setInteractionGuard: (guard) =>
+      set((state) => {
+        const hoveredSelection = sanitizeSelection(state.hoveredSelection, guard);
+        const deferredHoveredSelection = sanitizeSelection(
+          state.deferredHoveredSelection,
+          guard,
+        );
+        return state.interactionGuard === guard
+          && matchesSelection(state.hoveredSelection, hoveredSelection)
+          && matchesSelection(state.deferredHoveredSelection, deferredHoveredSelection)
           ? state
-          : { deferredHoveredSelection: emptySelection }
-        : matchesSelection(state.hoveredSelection, emptySelection, {
-              ignoreHelperKind: false,
-              ignoreHighlightObjectId: false,
-            })
+          : { interactionGuard: guard, hoveredSelection, deferredHoveredSelection };
+      }),
+    isInteractionAllowed: (selection) => isSelectionAllowed(selection, get().interactionGuard),
+    setSelection: setCanonicalSelection,
+    selectAssembly: () => setSelectedEntity({ type: 'assembly' }),
+    selectComponent: (componentId) => setSelectedEntity({ type: 'component', componentId }),
+    selectBridge: (bridgeId) => setSelectedEntity({ type: 'bridge', bridgeId }),
+    selectLink: (ref, details) => setSelectedEntity(ref, details),
+    selectJoint: (ref, details) => setSelectedEntity(ref, details),
+    selectTendon: (ref, details) => setSelectedEntity(ref, details),
+    clearSelection: () => setCanonicalSelection(null),
+
+    hoveredSelection: null,
+    deferredHoveredSelection: null,
+    hoverFrozen: false,
+    interactionHoverFrozen: false,
+    hoverBlockCount: 0,
+    setHoverFrozen: (frozen) =>
+      set((state) => resolveHoverFreezeState(state, frozen, state.hoverBlockCount)),
+    beginHoverBlock: () =>
+      set((state) =>
+        resolveHoverFreezeState(
+          state,
+          state.interactionHoverFrozen,
+          state.hoverBlockCount + 1,
+        ),
+      ),
+    endHoverBlock: () =>
+      set((state) =>
+        resolveHoverFreezeState(
+          state,
+          state.interactionHoverFrozen,
+          state.hoverBlockCount - 1,
+        ),
+      ),
+    setHoveredSelection: (selection) =>
+      set((state) => resolveHoverStateUpdate(state, selection)),
+    hoverAssembly: () => setHoveredEntity({ type: 'assembly' }),
+    hoverComponent: (componentId) => setHoveredEntity({ type: 'component', componentId }),
+    hoverBridge: (bridgeId) => setHoveredEntity({ type: 'bridge', bridgeId }),
+    hoverLink: (ref, details) => setHoveredEntity(ref, details),
+    hoverJoint: (ref, details) => setHoveredEntity(ref, details),
+    hoverTendon: (ref, details) => setHoveredEntity(ref, details),
+    clearHover: () =>
+      set((state) => resolveHoverStateUpdate(state, null)),
+
+    attentionSelection: null,
+    setAttentionSelection: (selection) => {
+      cancelAttentionTimeout();
+      set((state) =>
+        matchesSelection(state.attentionSelection, selection)
           ? state
-          : { hoveredSelection: emptySelection },
-    ),
-
-  // Transient emphasis
-  attentionSelection: emptySelection,
-  setAttentionSelection: (selection) => set({ attentionSelection: normalizeSelection(selection) }),
-  pulseSelection: (() => {
-    let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
-    return (selection: Selection, durationMs = 2600) => {
-      if (pendingTimeout !== null) clearTimeout(pendingTimeout);
-
-      if (!selection.type || !selection.id) {
-        pendingTimeout = null;
-        set({ attentionSelection: emptySelection });
+          : { attentionSelection: selection },
+      );
+    },
+    pulseSelection: (selection, durationMs = 2600) => {
+      cancelAttentionTimeout();
+      if (selection === null) {
+        set({ attentionSelection: null });
         return;
       }
-
       set({ attentionSelection: selection });
-      pendingTimeout = setTimeout(() => {
-        pendingTimeout = null;
-        set({ attentionSelection: emptySelection });
-      }, durationMs);
-    };
-  })(),
-  clearAttentionSelection: () => set({ attentionSelection: emptySelection }),
+      attentionTimeout = setTimeout(() => {
+        attentionTimeout = null;
+        set({ attentionSelection: null });
+      }, Math.max(0, durationMs));
+      unrefTimer(attentionTimeout);
+    },
+    clearAttentionSelection: () => {
+      cancelAttentionTimeout();
+      set({ attentionSelection: null });
+    },
 
-  // Focus target
-  focusTarget: null,
-  setFocusTarget: (id) => set({ focusTarget: id }),
-  focusOn: (() => {
-    let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
-    let pendingRefocusTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const scheduleFocusReset = () => {
-      pendingTimeout = setTimeout(() => {
-        pendingTimeout = null;
+    focusTarget: null,
+    setFocusTarget: (ref) => {
+      cancelFocusTimeouts();
+      set((state) =>
+        areEntityRefsEqual(state.focusTarget, ref) ? state : { focusTarget: ref },
+      );
+    },
+    focusOn: (ref, durationMs = 1500) => {
+      cancelFocusTimeouts();
+      if (areEntityRefsEqual(get().focusTarget, ref)) {
         set({ focusTarget: null });
-      }, 1500);
-      pendingTimeout.unref?.();
-    };
-
-    return (id: string) => {
-      if (pendingTimeout !== null) {
-        clearTimeout(pendingTimeout);
-        pendingTimeout = null;
-      }
-      if (pendingRefocusTimeout !== null) {
-        clearTimeout(pendingRefocusTimeout);
-        pendingRefocusTimeout = null;
-      }
-
-      if (get().focusTarget === id) {
-        set({ focusTarget: null });
-        pendingRefocusTimeout = setTimeout(() => {
-          pendingRefocusTimeout = null;
-          set({ focusTarget: id });
-          scheduleFocusReset();
+        focusRefocusTimeout = setTimeout(() => {
+          focusRefocusTimeout = null;
+          set({ focusTarget: ref });
+          scheduleFocusReset(durationMs);
         }, 0);
-        pendingRefocusTimeout.unref?.();
+        unrefTimer(focusRefocusTimeout);
         return;
       }
-
-      set({ focusTarget: id });
-      scheduleFocusReset();
-    };
-  })(),
-}));
-
-function hasSelectionEntry(entries: Record<string, { name?: string }>, identity: string): boolean {
-  if (identity in entries) {
-    return true;
-  }
-
-  return Object.values(entries).some((entry) => entry.name === identity);
-}
-
-// Helper to check if selection exists in data
-export function validateSelection(
-  selection: Selection,
-  links: Record<string, { name?: string }>,
-  joints: Record<string, { name?: string }>,
-  inspectionContext?: {
-    mjcf?: {
-      tendons?: Array<{
-        name: string;
-      }>;
-    };
-  } | null,
-): boolean {
-  if (!selection.id || !selection.type) return true; // Empty selection is valid
-
-  if (selection.type === 'link') {
-    return hasSelectionEntry(links, selection.id);
-  }
-  if (selection.type === 'joint') {
-    return hasSelectionEntry(joints, selection.id);
-  }
-
-  return Boolean(inspectionContext?.mjcf?.tendons?.some((tendon) => tendon.name === selection.id));
-}
+      set({ focusTarget: ref });
+      scheduleFocusReset(durationMs);
+    },
+  };
+});

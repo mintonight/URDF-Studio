@@ -27,3 +27,36 @@ test('joint interaction preview store supports tree-panel previews and source-sc
   store.clearPreview({ source: 'tree-panel', dragSessionId: 'tree-drag' });
   assert.deepEqual(useJointInteractionPreviewStore.getState().preview, EMPTY_JOINT_INTERACTION_PREVIEW);
 });
+
+test('joint interaction preview store preserves canonical component-local viewer payloads', () => {
+  const store = useJointInteractionPreviewStore.getState();
+  store.clearPreview();
+  store.publishPreview({
+    source: 'viewer',
+    dragSessionId: 'viewer-drag',
+    activeJointId: 'left_joint',
+    jointAngles: { left_joint: 0.5, right_joint: -0.25 },
+    jointQuaternions: {},
+    jointOrigins: {},
+    workspaceByComponent: {
+      left: {
+        activeJointId: 'joint',
+        jointAngles: { joint: 0.5 },
+        jointQuaternions: {},
+        jointOrigins: {},
+      },
+      right: {
+        activeJointId: null,
+        jointAngles: { joint: -0.25 },
+        jointQuaternions: {},
+        jointOrigins: {},
+      },
+    },
+  });
+
+  assert.deepEqual(
+    useJointInteractionPreviewStore.getState().preview.workspaceByComponent?.right?.jointAngles,
+    { joint: -0.25 },
+  );
+  store.clearPreview();
+});

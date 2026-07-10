@@ -36,8 +36,7 @@ function resetAssetsStore() {
   state.setSelectedFile(null);
   state.resetDocumentLoadState();
   state.setAllFileContents({});
-  state.setOriginalUrdfContent('');
-  state.setOriginalFileFormat(null);
+  state.clearComponentSourceDrafts();
 }
 
 test('removeRobotFile clears matching USD scene snapshot cache', () => {

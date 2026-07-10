@@ -32,29 +32,49 @@ export type {
   ManagedWindowId,
 } from './uiStore';
 
-// Selection Store - link/joint selection and hover state
-export { useSelectionStore, validateSelection } from './selectionStore';
-export type { Selection } from './selectionStore';
+// Selection Store - canonical workspace selection, hover, attention, and focus
+export {
+  matchesSelection,
+  repairWorkspaceSelection,
+  useSelectionStore,
+  validateEntityRef,
+} from './selectionStore';
+export type {
+  SelectionGuard,
+  SelectionMatchOptions,
+  SelectionState,
+  WorkspaceSelectionDetails,
+  WorkspaceSelectionValue,
+} from './selectionStore';
 
 // Assets Store - mesh/texture resources, robot files, motor library
 export { useAssetsStore } from './assetsStore';
 
-// Robot Store - robot data and operations with undo/redo
+// Workspace Store - canonical AssemblyState and operations with unified history
 export {
-  useRobotStore,
-  useRobotName,
-  useRobotLinks,
-  useRobotJoints,
-  useRootLinkId,
-  useCanUndo,
-  useCanRedo,
-  useAssemblyCanUndo,
-  useAssemblyCanRedo,
-} from './robotStore';
-export type { RobotData } from './robotStore';
-
-// Assembly selection store - component/assembly transform targets in workspace mode
-export { useAssemblySelectionStore, ASSEMBLY_SELECTION_ID } from './assemblySelectionStore';
+  useWorkspaceStore,
+  useWorkspace,
+  useActiveComponentId,
+  useWorkspaceCanUndo,
+  useWorkspaceCanRedo,
+} from './workspaceStore';
+export type {
+  AddBridgeParams,
+  AddChildTarget,
+  BeginWorkspaceTransactionOptions,
+  ReplaceWorkspaceOptions,
+  WorkspaceBridgePatch,
+  WorkspaceAssemblyPropertyPatch,
+  WorkspaceComponentPropertyPatch,
+  WorkspaceJointPropertyPatch,
+  WorkspaceLinkPropertyPatch,
+  WorkspacePropertyPatch,
+  WorkspaceComponentSeed,
+  WorkspaceMutationOptions,
+  WorkspaceStoreData,
+  WorkspaceStoreState,
+  WorkspaceTransactionState,
+} from './workspaceStore';
 
 // Collision transform store - transient drag state for collision gizmos
 export { useCollisionTransformStore } from './collisionTransformStore';
@@ -70,4 +90,5 @@ export type {
   JointInteractionPreviewMatch,
   JointInteractionPreviewSource,
   JointInteractionPreviewSnapshot,
+  WorkspaceJointInteractionPreview,
 } from './jointInteractionPreviewStore';

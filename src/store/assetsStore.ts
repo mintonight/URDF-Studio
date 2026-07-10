@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import type {
+  ComponentSourceDraft,
   LoadingProgressMode,
   MotorSpec,
   RobotFile,
@@ -79,6 +80,27 @@ function replaceLibraryPathPrefix(path: string, fromPath: string, toPath: string
 export type RenameRobotFolderResult =
   | { ok: true; nextPath: string }
   | { ok: false; reason: 'missing' | 'invalid' | 'conflict' };
+
+export interface RobotFolderRenameTarget {
+  normalizedFolder: string;
+  sanitizedName: string;
+  parentPath: string;
+  nextFolderPath: string;
+}
+
+/** Resolve the exact path policy shared by asset and workspace source renames. */
+export function resolveRobotFolderRenameTarget(
+  folderPath: string,
+  nextName: string,
+): RobotFolderRenameTarget {
+  const normalizedFolder = normalizeLibraryPath(folderPath);
+  const sanitizedName = nextName.trim().replace(/[\\/]+/g, '');
+  const parentPath = normalizedFolder.includes('/')
+    ? normalizedFolder.split('/').slice(0, -1).join('/')
+    : '';
+  const nextFolderPath = parentPath ? `${parentPath}/${sanitizedName}` : sanitizedName;
+  return { normalizedFolder, sanitizedName, parentPath, nextFolderPath };
+}
 
 function pruneUsdSceneSnapshots(
   snapshots: Record<string, UsdSceneSnapshot>,
@@ -231,13 +253,13 @@ interface AssetsState {
   setMotorLibrary: (library: Record<string, MotorSpec[]>) => void;
   addMotorSpec: (brand: string, spec: MotorSpec) => void;
 
-  // Original URDF content (for preserving material colors)
-  originalUrdfContent: string;
-  setOriginalUrdfContent: (content: string) => void;
-
-  // Original file format
-  originalFileFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null;
-  setOriginalFileFormat: (format: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null) => void;
+  // Per-component editable sources. Library files remain immutable templates.
+  componentSourceDrafts: Record<string, ComponentSourceDraft>;
+  setComponentSourceDraft: (draft: ComponentSourceDraft) => void;
+  removeComponentSourceDraft: (componentId: string) => void;
+  pruneComponentSourceDrafts: (componentIds: readonly string[]) => void;
+  replaceComponentSourceDrafts: (drafts: Record<string, ComponentSourceDraft>) => void;
+  clearComponentSourceDrafts: () => void;
 
   // Upload a single file and create blob URL
   uploadAsset: (file: File) => string;
@@ -436,8 +458,11 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       };
     }),
   renameRobotFolder: (folderPath, nextName) => {
-    const normalizedFolder = normalizeLibraryPath(folderPath);
-    const sanitizedName = nextName.trim().replace(/[\\/]+/g, '');
+    const {
+      normalizedFolder,
+      sanitizedName,
+      nextFolderPath,
+    } = resolveRobotFolderRenameTarget(folderPath, nextName);
 
     if (!normalizedFolder) {
       return { ok: false, reason: 'missing' };
@@ -446,11 +471,6 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
     if (!sanitizedName || sanitizedName === '.' || sanitizedName === '..') {
       return { ok: false, reason: 'invalid' };
     }
-
-    const parentPath = normalizedFolder.includes('/')
-      ? normalizedFolder.split('/').slice(0, -1).join('/')
-      : '';
-    const nextFolderPath = parentPath ? `${parentPath}/${sanitizedName}` : sanitizedName;
 
     if (nextFolderPath === normalizedFolder) {
       return { ok: true, nextPath: nextFolderPath };
@@ -682,13 +702,37 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       };
     }),
 
-  // Original content
-  originalUrdfContent: '',
-  setOriginalUrdfContent: (content) => set({ originalUrdfContent: content }),
-
-  // Original format
-  originalFileFormat: null,
-  setOriginalFileFormat: (format) => set({ originalFileFormat: format }),
+  componentSourceDrafts: {},
+  setComponentSourceDraft: (draft) =>
+    set((state) => ({
+      componentSourceDrafts: {
+        ...state.componentSourceDrafts,
+        [draft.componentId]: structuredClone(draft),
+      },
+    })),
+  removeComponentSourceDraft: (componentId) =>
+    set((state) => {
+      if (!state.componentSourceDrafts[componentId]) return state;
+      const componentSourceDrafts = { ...state.componentSourceDrafts };
+      delete componentSourceDrafts[componentId];
+      return { componentSourceDrafts };
+    }),
+  pruneComponentSourceDrafts: (componentIds) =>
+    set((state) => {
+      const retainedIds = new Set(componentIds);
+      const componentSourceDrafts = Object.fromEntries(
+        Object.entries(state.componentSourceDrafts).filter(([componentId]) =>
+          retainedIds.has(componentId),
+        ),
+      );
+      return Object.keys(componentSourceDrafts).length ===
+        Object.keys(state.componentSourceDrafts).length
+        ? state
+        : { componentSourceDrafts };
+    }),
+  replaceComponentSourceDrafts: (drafts) =>
+    set({ componentSourceDrafts: structuredClone(drafts) }),
+  clearComponentSourceDrafts: () => set({ componentSourceDrafts: {} }),
 
   // Upload helper
   uploadAsset: (file) => {

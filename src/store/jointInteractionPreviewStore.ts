@@ -4,6 +4,13 @@ import type { JointQuaternion, UrdfJoint } from '@/types';
 
 export type JointInteractionPreviewSource = 'viewer' | 'tree-panel';
 
+export interface WorkspaceJointInteractionPreview {
+  activeJointId: string | null;
+  jointAngles: Record<string, number>;
+  jointQuaternions: Record<string, JointQuaternion>;
+  jointOrigins: Record<string, UrdfJoint['origin']>;
+}
+
 export interface JointInteractionPreviewSnapshot {
   source: JointInteractionPreviewSource | null;
   dragSessionId: string | null;
@@ -11,6 +18,8 @@ export interface JointInteractionPreviewSnapshot {
   jointAngles: Record<string, number>;
   jointQuaternions: Record<string, JointQuaternion>;
   jointOrigins: Record<string, UrdfJoint['origin']>;
+  /** Canonical component-local payload; renderer-global keys remain above for runtime consumers. */
+  workspaceByComponent?: Record<string, WorkspaceJointInteractionPreview>;
 }
 
 export interface JointInteractionPreviewMatch {
@@ -25,6 +34,7 @@ export const EMPTY_JOINT_INTERACTION_PREVIEW: JointInteractionPreviewSnapshot = 
   jointAngles: {},
   jointQuaternions: {},
   jointOrigins: {},
+  workspaceByComponent: {},
 };
 
 interface JointInteractionPreviewState {
@@ -99,7 +109,31 @@ function previewsEqual(
     left.activeJointId === right.activeJointId &&
     recordMapsEqual(left.jointAngles, right.jointAngles, numbersEqual) &&
     recordMapsEqual(left.jointQuaternions, right.jointQuaternions, quaternionsEqual) &&
+    recordMapsEqual(left.jointOrigins, right.jointOrigins, originsEqual) &&
+    workspacePreviewMapsEqual(left.workspaceByComponent, right.workspaceByComponent)
+  );
+}
+
+function workspacePreviewsEqual(
+  left: WorkspaceJointInteractionPreview,
+  right: WorkspaceJointInteractionPreview,
+): boolean {
+  return (
+    left.activeJointId === right.activeJointId &&
+    recordMapsEqual(left.jointAngles, right.jointAngles, numbersEqual) &&
+    recordMapsEqual(left.jointQuaternions, right.jointQuaternions, quaternionsEqual) &&
     recordMapsEqual(left.jointOrigins, right.jointOrigins, originsEqual)
+  );
+}
+
+function workspacePreviewMapsEqual(
+  left: Record<string, WorkspaceJointInteractionPreview> | undefined,
+  right: Record<string, WorkspaceJointInteractionPreview> | undefined,
+): boolean {
+  return recordMapsEqual(left ?? {}, right ?? {}, (leftPreview, rightPreview) =>
+    leftPreview && rightPreview
+      ? workspacePreviewsEqual(leftPreview, rightPreview)
+      : leftPreview === rightPreview,
   );
 }
 
@@ -114,6 +148,15 @@ export function hasJointInteractionPreview(
     Object.keys(preview.jointAngles).length > 0 ||
     Object.keys(preview.jointQuaternions).length > 0 ||
     Object.keys(preview.jointOrigins).length > 0
+    || Object.keys(preview.workspaceByComponent ?? {}).some((componentId) => {
+      const componentPreview = preview.workspaceByComponent?.[componentId];
+      return Boolean(
+        componentPreview &&
+          (Object.keys(componentPreview.jointAngles).length > 0 ||
+            Object.keys(componentPreview.jointQuaternions).length > 0 ||
+            Object.keys(componentPreview.jointOrigins).length > 0),
+      );
+    })
   );
 }
 
