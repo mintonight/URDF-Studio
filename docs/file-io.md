@@ -1,6 +1,6 @@
 # 导入导出与 Workspace 链路
 
-> 最后更新：2026-07-05 | 覆盖源码：`src/app/hooks/`、`src/app/hooks/file-export/`、`src/app/hooks/workspace-source-sync/`、`src/app/hooks/workspace-mutations/`、`src/app/utils/`、`src/app/workers/`、`src/core/parsers/format_detection.ts`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
+> 最后更新：2026-07-09 | 覆盖源码：`src/app/hooks/`、`src/app/hooks/file-export/`、`src/app/hooks/workspace-source-sync/`、`src/app/hooks/workspace-mutations/`、`src/app/utils/`、`src/app/workers/`、`src/core/parsers/format_detection.ts`、`src/core/robot/assemblySceneProjection.ts`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
 > 交叉引用：[viewer.md](viewer.md)、[architecture.md](architecture.md)
 
 ## 1. 职责拆分
@@ -11,10 +11,10 @@
 | `features/file-io/` | 底层文件能力：BOM、project import/export、archive/asset registry、USD/SDF export、ExportDialog/ExportProgressDialog、snapshot/pdf hooks、导入导出 worker bridge；格式检测只 wrap core 并补充 asset/motor 判断 | `src/features/file-io/index.ts` |
 | `app/hooks/useFileImport.ts` | 应用级导入工作流（source of truth） | — |
 | `app/hooks/useFileExport.ts` | 应用级导出工作流（source of truth） | — |
-| `app/hooks/file-export/*` | 导出 workflow 子模块 helper | `assemblyHistory.ts`、`progress.ts`、`projectExport.ts`、`usdExport.ts` |
-| `app/hooks/workspace-source-sync/*` | workspace/source 同步 hook 与策略拆分 | snapshot、单组件复用、deferred sync、MJCF viewer policy、source baseline |
+| `app/hooks/file-export/*` | 导出 workflow 子模块 helper | `canonicalExportContext.ts`、`progress.ts`、`projectExport.ts`、`usdExport.ts` |
+| `app/hooks/workspace-source-sync/*` | component source snapshot、文件预览与格式相关 viewer policy；不持有 workspace 镜像 | `robot_source_snapshot.ts`、`useWorkspaceFilePreview.ts`、`mjcfViewerRuntimePolicy.ts` |
 | `app/hooks/workspace-mutations/*` | workspace 变更操作拆分 | 组件、bridge、source file 相关 mutation |
-| `features/robot-tree/` | structure/workspace 文件树、树编辑器、上下文菜单 | `tree-editor/*`、`tree-node/*` |
+| `features/robot-tree/` | canonical Assembly 文件树、树编辑器、上下文菜单 | `TreeEditor.tsx`、`AssemblyTreeView.tsx`、`tree-editor/*` |
 | `features/assembly/` | 桥接组件创建与组装入口 | — |
 | `features/property-editor/` | 属性编辑、几何编辑、碰撞优化 | `geometry-conversion/*`、`workers/*` |
 
@@ -22,10 +22,14 @@
 
 - `features/file-io/hooks/useFileExport.ts` 已移除，应用导出 source of truth 在 `app/hooks/useFileExport.ts`
 - 应用导入 source of truth 在 `app/hooks/useFileImport.ts`，不要在 `features/file-io` 恢复旧导入 hook
+- `useWorkspaceStore.workspace`（非空 `AssemblyState`）是唯一可变机器人模型；`RobotData` 只由 component 或只读 scene projection 产生
+- 空白项目也是 `1 component + 0 bridges`；直接打开文件原子替换 workspace，显式“添加”只追加 component
+- `.usp` 只接受并生成严格的 `3.0` manifest，project payload 只保存 canonical workspace、统一 history 和 component source drafts；不提供 v2 或旧 robot/assembly 字段迁移
+- component 内实体 ID 始终是 source-local；全局 ID 只在 scene/export projection 中生成，并通过显式双向映射解析
 - 机器人源格式检测 source of truth 在 `core/parsers/format_detection.ts`；`app/utils/import-preparation/formatDetection.ts` 与 `features/file-io/utils/formatDetection.ts` 只做 wrapper
 - 新增导出辅助逻辑时，优先补到 `app/hooks/file-export/*`，不要把 `useFileExport.ts` 堆成大而全单文件
-- 新增 workspace/source 同步策略时，优先补到 `app/hooks/workspace-source-sync/*` 或 `workspace-mutations/*`，不要继续扩大 `workspaceSourceSyncUtils.ts`
-- `.usp` project import/export、USD prepared export cache、live USD roundtrip archive 已进入主工作流
+- component mutation 放到 `workspace-mutations/*` 并显式携带 `EntityRef`/`componentId`；`workspaceSourceSyncUtils.ts` 仅保留从 canonical workspace 生成 source/preview 的纯函数
+- `.usp 3.0` project import/export、USD prepared export cache、live USD roundtrip archive 已进入主工作流
 - `projectArchive.worker.ts`、`usdExport.worker.ts`、`usdBinaryArchive.worker.ts` 已进入主导出链路；大型归档或序列化任务优先走 worker/transfer
 - `projectImport.worker.ts` 已进入 project import 链路；问题优先在 worker/bridge 修
 - `DisconnectedWorkspaceUrdfExportDialog.tsx` 是 workspace 断联导出特例，不要塞回通用导出弹层
@@ -48,10 +52,10 @@
 - `useAppShellState` / `useAppEffects` / `useAppLayoutEffects` / `useAppState`：App shell 与 layout 编排
 - `useViewerOrchestration`：selection / hover / pulse / focus / transform pending 协调
 - `useFileImport` / `useFileExport`：导入导出编排入口
-- `useWorkspaceSourceSync` / `useWorkspaceMutations` / `useLibraryFileActions`：workspace 与 source 同步
-- `workspace-source-sync/robot_source_snapshot.ts` / `single_component_reuse.ts`：source snapshot 与单组件 source viewer 复用策略
+- `useWorkspaceMutations` / `useLibraryFileActions`：显式目标的 workspace mutation 与 library 工作流
+- `workspace-source-sync/robot_source_snapshot.ts` / `useWorkspaceFilePreview.ts`：component source snapshot 与只读文件预览
 - `useWorkspaceModeTransitions` / `useWorkspaceOverlayActions`：workspace 视图切换与浮层动作
-- `usePreparedUsdViewerAssets` / `useAnimatedWorkspaceViewerRobotData`：viewer 资产与动画数据
+- `usePreparedUsdViewerAssets`：USD viewer 资产准备；可编辑结构数据始终来自 workspace projection
 - `useImportInputBinding`：App 级文件输入绑定
 - `useEditableSourcePatches` / `useUnsavedChangesPrompt`：源码 patch 与离开保护
 - `useCollisionOptimizationWorkflow`：碰撞优化 UI 流程
@@ -62,7 +66,7 @@
 ### app/utils/ 重点
 
 - USD/roundtrip/hydration：`usdExportContext.ts`、`usdHydrationPersistence.ts`、`usdStageHydration.ts`
-- 导出辅助：`exportArchiveAssets.ts`、`usdBinaryArchive.ts`、`urdfSourceExportUtils.ts`、`currentUsdExportMode.ts`
+- 导出辅助：`exportArchiveAssets.ts`、`usdBinaryArchive.ts`、`currentUsdExportMode.ts`
 - 历史与缓存：`pendingHistory.ts`、`pendingUsdCache.ts`
 - 导入准备：`documentLoadFlow.ts`、`importPreparation.ts`、`importPreparationTransfer.ts`
 - 导入格式 wrapper：`import-preparation/formatDetection.ts`（委托 core）
@@ -83,17 +87,18 @@
 
 ## 4. 多 URDF 组装
 
-- 每个组件导入后需要命名空间前缀，避免 Link / Joint 冲突
+- 每个组件保存 source-local Link / Joint / Tendon ID；不同组件通过 `{ componentId, entityId }` 消歧
 - 组件之间通过 `BridgeJoint` 连接
-- 合并逻辑在 `assemblyStore` 与 `core/robot/assemblyMerger.ts`
-- 改动组装功能时重点检查：命名空间冲突、BridgeJoint 合法性、合并导出一致性、workspace 与 structure 视图切换时的 source file / selected file 同步
+- `core/robot/assemblySceneProjection.ts` 和 `assemblyScenePlacement.ts` 生成 direct/assembled 渲染投影、全局 ID 映射和 root placement；导出合并由同一 canonical workspace 派生
+- `${componentId}_${entityId}` 形式只存在于 projection，禁止截字符串前缀猜 owner
+- 改动组装功能时重点检查：显式映射冲突、BridgeJoint 合法性、合并导出一致性、direct/assembled 策略切换前后 canonical snapshot 不变
 
 ## 5. Workspace 交互
 
-- `structure`：当前模型视图
-- `workspace`：装配工作区视图
+- Tree 永远消费 Assembly；单组件时隐藏 Assembly/Bridges 冗余层并默认展开唯一 component
 - 文件加入组装入口：右键菜单"添加"、文件行右侧绿色按钮
-- 单击机器人文件打开为当前模型；显式"添加"才加入组装
+- 单击机器人文件原子替换为单组件 workspace；显式"添加"才追加，允许同一 source 多实例
+- PropertyEditor 按统一 `WorkspaceSelection` 直接定位 component entity 或 bridge，不把 bridge 伪装成 joint
 
 ## 6. 跨域 Handoff 接收端
 
@@ -151,4 +156,4 @@ BOT-World 构造 URL ?plugin=<key> → window.open 新标签页
 - `src/features/file-io/utils/usdExport.ts`
 - `src/app/hooks/useFileExport.ts`
 - `src/app/AppLayout.tsx`
-- `src/app/hooks/workspaceSourceSyncUtils.ts`（新增策略优先抽到 `workspace-source-sync/*`）
+- `src/app/hooks/workspaceSourceSyncUtils.ts`（只允许 canonical workspace → source/preview 纯派生）

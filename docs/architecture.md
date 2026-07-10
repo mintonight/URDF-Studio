@@ -1,6 +1,6 @@
 # 架构边界详细说明
 
-> 最后更新：2026-07-05 | 覆盖源码：`src/` 全局
+> 最后更新：2026-07-09 | 覆盖源码：`src/` 全局
 > 交叉引用：[viewer.md](viewer.md)、[file-io.md](file-io.md)、[robot-canvas-lib.md](robot-canvas-lib.md)
 
 ## 1. 依赖方向（补充）
@@ -17,7 +17,7 @@
 
 - `src/lib/` 视为对外复用封装层，只收稳定、通用、与应用壳无关的能力
 - 应用内部不要把 `src/lib/` 当业务逻辑 source of truth
-- 若能力强依赖 robotStore、workspace、app overlays 或特定业务流程，不要抽进 `src/lib/`
+- 若能力强依赖 `workspaceStore`、app overlays 或特定业务流程，不要抽进 `src/lib/`
 - `packages/react-robot-canvas/` 是对外发布包工作区；`dist/` 由构建脚本维护，禁止手改
 
 ## 3. 当前存量例外（禁止扩散）
@@ -47,6 +47,11 @@
 - `DEFAULT_MOTOR_LIBRARY` canonical source：`src/shared/data/defaultMotorLibrary.json`
 - `src/shared/data/motorLibrary.ts`：仅负责验证、标准化与导入路径检测
 - `src/features/hardware-config/index.ts`：兼容层 re-export
+- 应用机器人领域状态 canonical source：`src/store/workspaceStore.ts` 中非空 `workspace: AssemblyState`
+- workspace 构造与严格不变量：`src/core/robot/canonicalWorkspace.ts`
+- component 内 `RobotData` 始终使用 source-local ID；跨 component ID 只由 `assemblySceneProjection.ts` 显式映射
+- selection canonical source：`src/store/selectionStore.ts` 的 `WorkspaceSelection`；禁止恢复 robot/assembly 两套 selection
+- project archive canonical source：`.usp 3.0` 的 `workspace/state.json` 与 `history/workspace.json`；旧版本直接拒绝
 
 ## 6. Shared Three.js 工具
 
@@ -64,12 +69,22 @@
 - 组装 auto seed：`src/core/robot/auto_seed_assembly.ts`；避免 app 与 file-io 测试各自复制 seed 逻辑
 - runtime patch diff：`src/core/robot/runtime_patch_diff.ts`；viewer 可通过 `features/urdf-viewer/utils/robotLoaderDiff.ts` 兼容 re-export
 
-## 8. App Source Sync 模块化
+## 8. Canonical Workspace / Source Documents
 
-- `src/app/hooks/workspace-source-sync/robot_source_snapshot.ts`：source snapshot 的稳定序列化
-- `src/app/hooks/workspace-source-sync/single_component_reuse.ts`：单组件 workspace/source viewer 复用策略
-- `src/app/hooks/workspace-source-sync/*`：source sync 相关 hook 与策略；新增 source 同步逻辑优先落这里
-- `src/app/hooks/workspace-mutations/*`：workspace 变更操作；不要继续把所有策略塞进 `useWorkspaceSourceSync.ts`
+- `src/app/hooks/workspace-source-sync/robot_source_snapshot.ts`：source snapshot 的稳定序列化；该目录不持有 robot 镜像
+- `src/core/robot/componentSourceDraft.ts`：component-owned draft 与 semantic hash；library source 只是不可变模板
+- `src/app/utils/sourceCodeDocuments.ts`：按 active component 构造可编辑 document；multi/bridge workspace 只提供只读 projection
+- `src/app/hooks/workspace-mutations/*`：所有业务 mutation 显式携带 component/entity target
+- structured mutation 后只允许 patch 对应 component draft 或使其失效；禁止回写共享 library template
+- source full apply 在 store 外 parse/validate，再以 revision CAS 原子替换目标 component robot + matching draft
+- 不得恢复 `useWorkspaceSourceSync`、single-component reuse/reseed、source-scene mirror 或 renderer-strategy mutation 分支
+
+## 8.1 Scene Projection Boundary
+
+- `src/core/robot/assemblySceneProjection.ts`：输出 direct/assembled `RobotData` 与 `EntityRef` 双向 global ID mapping
+- `src/core/robot/assemblyScenePlacement.ts`：统一 Assembly/component root transform，renderer 与 export 共用
+- `direct-component` 仅是性能策略；selection、mutation、history、source apply 和 export target 不得以此分流
+- projection 只读且不得写回 store；owner 解析只能查 mapping，禁止按字符串前缀猜测
 
 ## 9. Debuggability First
 

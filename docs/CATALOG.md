@@ -1,6 +1,6 @@
 # 文档索引
 
-> 最后更新：2026-07-05
+> 最后更新：2026-07-09
 
 主入口：[CLAUDE.md](../CLAUDE.md)（项目定位、目录结构、架构红线、Store 表、常用命令、测试分层、文档导航）
 
@@ -18,3 +18,4 @@
 | [testing.md](testing.md)                   | 测试指南：三层测试金字塔、命令入口、新增测试落点、结果阅读                  | 97  |
 | [update-rules.md](update-rules.md)         | 变更工作流：验收清单、增量命令、测试样本索引、浏览器验证、文档更新映射      | 164 |
 | [robot-canvas-lib.md](robot-canvas-lib.md) | 对外库说明：RobotCanvas API、发布流程、后续拆分建议                         | 85  |
+| [assembly-single-source-refactor.md](assembly-single-source-refactor.md) | Assembly 单一可变模型端到端重构：硬切换边界、阶段与验收                    | 296 |
