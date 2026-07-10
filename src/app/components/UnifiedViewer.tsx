@@ -3,13 +3,22 @@ import type { RootState } from '@react-three/fiber';
 import type { Group as ThreeGroup, Object3D as ThreeObject3D } from 'three';
 import type {
   AppMode,
+  AssemblyEntityRef,
   AssemblyState,
+  AssemblyTransform,
+  BridgeEntityRef,
+  ComponentEntityRef,
+  EntityRef,
   InteractionSelection,
-  RobotData,
+  LinkEntityRef,
   RobotFile,
-  RobotState,
   Theme,
+  UrdfJoint,
+  UrdfLink,
+  UrdfOrigin,
+  WorkspaceSelection,
 } from '@/types';
+import type { AssemblyScenePlacement, AssemblySceneProjection } from '@/core/robot';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { WorkspaceCanvas } from '@/shared/components/3d';
@@ -21,15 +30,20 @@ import {
   type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import {
+  groupProjectedJointMotionByComponent,
+  projectJointPreviewToWorkspaceComponents,
+  projectWorkspaceSelectionToRenderer,
+  resolveDefaultViewerToolMode,
+  resolveRendererSelectionToWorkspace,
+  resolveWorkspaceFocusTarget,
   type ViewerHelperKind,
   type ToolMode,
   type ViewerDocumentLoadEvent,
   type ViewerJointChangeContext,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
+  useViewerController,
 } from '@/features/editor';
-import { useViewerController } from '@/features/editor';
-import { resolveDefaultViewerToolMode } from '@/features/editor';
 import { resolveViewerJointScopeKey } from '@/app/utils/viewerJointScopeKey';
 import { resolveUnifiedViewerForcedSessionState } from '@/app/utils/unifiedViewerForcedSessionState';
 import { resolveUnifiedViewerUsageGuideVisibility } from '@/app/utils/unifiedViewerUsageGuide';
@@ -38,8 +52,7 @@ import {
   shouldRestoreUnifiedViewerOptionsPanel,
 } from '@/app/utils/unifiedViewerOptionsRestore';
 import { useUIStore } from '@/store';
-import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
+import { subscribeWorkspaceGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 import type { DocumentLoadLifecycleState } from '@/store/assetsStore';
 import type { UpdateCommitOptions } from '@/types/viewer';
 import {
@@ -57,40 +70,21 @@ import { UnifiedViewerSceneRoots } from './unified-viewer/UnifiedViewerSceneRoot
 import type { FilePreviewState } from './unified-viewer/types';
 import { useUnifiedViewerDerivedState } from './unified-viewer/useUnifiedViewerDerivedState';
 import { useSelectionStore } from '@/store/selectionStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { logRegressionWarn } from '@/shared/debug/consoleDiagnostics';
+import { flushPendingHistory } from '@/app/utils/pendingHistory';
 
 interface UnifiedViewerProps {
-  // Viewer-bound scene data: deliberately RobotData (no selection) so the
-  // reference stays stable when only the selection changes. Mixing selection
-  // here would let an empty-click reset cascade through RobotModel patch
-  // detection + visibility re-sync and flash multi-component scenes off for a
-  // frame.
-  robot: RobotData;
-  // Editor-side robot keeps RobotState for closed-loop/IK consumers that still
-  // read selection.
-  editorRobot?: RobotState;
+  workspace: AssemblyState;
+  sceneProjection: AssemblySceneProjection;
+  scenePlacement: AssemblyScenePlacement;
   mode: AppMode;
-  onSelect: (
-    type: Exclude<InteractionSelection['type'], null>,
-    id: string,
-    subType?: 'visual' | 'collision',
-    helperKind?: ViewerHelperKind,
+  onSelect: (selection: WorkspaceSelection) => void;
+  onHover?: (selection: WorkspaceSelection) => void;
+  onUpdate: (
+    ref: Extract<EntityRef, { type: 'link' | 'joint' }>,
+    data: Partial<UrdfLink> | Partial<UrdfJoint>,
   ) => void;
-  onMeshSelect?: (
-    linkId: string,
-    jointId: string | null,
-    objectIndex: number,
-    objectType: 'visual' | 'collision',
-  ) => void;
-  onHover?: (
-    type: InteractionSelection['type'],
-    id: string | null,
-    subType?: 'visual' | 'collision',
-    objectIndex?: number,
-    helperKind?: ViewerHelperKind,
-    highlightObjectId?: number,
-  ) => void;
-  onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
   assets: Record<string, string>;
   allFileContents: Record<string, string>;
   lang: Language;
@@ -116,48 +110,36 @@ interface UnifiedViewerProps {
   onRuntimeSceneReadyForDisplay?: () => void;
   jointAngleState?: Record<string, number>;
   jointMotionState?: Record<string, ViewerJointMotionStateValue>;
-  onJointChange?: (jointName: string, angle: number, context?: ViewerJointChangeContext) => void;
-  syncJointChangesToApp?: boolean;
-  selection?: InteractionSelection;
+  selection: WorkspaceSelection;
   modelInteractionEnabled?: boolean;
-  focusTarget?: string | null;
+  focusTarget?: EntityRef | null;
   isMeshPreview?: boolean;
   onTransformPendingChange?: (pending: boolean) => void;
   onCollisionTransformPreview?: (
-    linkId: string,
+    ref: LinkEntityRef,
     position: { x: number; y: number; z: number },
     rotation: { r: number; p: number; y: number },
     objectIndex?: number,
   ) => void;
   onCollisionTransform?: (
-    linkId: string,
+    ref: LinkEntityRef,
     position: { x: number; y: number; z: number },
     rotation: { r: number; p: number; y: number },
     objectIndex?: number,
   ) => void;
-  assemblyState?: AssemblyState | null;
-  assemblyWorkspaceActive?: boolean;
-  assemblySelection?: AssemblySelection;
-  sourceSceneAssemblyComponentId?: string | null;
-  onAssemblyTransform?: (transform: {
-    position: { x: number; y: number; z: number };
-    rotation: { r: number; p: number; y: number };
-  }) => void;
+  onAssemblyTransform?: (
+    ref: AssemblyEntityRef,
+    transform: AssemblyTransform,
+    options?: UpdateCommitOptions,
+  ) => void;
   onComponentTransform?: (
-    componentId: string,
-    transform: {
-      position: { x: number; y: number; z: number };
-      rotation: { r: number; p: number; y: number };
-    },
+    ref: ComponentEntityRef,
+    transform: AssemblyTransform,
     options?: UpdateCommitOptions,
   ) => void;
   onBridgeTransform?: (
-    bridgeId: string,
-    origin: {
-      xyz: { x: number; y: number; z: number };
-      rpy: { r: number; p: number; y: number };
-      quatXyzw?: { x: number; y: number; z: number; w: number };
-    },
+    ref: BridgeEntityRef,
+    origin: UrdfOrigin,
     options?: UpdateCommitOptions,
   ) => void;
   filePreview?: FilePreviewState;
@@ -174,11 +156,11 @@ const INACTIVE_SCENE_UNMOUNT_DELAY_MS = 15_000;
 
 export const UnifiedViewer = React.memo(
   ({
-    robot,
-    editorRobot: editorRobotInput,
+    workspace,
+    sceneProjection,
+    scenePlacement,
     mode,
     onSelect,
-    onMeshSelect,
     onHover,
     onUpdate,
     assets,
@@ -206,8 +188,6 @@ export const UnifiedViewer = React.memo(
     onRuntimeSceneReadyForDisplay,
     jointAngleState,
     jointMotionState,
-    onJointChange,
-    syncJointChangesToApp = false,
     selection,
     modelInteractionEnabled = true,
     focusTarget,
@@ -215,10 +195,6 @@ export const UnifiedViewer = React.memo(
     onTransformPendingChange,
     onCollisionTransformPreview,
     onCollisionTransform,
-    assemblyState,
-    assemblyWorkspaceActive = false,
-    assemblySelection,
-    sourceSceneAssemblyComponentId = null,
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
@@ -232,7 +208,24 @@ export const UnifiedViewer = React.memo(
     gizmoMargin,
   }: UnifiedViewerProps) => {
     const t = translations[lang];
+    const workspaceInteractionEnabled = modelInteractionEnabled && !filePreview;
     const clearHover = useSelectionStore((state) => state.clearHover);
+    const canonicalHoveredSelection = useSelectionStore((state) =>
+      workspaceInteractionEnabled ? state.hoveredSelection : null,
+    );
+    const robot = scenePlacement.robotData;
+    const rendererSelection = React.useMemo(
+      () => projectWorkspaceSelectionToRenderer(sceneProjection, selection),
+      [sceneProjection, selection],
+    );
+    const rendererHoveredSelection = React.useMemo(
+      () => projectWorkspaceSelectionToRenderer(sceneProjection, canonicalHoveredSelection),
+      [canonicalHoveredSelection, sceneProjection],
+    );
+    const rendererFocusTarget = React.useMemo(
+      () => resolveWorkspaceFocusTarget(sceneProjection, scenePlacement, focusTarget),
+      [focusTarget, scenePlacement, sceneProjection],
+    );
     const {
       groundPlaneOffset,
       setGroundPlaneOffset,
@@ -247,15 +240,10 @@ export const UnifiedViewer = React.memo(
       resolvedTheme,
       viewerOptionsVisibleRef,
       optionsVisibleAtPointerDownRef,
-      editorRobot,
       effectiveUrdfContent,
       effectiveSourceFilePath,
       effectiveSourceFile,
       viewerResourceScope,
-      sourceSceneAssemblyComponent,
-      sourceSceneAssemblyComponentTransform,
-      handleSourceSceneAssemblyComponentTransform,
-      showSourceSceneAssemblyComponentControls,
       viewportState,
     } = useUnifiedViewerDerivedState({
       mode,
@@ -263,25 +251,19 @@ export const UnifiedViewer = React.memo(
       pendingViewerToolMode,
       theme,
       showOptionsPanel,
-      editorRobotInput,
       robot,
-      assemblyWorkspaceActive,
       urdfContent,
       sourceFilePath,
       sourceFile,
       assets,
       allFileContents,
       availableFiles,
-      assemblyState,
-      sourceSceneAssemblyComponentId,
-      assemblySelection,
-      onComponentTransform,
       viewerReloadKey,
       documentLoadState,
     });
     const effectiveJointAngleState = isPreviewing ? undefined : jointAngleState;
     const effectiveJointMotionState = isPreviewing ? undefined : jointMotionState;
-    const effectiveSyncJointChangesToApp = isPreviewing ? false : syncJointChangesToApp;
+    const effectiveSyncJointChangesToApp = !isPreviewing;
     const { viewerVisible, shouldRenderViewerScene, useViewerCanvasPresentation } = viewportState;
     const viewerGroupRef = React.useRef<ThreeGroup | null>(null);
     const viewerRaycastCacheRef = React.useRef(
@@ -365,16 +347,188 @@ export const UnifiedViewer = React.memo(
       : effectiveSourceFilePath
         ? `inline:${effectiveSourceFilePath}`
         : 'inline:unified-viewer';
+    const handleRendererSelect = React.useCallback(
+      (
+        type: Exclude<InteractionSelection['type'], null>,
+        id: string,
+        subType?: 'visual' | 'collision',
+        helperKind?: ViewerHelperKind,
+      ) => {
+        onSelect(
+          resolveRendererSelectionToWorkspace(sceneProjection, {
+            type,
+            id,
+            subType,
+            helperKind,
+          }),
+        );
+      },
+      [onSelect, sceneProjection],
+    );
+    const handleRendererMeshSelect = React.useCallback(
+      (
+        linkId: string,
+        _jointId: string | null,
+        objectIndex: number,
+        objectType: 'visual' | 'collision',
+      ) => {
+        onSelect(
+          resolveRendererSelectionToWorkspace(sceneProjection, {
+            type: 'link',
+            id: linkId,
+            subType: objectType,
+            objectIndex,
+          }),
+        );
+      },
+      [onSelect, sceneProjection],
+    );
+    const handleRendererHover = React.useCallback(
+      (
+        type: InteractionSelection['type'],
+        id: string | null,
+        subType?: 'visual' | 'collision',
+        objectIndex?: number,
+        helperKind?: ViewerHelperKind,
+        highlightObjectId?: number,
+      ) => {
+        onHover?.(
+          resolveRendererSelectionToWorkspace(sceneProjection, {
+            type,
+            id,
+            subType,
+            objectIndex,
+            helperKind,
+            highlightObjectId,
+          }),
+        );
+      },
+      [onHover, sceneProjection],
+    );
+    const handleRendererUpdate = React.useCallback(
+      (type: 'link' | 'joint', id: string, data: unknown) => {
+        const resolved = resolveRendererSelectionToWorkspace(sceneProjection, { type, id });
+        if (!resolved || (resolved.entity.type !== 'link' && resolved.entity.type !== 'joint')) {
+          return;
+        }
+        onUpdate(resolved.entity, data as Partial<UrdfLink> | Partial<UrdfJoint>);
+      },
+      [onUpdate, sceneProjection],
+    );
+    const resolveRendererLinkRef = React.useCallback(
+      (linkId: string): LinkEntityRef | null => {
+        const resolved = resolveRendererSelectionToWorkspace(sceneProjection, {
+          type: 'link',
+          id: linkId,
+        });
+        return resolved?.entity.type === 'link' ? resolved.entity : null;
+      },
+      [sceneProjection],
+    );
+    const handleRendererCollisionTransformPreview = React.useCallback(
+      (
+        linkId: string,
+        position: { x: number; y: number; z: number },
+        rotation: { r: number; p: number; y: number },
+        objectIndex?: number,
+      ) => {
+        const ref = resolveRendererLinkRef(linkId);
+        if (ref) {
+          onCollisionTransformPreview?.(ref, position, rotation, objectIndex);
+        }
+      },
+      [onCollisionTransformPreview, resolveRendererLinkRef],
+    );
+    const handleRendererCollisionTransform = React.useCallback(
+      (
+        linkId: string,
+        position: { x: number; y: number; z: number },
+        rotation: { r: number; p: number; y: number },
+        objectIndex?: number,
+      ) => {
+        const ref = resolveRendererLinkRef(linkId);
+        if (ref) {
+          onCollisionTransform?.(ref, position, rotation, objectIndex);
+        }
+      },
+      [onCollisionTransform, resolveRendererLinkRef],
+    );
+    const handleRendererAssemblyTransform = React.useCallback(
+      (transform: AssemblyTransform) => {
+        onAssemblyTransform?.({ type: 'assembly' }, transform);
+      },
+      [onAssemblyTransform],
+    );
+    const handleRendererComponentTransform = React.useCallback(
+      (
+        componentId: string,
+        transform: AssemblyTransform,
+        options?: UpdateCommitOptions,
+      ) => {
+        onComponentTransform?.({ type: 'component', componentId }, transform, options);
+      },
+      [onComponentTransform],
+    );
+    const handleRendererBridgeTransform = React.useCallback(
+      (bridgeId: string, origin: UrdfOrigin, options?: UpdateCommitOptions) => {
+        onBridgeTransform?.({ type: 'bridge', bridgeId }, origin, options);
+      },
+      [onBridgeTransform],
+    );
+    const commitProjectedJointMotion = React.useCallback(
+      (context: ViewerJointChangeContext) => {
+        const groups = groupProjectedJointMotionByComponent(sceneProjection, context);
+        if (groups.length === 0) {
+          return;
+        }
+
+        const workspaceStore = useWorkspaceStore.getState();
+        let operationId: string | null = null;
+        try {
+          flushPendingHistory();
+          const transactionId = workspaceStore.beginWorkspaceTransaction(
+            'Commit viewer joint motion',
+          );
+          operationId = transactionId;
+          groups.forEach((group) => {
+            workspaceStore.setComponentJointMotion(
+              group.componentId,
+              { ...group.jointAngles },
+              { ...group.jointQuaternions },
+              { operationId: transactionId },
+            );
+          });
+          workspaceStore.flushPendingJointMotion({ operationId: transactionId });
+          workspaceStore.commitWorkspaceTransaction(transactionId);
+        } catch (error) {
+          if (operationId) {
+            workspaceStore.cancelWorkspaceTransaction(operationId);
+          }
+          logRegressionWarn('[UnifiedViewer] Failed to commit projected joint motion.', error);
+        }
+      },
+      [sceneProjection],
+    );
+    const projectJointInteractionPreview = React.useCallback(
+      (
+        preview: Parameters<typeof projectJointPreviewToWorkspaceComponents>[1],
+      ) => projectJointPreviewToWorkspaceComponents(sceneProjection, preview),
+      [sceneProjection],
+    );
     const viewerController = useViewerController({
-      onJointChange,
+      onJointChange: (_jointName, _angle, context) => {
+        if (context) {
+          commitProjectedJointMotion(context);
+        }
+      },
       syncJointChangesToApp: effectiveSyncJointChangesToApp,
       showJointPanel,
       jointAngleState: effectiveJointAngleState,
       jointMotionState: effectiveJointMotionState,
-      onSelect,
-      onMeshSelect,
-      onHover,
-      selection,
+      onSelect: handleRendererSelect,
+      onMeshSelect: handleRendererMeshSelect,
+      onHover: handleRendererHover,
+      selection: rendererSelection,
       showVisual,
       setShowVisual,
       onTransformPendingChange,
@@ -389,7 +543,8 @@ export const UnifiedViewer = React.memo(
       }),
       defaultToolMode: viewerDefaultToolMode,
       toolModeScopeKey: viewerToolModeScopeKey,
-      closedLoopRobotState: editorRobot,
+      closedLoopRobotState: robot,
+      projectJointInteractionPreview,
     });
     const nextForcedViewerSession = resolveUnifiedViewerForcedSessionState({
       forcedViewerSession,
@@ -560,6 +715,10 @@ export const UnifiedViewer = React.memo(
     }, []);
 
     useEffect(() => {
+      if (!workspaceInteractionEnabled) {
+        return undefined;
+      }
+
       const handleWindowBlur = () => {
         clearHover();
       };
@@ -576,12 +735,14 @@ export const UnifiedViewer = React.memo(
         window.removeEventListener('blur', handleWindowBlur);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       };
-    }, [clearHover]);
+    }, [clearHover, workspaceInteractionEnabled]);
 
     const handleWorkspaceMouseLeave = React.useCallback(() => {
       viewerController.handleMouseUp();
-      clearHover();
-    }, [clearHover, viewerController]);
+      if (workspaceInteractionEnabled) {
+        clearHover();
+      }
+    }, [clearHover, viewerController, workspaceInteractionEnabled]);
 
     return (
       <WorkspaceCanvas
@@ -601,7 +762,7 @@ export const UnifiedViewer = React.memo(
         onMouseLeave={handleWorkspaceMouseLeave}
         environment={workspaceEnvironment}
         environmentIntensity={workspaceEnvironmentIntensity}
-        subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
+        subscribeGroundPlaneInvalidation={subscribeWorkspaceGroundPlaneInvalidation}
         cameraFollowPrimary={useViewerCanvasPresentation}
         controlLayerKey={controlLayerKey}
         gizmoMargin={gizmoMargin}
@@ -629,7 +790,7 @@ export const UnifiedViewer = React.memo(
             lang={lang}
             onClosePreview={onClosePreview}
             viewerController={viewerController}
-            onUpdate={onUpdate}
+            onUpdate={handleRendererUpdate}
             showOptionsPanel={showOptionsPanel}
             setShowOptionsPanel={setShowOptionsPanel}
             showJointPanel={showJointPanel}
@@ -659,25 +820,25 @@ export const UnifiedViewer = React.memo(
             onRuntimeRobotLoaded?.(loadedRobot);
           }}
           viewerSceneMode={viewerSceneMode}
-          selection={selection}
-          onHover={onHover}
-          onMeshSelect={onMeshSelect}
-          onUpdate={onUpdate}
+          selection={rendererSelection}
+          hoveredSelection={rendererHoveredSelection}
+          onHover={handleRendererHover}
+          onMeshSelect={handleRendererMeshSelect}
+          onUpdate={handleRendererUpdate}
+          onJointMotionCommit={commitProjectedJointMotion}
           robot={robot}
-          focusTarget={focusTarget}
-          onCollisionTransformPreview={onCollisionTransformPreview}
-          onCollisionTransform={onCollisionTransform}
+          focusTarget={rendererFocusTarget}
+          onCollisionTransformPreview={handleRendererCollisionTransformPreview}
+          onCollisionTransform={handleRendererCollisionTransform}
           isMeshPreview={isMeshPreview}
           viewerReloadKey={viewerReloadKey}
-          assemblyState={assemblyState}
-          assemblySelection={assemblySelection}
-          onAssemblyTransform={onAssemblyTransform}
-          onComponentTransform={onComponentTransform}
-          onBridgeTransform={onBridgeTransform}
-          sourceSceneAssemblyComponent={sourceSceneAssemblyComponent}
-          sourceSceneAssemblyComponentTransform={sourceSceneAssemblyComponentTransform}
-          showSourceSceneAssemblyComponentControls={showSourceSceneAssemblyComponentControls}
-          onSourceSceneAssemblyComponentTransform={handleSourceSceneAssemblyComponentTransform}
+          workspace={workspace}
+          sceneProjection={sceneProjection}
+          scenePlacement={scenePlacement}
+          workspaceSelection={selection}
+          onAssemblyTransform={handleRendererAssemblyTransform}
+          onComponentTransform={handleRendererComponentTransform}
+          onBridgeTransform={handleRendererBridgeTransform}
           t={t}
           ikDragActive={ikDragActive}
         />

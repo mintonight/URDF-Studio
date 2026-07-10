@@ -167,24 +167,12 @@ export function WorkspaceOrbitControls({
           return;
         }
 
-        const { camera, gl, scene } = get();
+        const { camera } = get();
         const cameraChanged = controls.update() as unknown as boolean;
         controls.dispatchEvent({ type: 'change', target: controls });
         camera.updateMatrixWorld(true);
+        // Let R3F run the full demand-frame pipeline; direct gl.render() skips Hud passes.
         invalidate();
-
-        const previousShadowAutoUpdate = gl.shadowMap.autoUpdate;
-        const previousSceneMatrixWorldAutoUpdate = scene.matrixWorldAutoUpdate;
-        if (gl.shadowMap.enabled) {
-          gl.shadowMap.autoUpdate = false;
-        }
-        scene.matrixWorldAutoUpdate = false;
-        try {
-          gl.render(scene, camera);
-        } finally {
-          scene.matrixWorldAutoUpdate = previousSceneMatrixWorldAutoUpdate;
-          gl.shadowMap.autoUpdate = previousShadowAutoUpdate;
-        }
 
         if (controls.enableDamping && cameraChanged) {
           scheduleRender();

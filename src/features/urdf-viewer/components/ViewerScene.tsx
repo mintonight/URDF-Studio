@@ -26,6 +26,8 @@ interface MeasureToolLayerProps {
   measureTargetResolverRef: NonNullable<MeasureToolProps['measureTargetResolverRef']>;
   robotLinks: MeasureToolProps['robotLinks'];
   t: ViewerSceneProps['t'];
+  selection?: ViewerSceneProps['selection'];
+  hoveredSelection?: ViewerSceneProps['hoveredSelection'];
 }
 
 const MeasureToolLayer = ({
@@ -34,6 +36,8 @@ const MeasureToolLayer = ({
   measureTargetResolverRef,
   robotLinks,
   t,
+  selection,
+  hoveredSelection,
 }: MeasureToolLayerProps) => {
   if (hidden) {
     return null;
@@ -50,6 +54,8 @@ const MeasureToolLayer = ({
       showDecomposition={controller.showMeasureDecomposition}
       deleteTooltip={t.deleteMeasurement}
       measureTargetResolverRef={measureTargetResolverRef}
+      selection={selection}
+      hoveredSelection={hoveredSelection}
     />
   );
 };
@@ -72,10 +78,12 @@ export const ViewerScene = ({
   mode,
   selection,
   hoveredSelection,
+  interactionEnabled = true,
   hoverSelectionEnabled = true,
   onHover,
   onMeshSelect,
   onUpdate,
+  onJointMotionCommit,
   robotLinks,
   robotJoints,
   robotData,
@@ -87,15 +95,13 @@ export const ViewerScene = ({
   isMeshPreview = false,
   ikDragActive = false,
   runtimeInstanceKey = 0,
-  assemblyState,
-  assemblySelection,
+  workspace,
+  sceneProjection,
+  scenePlacement,
+  workspaceSelection,
   onAssemblyTransform,
   onComponentTransform,
   onBridgeTransform,
-  sourceSceneAssemblyComponentId,
-  sourceSceneAssemblyComponentTransform,
-  showSourceSceneAssemblyComponentControls = false,
-  onSourceSceneAssemblyComponentTransform,
   toolMode,
   t,
 }: ViewerSceneProps) => {
@@ -225,11 +231,14 @@ export const ViewerScene = ({
         measureTargetResolverRef={measureTargetResolverRef}
         robotLinks={robotLinks}
         t={t}
+        selection={selection}
+        hoveredSelection={hoveredSelection}
       />
 
       <AssemblyJointPickLayer
         robot={controller.robot}
-        assemblyState={assemblyState ?? null}
+        workspace={workspace ?? null}
+        sceneProjection={sceneProjection ?? null}
         hidden={snapshotRenderActive}
       />
 
@@ -263,6 +272,7 @@ export const ViewerScene = ({
           onPaintStatusChange={controller.setPaintStatus}
           onJointChange={controller.handleJointAngleChange}
           onJointChangeCommit={controller.handleJointChangeCommit}
+          onJointMotionCommit={onJointMotionCommit}
           initialJointAngles={controller.getInitialJointAnglesForNextLoad()}
           registerSceneRefresh={controller.registerSceneRefresh}
           setIsDragging={controller.setIsDragging}
@@ -276,6 +286,7 @@ export const ViewerScene = ({
           mode={mode}
           selection={selection}
           hoveredSelection={hoveredSelection}
+          interactionEnabled={interactionEnabled}
           hoverSelectionEnabled={effectiveHoverSelectionEnabled}
           groundPlaneOffset={groundPlaneOffset}
           showInertia={controller.showInertia}
@@ -306,15 +317,13 @@ export const ViewerScene = ({
           onTransformPending={controller.handleTransformPending}
           isSelectionLockedRef={controller.transformPendingRef}
           isMeshPreview={isMeshPreview}
-          assemblyState={assemblyState}
-          assemblySelection={assemblySelection}
+          workspace={workspace}
+          sceneProjection={sceneProjection}
+          scenePlacement={scenePlacement}
+          workspaceSelection={workspaceSelection}
           onAssemblyTransform={onAssemblyTransform}
           onComponentTransform={onComponentTransform}
           onBridgeTransform={onBridgeTransform}
-          sourceSceneAssemblyComponentId={sourceSceneAssemblyComponentId}
-          sourceSceneAssemblyComponentTransform={sourceSceneAssemblyComponentTransform}
-          showSourceSceneAssemblyComponentControls={showSourceSceneAssemblyComponentControls}
-          onSourceSceneAssemblyComponentTransform={onSourceSceneAssemblyComponentTransform}
         />
       </Suspense>
     </>

@@ -7,12 +7,10 @@ import {
   shouldUseIndeterminateStreamingMeshProgress,
 } from '@/shared/components/3d';
 import { requestShadowMapRefresh } from '@/shared/components/3d/scene/shadowMapRefresh';
-import { isAssemblyTransformSelectionArmed } from '@/shared/utils/assembly/transformSelection';
 import {
   resolveViewerJointAngleValue,
   resolveViewerJointKey,
 } from '@/shared/utils/jointPanelState';
-import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import {
   applyMeshMaterialPaintEdit,
   getVisualGeometryByObjectIndex,
@@ -24,6 +22,7 @@ import {
   resolveVisualMaterialOverride,
   updateVisualGeometryByObjectIndex,
 } from '@/core/robot';
+import { cloneAssemblyTransform } from '@/core/robot/assemblyTransformUtils';
 import {
   getBufferGeometryTriangleCount,
   resolveMeshFaceSelection,
@@ -31,7 +30,6 @@ import {
   resolveRuntimeMeshRootWithinVisual,
 } from '@/core/utils/meshMaterialGroups';
 import { CollisionTransformControls } from './CollisionTransformControls';
-import { HoverSelectionSync } from './HoverSelectionSync';
 import { JointInteraction } from './JointInteraction';
 import { OriginTransformControls } from './OriginTransformControls';
 import { AssemblyTransformControls } from './AssemblyTransformControls';
@@ -39,7 +37,7 @@ import { ViewerLoadingHudOverlay } from './ViewerLoadingHudOverlay';
 import type { RobotModelProps, ViewerDocumentLoadEvent, ViewerPaintFaceHit } from '../types';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
-import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
+import { useSelectionStore, useUIStore } from '@/store';
 import { GeometryType, type RobotFile } from '@/types';
 
 import { useRendererBackend } from '../hooks/useRendererBackend';
@@ -57,6 +55,7 @@ import {
 import { resolveSelectedIkDragLinkId } from '../utils/selectedIkDragLink';
 import { resolveViewerRobotSourceFormat } from '@/features/urdf-viewer/renderers/sourceFormat';
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
+import { isWorkspaceTransformSelection } from '../utils/workspaceSceneProjection';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import {
   setRegressionPrimaryRuntimeRobot,
@@ -190,6 +189,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     onPaintStatusChange,
     onJointChange,
     onJointChangeCommit,
+    onJointMotionCommit,
     initialJointAngles,
     registerSceneRefresh,
     setIsDragging,
@@ -201,6 +201,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     t,
     mode,
     selection,
+    interactionEnabled = true,
     hoverSelectionEnabled = true,
     showInertia = false,
     showInertiaOverlay = true,
@@ -234,15 +235,13 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     interactionLayerPriority = [],
     groundPlaneOffset = 0,
     active = true,
-    assemblyState = null,
-    assemblySelection,
+    workspace = null,
+    sceneProjection = null,
+    scenePlacement = null,
+    workspaceSelection = null,
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
-    sourceSceneAssemblyComponentId = null,
-    sourceSceneAssemblyComponentTransform = null,
-    showSourceSceneAssemblyComponentControls = false,
-    onSourceSceneAssemblyComponentTransform,
   }) => {
     const { gl, invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
@@ -250,7 +249,8 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     const cameraProjection = useUIStore((state) => state.viewOptions.cameraProjection);
     const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
-    const [sourceSceneComponentRoot, setSourceSceneComponentRoot] = useState<Group | null>(null);
+    const [assemblyRoot, setAssemblyRoot] = useState<Group | null>(null);
+    const [directComponentRoot, setDirectComponentRoot] = useState<Group | null>(null);
     const hasRenderedRobotRef = useRef(Boolean(initialRobot));
     const resolvedSourceFormat = useMemo(
       () => resolveViewerRobotSourceFormat(urdfContent, sourceFormat),
@@ -309,35 +309,6 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     useEffect(() => {
       setIsDraggingRef.current = setIsDragging;
     }, [setIsDragging]);
-    type LinkIkHistorySnapshot = ReturnType<
-      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['createHistorySnapshot']>
-    >;
-    type LinkIkCommitArgs = Parameters<
-      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['onCommitKinematicOverrides']>
-    >;
-    const createIkHistorySnapshot = useCallback((): LinkIkHistorySnapshot => {
-      const state = useRobotStore.getState();
-      return structuredClone({
-        name: state.name,
-        links: state.links,
-        joints: state.joints,
-        rootLinkId: state.rootLinkId,
-        materials: state.materials,
-        closedLoopConstraints: state.closedLoopConstraints,
-      });
-    }, []);
-    const commitIkKinematicOverrides = useCallback(
-      (...args: LinkIkCommitArgs) => {
-        const [overrides, historySnapshot, label] = args;
-        const storeState = useRobotStore.getState();
-        storeState.applyJointKinematicOverrides(overrides, {
-          skipHistory: true,
-        });
-        onIkCommitKinematicOverrides?.(overrides.angles, overrides.quaternions);
-        storeState.pushHistorySnapshot(historySnapshot, label);
-      },
-      [onIkCommitKinematicOverrides],
-    );
     const backendRobotData = useMemo(() => {
       const backendLinks = robotData?.links ?? robotLinks;
       const backendJoints = robotData?.joints ?? robotJoints;
@@ -346,25 +317,45 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         return null;
       }
 
-      const storeState = useRobotStore.getState();
       const childLinkIds = new Set(Object.values(backendJoints).map((joint) => joint.childLinkId));
       const computedRootLinkId =
         robotData?.rootLinkId ||
-        storeState.rootLinkId ||
         Object.keys(backendLinks).find((linkId) => !childLinkIds.has(linkId)) ||
         Object.keys(backendLinks)[0] ||
         '';
 
       return {
-        name: robotData?.name || storeState.name || sourceFileForBackend.name,
+        name: robotData?.name || sourceFileForBackend.name,
         links: backendLinks,
         joints: backendJoints,
         rootLinkId: computedRootLinkId,
-        materials: robotData?.materials ?? storeState.materials,
-        closedLoopConstraints: robotData?.closedLoopConstraints ?? storeState.closedLoopConstraints,
-        inspectionContext: robotData?.inspectionContext ?? storeState.inspectionContext,
+        materials: robotData?.materials,
+        closedLoopConstraints: robotData?.closedLoopConstraints,
+        inspectionContext: robotData?.inspectionContext,
       };
     }, [robotData, robotJoints, robotLinks, sourceFileForBackend.name]);
+    type LinkIkHistorySnapshot = ReturnType<
+      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['createHistorySnapshot']>
+    >;
+    type LinkIkCommitArgs = Parameters<
+      NonNullable<
+        React.ComponentProps<typeof LinkIkTransformControls>['onCommitKinematicOverrides']
+      >
+    >;
+    const createIkHistorySnapshot = useCallback((): LinkIkHistorySnapshot => {
+      return backendRobotData ? structuredClone(backendRobotData) : null;
+    }, [backendRobotData]);
+    const commitIkKinematicOverrides = useCallback(
+      (...args: LinkIkCommitArgs) => {
+        const [overrides] = args;
+        onIkCommitKinematicOverrides?.(overrides.angles, overrides.quaternions);
+        onJointMotionCommit?.({
+          jointAngles: overrides.angles,
+          jointQuaternions: overrides.quaternions,
+        });
+      },
+      [onIkCommitKinematicOverrides, onJointMotionCommit],
+    );
     // ============================================================
     // HOOK: Robot Loading
     // ============================================================
@@ -614,11 +605,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId],
     );
     const ikRobotState = providedIkRobotState ?? fallbackIkRobotState;
-    const assemblyTransformSelectionArmed = useMemo(
-      () => isAssemblyTransformSelectionArmed(assemblyState, assemblySelection, selection),
-      [assemblySelection, assemblyState, selection],
-    );
-
+    const workspaceTransformSelectionArmed = isWorkspaceTransformSelection(workspaceSelection);
     // ============================================================
     // HOOK: Highlight Manager
     // ============================================================
@@ -645,7 +632,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       focusTarget,
       selection,
       mode,
-      autoFrameOnRobotChange: active && !focusTarget && !isLoading,
+      autoFrameOnRobotChange: active && !isLoading,
       autoFrameScopeKey,
       active,
     });
@@ -672,11 +659,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         const visualGeometry = link
           ? getVisualGeometryByObjectIndex(link, objectIndex)?.geometry
           : null;
-        if (
-          !link ||
-          !visualGeometry ||
-          !PAINTABLE_VISUAL_GEOMETRY_TYPES.has(visualGeometry.type)
-        ) {
+        if (!link || !visualGeometry || !PAINTABLE_VISUAL_GEOMETRY_TYPES.has(visualGeometry.type)) {
           onPaintStatusChange?.({
             tone: 'error',
             message: t.paintErrorVisualMeshOnly,
@@ -684,7 +667,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
           return;
         }
 
-        const robotMaterials = useRobotStore.getState().materials;
+        const robotMaterials = backendRobotData?.materials ?? {};
         const resolvedMaterial = resolveVisualMaterialOverride(
           { materials: robotMaterials },
           link,
@@ -747,13 +730,14 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
           }),
           color: undefined,
         });
-        if (onUpdate) {
-          onUpdate('link', link.id, nextLink);
-        } else {
-          useRobotStore.getState().updateLink(link.id, nextLink, {
-            label: paintOperation === 'erase' ? 'Erase painted mesh faces' : 'Paint mesh faces',
+        if (!onUpdate) {
+          onPaintStatusChange?.({
+            tone: 'error',
+            message: t.paintUnsupportedRobotOnly,
           });
+          return;
         }
+        onUpdate('link', link.id, nextLink);
         onPaintStatusChange?.({
           tone: 'success',
           message: paintOperation === 'erase' ? t.paintStatusRemoved : t.paintStatusApplied,
@@ -761,6 +745,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       },
       [
         isMeshPreview,
+        backendRobotData?.materials,
         onPaintStatusChange,
         onUpdate,
         paintColor,
@@ -776,6 +761,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     // ============================================================
     const { mouseRef, raycasterRef, hoveredLinkRef, isDraggingJoint, needsRaycastRef } =
       useMouseInteraction({
+        enabled: interactionEnabled,
         robot,
         robotVersion,
         toolMode,
@@ -1005,38 +991,54 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       showCollision ? 'collision-on' : 'collision-off',
     ].join('|');
     const sceneCompileWarmupEnabled = shouldEnableViewerSceneCompileWarmup(resolvedSourceFormat);
-    const sourceSceneTransform = cloneAssemblyTransform(sourceSceneAssemblyComponentTransform);
+    const assemblyTransform = cloneAssemblyTransform(scenePlacement?.assemblyTransform);
+    const directComponentTransform = cloneAssemblyTransform(
+      scenePlacement?.directComponentTransform,
+    );
     const shouldShowLoadingHud = isLoading && !robot && !hasRenderedRobotRef.current;
-    const handleSourceSceneComponentRootRef = useCallback((node: Group | null) => {
-      setSourceSceneComponentRoot((current) => (current === node ? current : node));
+    const handleAssemblyRootRef = useCallback((node: Group | null) => {
+      setAssemblyRoot((current) => (current === node ? current : node));
+    }, []);
+    const handleDirectComponentRootRef = useCallback((node: Group | null) => {
+      setDirectComponentRoot((current) => (current === node ? current : node));
     }, []);
 
     return (
       <>
-        {!usesExternalHoverSelection ? (
-          <HoverSelectionSync
-            enabled={hoverSelectionEnabled}
-            onHoverSelectionChange={syncHoverHighlight}
-          />
-        ) : null}
         <SceneCompileWarmup
           active={sceneCompileWarmupEnabled && active && Boolean(robot) && !isLoading}
           warmupKey={sceneCompileWarmupKey}
         />
         <group
-          ref={handleSourceSceneComponentRootRef}
+          ref={handleAssemblyRootRef}
           position={[
-            sourceSceneTransform.position.x,
-            sourceSceneTransform.position.y,
-            sourceSceneTransform.position.z,
+            assemblyTransform.position.x,
+            assemblyTransform.position.y,
+            assemblyTransform.position.z,
           ]}
           rotation={[
-            sourceSceneTransform.rotation.r,
-            sourceSceneTransform.rotation.p,
-            sourceSceneTransform.rotation.y,
+            assemblyTransform.rotation.r,
+            assemblyTransform.rotation.p,
+            assemblyTransform.rotation.y,
+            'ZYX',
           ]}
         >
-          {robot ? <primitive object={robot} /> : null}
+          <group
+            ref={handleDirectComponentRootRef}
+            position={[
+              directComponentTransform.position.x,
+              directComponentTransform.position.y,
+              directComponentTransform.position.z,
+            ]}
+            rotation={[
+              directComponentTransform.rotation.r,
+              directComponentTransform.rotation.p,
+              directComponentTransform.rotation.y,
+              'ZYX',
+            ]}
+          >
+            {robot ? <primitive object={robot} /> : null}
+          </group>
         </group>
         {shouldShowLoadingHud ? (
           <ViewerLoadingHudOverlay
@@ -1049,7 +1051,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             delayMs={0}
           />
         ) : null}
-        {!snapshotRenderActive && robot && toolMode !== 'measure' && (
+        {!snapshotRenderActive && interactionEnabled && robot && toolMode !== 'measure' && (
           <LinkIkTransformControls
             selectedLinkId={selectedIkHandleLinkId}
             selectedHandle={selectedIkHandle}
@@ -1087,7 +1089,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             robotJoints={effectiveRobotJoints}
             closedLoopRobotState={ikRobotState}
           />
-        ) : !snapshotRenderActive && active && selectedJointEntry && transformMode !== 'select' ? (
+        ) : !snapshotRenderActive &&
+          active &&
+          selectedJointEntry &&
+          transformMode !== 'select' &&
+          !workspaceTransformSelectionArmed ? (
           <JointInteraction
             joint={selectedJointEntry.joint}
             value={selectedJointValue}
@@ -1099,28 +1105,21 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         ) : null}
         {!snapshotRenderActive &&
         active &&
-        assemblySelection &&
+        sceneProjection &&
+        scenePlacement &&
         transformMode !== 'select' &&
-        assemblyTransformSelectionArmed ? (
+        workspaceTransformSelectionArmed ? (
           <AssemblyTransformControls
-            robot={{
-              name: 'workspace',
-              rootLinkId: runtimeRobotRootLinkId ?? '__workspace_world__',
-              links: runtimeRobotLinks ?? {},
-              joints: effectiveRobotJoints ?? {},
-              selection: { type: null, id: null },
-            }}
             runtimeRobot={robot}
-            assemblyState={assemblyState}
-            assemblySelection={assemblySelection}
+            sceneProjection={sceneProjection}
+            scenePlacement={scenePlacement}
+            workspaceSelection={workspaceSelection}
             transformMode={transformMode}
-            assemblyRoot={sourceSceneComponentRoot}
-            sourceSceneComponentRoot={sourceSceneComponentRoot}
-            sourceSceneComponentId={sourceSceneAssemblyComponentId}
+            assemblyRoot={assemblyRoot}
+            directComponentRoot={directComponentRoot}
             onAssemblyTransform={onAssemblyTransform}
             onComponentTransform={onComponentTransform}
             onBridgeTransform={onBridgeTransform}
-            onSourceSceneComponentTransform={onSourceSceneAssemblyComponentTransform}
             onTransformPendingChange={onTransformPending}
           />
         ) : !snapshotRenderActive &&

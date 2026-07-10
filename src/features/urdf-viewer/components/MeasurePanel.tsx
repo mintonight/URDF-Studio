@@ -197,8 +197,8 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
 }) => {
   const t = translations[lang];
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const setSelection = useSelectionStore((state) => state.setSelection);
-  const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
+  const clearSelection = useSelectionStore((state) => state.clearSelection);
+  const clearHover = useSelectionStore((state) => state.clearHover);
   const isPointMode = measureMode === 'point';
 
   const activeGroup = useMemo(() => getActiveMeasureGroup(measureState), [measureState]);
@@ -246,8 +246,8 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
   const activeRelativePose = activeMeasurement?.relativePose ?? null;
 
   const resetViewportSelection = () => {
-    setSelection({ type: null, id: null });
-    setHoveredSelection({ type: null, id: null });
+    clearSelection();
+    clearHover();
   };
 
   if (toolMode !== 'measure') return null;

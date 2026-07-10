@@ -188,58 +188,59 @@ function mergeLinkWithSnapshotMeshPaths(current: UrdfLink, fallback?: UrdfLink):
     return current;
   }
 
-  const fallbackBodies = fallback.collisionBodies || [];
-  const currentBodies = current.collisionBodies || [];
-  const usedFallbackBodyIndexes = new Set<number>();
-  const resolveFallbackBody = (
-    currentBody: UrdfVisual,
-    bodyIndex: number,
-  ): UrdfVisual | undefined => {
-    const indexedFallbackBody = fallbackBodies[bodyIndex];
-    if (
-      indexedFallbackBody &&
-      !usedFallbackBodyIndexes.has(bodyIndex) &&
-      canReuseFallbackMeshPath(currentBody, indexedFallbackBody)
-    ) {
-      usedFallbackBodyIndexes.add(bodyIndex);
-      return indexedFallbackBody;
-    }
-
-    for (let index = 0; index < fallbackBodies.length; index += 1) {
-      if (usedFallbackBodyIndexes.has(index)) {
-        continue;
+  const mergeExistingBodies = (
+    currentBodies: UrdfVisual[] | undefined,
+    fallbackBodies: UrdfVisual[] | undefined,
+  ): UrdfVisual[] | undefined => {
+    if (currentBodies === undefined) return undefined;
+    const availableFallbackBodies = fallbackBodies ?? [];
+    const usedFallbackBodyIndexes = new Set<number>();
+    const resolveFallbackBody = (
+      currentBody: UrdfVisual,
+      bodyIndex: number,
+    ): UrdfVisual | undefined => {
+      const indexedFallbackBody = availableFallbackBodies[bodyIndex];
+      if (
+        indexedFallbackBody &&
+        !usedFallbackBodyIndexes.has(bodyIndex) &&
+        canReuseFallbackMeshPath(currentBody, indexedFallbackBody)
+      ) {
+        usedFallbackBodyIndexes.add(bodyIndex);
+        return indexedFallbackBody;
       }
 
-      const candidate = fallbackBodies[index];
-      if (!canReuseFallbackMeshPath(currentBody, candidate)) {
-        continue;
+      for (let index = 0; index < availableFallbackBodies.length; index += 1) {
+        if (usedFallbackBodyIndexes.has(index)) {
+          continue;
+        }
+
+        const candidate = availableFallbackBodies[index];
+        if (!canReuseFallbackMeshPath(currentBody, candidate)) {
+          continue;
+        }
+
+        usedFallbackBodyIndexes.add(index);
+        return candidate;
       }
 
-      usedFallbackBodyIndexes.add(index);
-      return candidate;
-    }
-
-    return undefined;
+      return undefined;
+    };
+    return currentBodies
+      .map((currentBody, index) =>
+        mergeGeometryWithSnapshot(currentBody, resolveFallbackBody(currentBody, index))
+      )
+      .filter((body): body is UrdfVisual => Boolean(body));
   };
 
   // Keep the live robot as source of truth for geometry existence. Snapshot fallback
   // may only supplement missing meshPath on already-existing geometry records.
-  const mergedBodies =
-    currentBodies.length > 0
-      ? currentBodies
-          .map((currentBody, index) =>
-            mergeGeometryWithSnapshot(currentBody, resolveFallbackBody(currentBody, index)),
-          )
-          .filter((body): body is UrdfVisual => Boolean(body))
-      : current.collisionBodies;
-
   return {
-    ...fallback,
     ...current,
     visual: mergeGeometryWithSnapshot(current.visual, fallback.visual) || current.visual,
+    visualBodies: mergeExistingBodies(current.visualBodies, fallback.visualBodies),
     collision:
       mergeGeometryWithSnapshot(current.collision, fallback.collision) || current.collision,
-    collisionBodies: mergedBodies,
+    collisionBodies: mergeExistingBodies(current.collisionBodies, fallback.collisionBodies),
   };
 }
 
@@ -248,15 +249,15 @@ function mergeGeometryWithPreparedCache(
   fallback?: UrdfVisual,
 ): UrdfVisual | undefined {
   if (!current) {
-    return fallback;
+    return undefined;
   }
 
   if (!fallback) {
     return current;
   }
 
-  if (current.type === GeometryType.NONE && fallback.type !== GeometryType.NONE) {
-    return fallback;
+  if (current.type === GeometryType.NONE) {
+    return current;
   }
 
   if (current.type !== GeometryType.MESH || fallback.type !== GeometryType.MESH) {
@@ -271,35 +272,81 @@ function mergeGeometryWithPreparedCache(
   };
 }
 
+function mergeExistingGeometryBodiesWithPreparedCache(
+  currentBodies: UrdfVisual[] | undefined,
+  fallbackBodies: UrdfVisual[] | undefined,
+): UrdfVisual[] | undefined {
+  if (currentBodies === undefined) {
+    return undefined;
+  }
+  const availableFallbackBodies = fallbackBodies ?? [];
+  const usedFallbackIndexes = new Set<number>();
+  return currentBodies.map((currentBody, bodyIndex) => {
+    const indexedFallback = availableFallbackBodies[bodyIndex];
+    if (
+      indexedFallback
+      && !usedFallbackIndexes.has(bodyIndex)
+      && (
+        currentBody.type !== GeometryType.MESH
+        || canReuseFallbackMeshPath(currentBody, indexedFallback)
+      )
+    ) {
+      usedFallbackIndexes.add(bodyIndex);
+      return mergeGeometryWithPreparedCache(currentBody, indexedFallback) ?? currentBody;
+    }
+    const matchingIndex = availableFallbackBodies.findIndex(
+      (candidate, candidateIndex) =>
+        !usedFallbackIndexes.has(candidateIndex) &&
+        candidate.type === currentBody.type &&
+        dimensionsApproximatelyEqual(candidate.dimensions, currentBody.dimensions) &&
+        originsApproximatelyEqual(candidate.origin, currentBody.origin),
+    );
+    if (matchingIndex < 0) {
+      return currentBody;
+    }
+    usedFallbackIndexes.add(matchingIndex);
+    return (
+      mergeGeometryWithPreparedCache(currentBody, availableFallbackBodies[matchingIndex]) ??
+      currentBody
+    );
+  });
+}
+
 function mergeLinkWithPreparedCacheGeometry(current: UrdfLink, fallback?: UrdfLink): UrdfLink {
   if (!fallback) {
     return current;
   }
 
-  const fallbackBodies = fallback.collisionBodies || [];
-  const currentBodies = current.collisionBodies || [];
-  const mergedBodies =
-    currentBodies.length > 0
-      ? currentBodies
-          .map((currentBody, index) =>
-            mergeGeometryWithPreparedCache(currentBody, fallbackBodies[index]),
-          )
-          .filter((body): body is UrdfVisual => Boolean(body))
-      : fallback.collisionBodies;
-
   return {
-    ...fallback,
     ...current,
     visual:
       mergeGeometryWithPreparedCache(current.visual, fallback.visual) ||
-      current.visual ||
-      fallback.visual,
+      current.visual,
+    visualBodies: mergeExistingGeometryBodiesWithPreparedCache(
+      current.visualBodies,
+      fallback.visualBodies,
+    ),
     collision:
       mergeGeometryWithPreparedCache(current.collision, fallback.collision) ||
-      current.collision ||
-      fallback.collision,
-    collisionBodies: mergedBodies,
+      current.collision,
+    collisionBodies: mergeExistingGeometryBodiesWithPreparedCache(
+      current.collisionBodies,
+      fallback.collisionBodies,
+    ),
   };
+}
+
+function mergeDeclaredRobotMaterials(
+  current: RobotLike['materials'],
+  fallback: RobotLike['materials'],
+): RobotLike['materials'] {
+  if (!current) {
+    return undefined;
+  }
+  const merged = mergeRobotMaterials(current, fallback) ?? {};
+  return Object.fromEntries(
+    Object.keys(current).map((materialId) => [materialId, merged[materialId] ?? current[materialId]]),
+  );
 }
 
 export function mergeCurrentRobotWithPreparedCacheGeometry(
@@ -308,32 +355,27 @@ export function mergeCurrentRobotWithPreparedCacheGeometry(
 ): RobotState {
   const baseRobot = cloneRobotState(currentRobot);
   const mergedLinks: Record<string, UrdfLink> = {};
-  const linkIds = new Set([...Object.keys(preparedRobot.links), ...Object.keys(baseRobot.links)]);
-
-  linkIds.forEach((linkId) => {
+  Object.keys(baseRobot.links).forEach((linkId) => {
     const currentLink = baseRobot.links[linkId];
     const preparedLink = preparedRobot.links[linkId];
     if (currentLink && preparedLink) {
       mergedLinks[linkId] = mergeLinkWithPreparedCacheGeometry(currentLink, preparedLink);
       return;
     }
-    mergedLinks[linkId] = currentLink || preparedLink;
+    if (currentLink) {
+      mergedLinks[linkId] = currentLink;
+    }
   });
 
   return {
     ...preparedRobot,
     ...baseRobot,
-    rootLinkId:
-      preparedRobot.rootLinkId && mergedLinks[preparedRobot.rootLinkId]
-        ? preparedRobot.rootLinkId
-        : baseRobot.rootLinkId,
+    rootLinkId: baseRobot.rootLinkId,
     links: mergedLinks,
-    joints: {
-      ...preparedRobot.joints,
-      ...baseRobot.joints,
-    },
-    materials: mergeRobotMaterials(baseRobot.materials, preparedRobot.materials),
-    closedLoopConstraints: baseRobot.closedLoopConstraints || preparedRobot.closedLoopConstraints,
+    joints: baseRobot.joints,
+    materials: mergeDeclaredRobotMaterials(baseRobot.materials, preparedRobot.materials),
+    closedLoopConstraints: baseRobot.closedLoopConstraints,
+    inspectionContext: baseRobot.inspectionContext,
     selection:
       'selection' in currentRobot
         ? { ...((currentRobot as RobotState).selection || { type: null, id: null }) }
@@ -347,32 +389,27 @@ export function mergeCurrentRobotWithSnapshotMeshPaths(
 ): RobotState {
   const baseRobot = cloneRobotState(currentRobot);
   const mergedLinks: Record<string, UrdfLink> = {};
-  const linkIds = new Set([...Object.keys(snapshotRobot.links), ...Object.keys(baseRobot.links)]);
-
-  linkIds.forEach((linkId) => {
+  Object.keys(baseRobot.links).forEach((linkId) => {
     const currentLink = baseRobot.links[linkId];
     const snapshotLink = snapshotRobot.links[linkId];
     if (currentLink && snapshotLink) {
       mergedLinks[linkId] = mergeLinkWithSnapshotMeshPaths(currentLink, snapshotLink);
       return;
     }
-    mergedLinks[linkId] = currentLink || snapshotLink;
+    if (currentLink) {
+      mergedLinks[linkId] = currentLink;
+    }
   });
 
   return {
     ...snapshotRobot,
     ...baseRobot,
-    rootLinkId:
-      snapshotRobot.rootLinkId && mergedLinks[snapshotRobot.rootLinkId]
-        ? snapshotRobot.rootLinkId
-        : baseRobot.rootLinkId,
+    rootLinkId: baseRobot.rootLinkId,
     links: mergedLinks,
-    joints: {
-      ...snapshotRobot.joints,
-      ...baseRobot.joints,
-    },
-    materials: mergeRobotMaterials(baseRobot.materials, snapshotRobot.materials),
-    closedLoopConstraints: baseRobot.closedLoopConstraints || snapshotRobot.closedLoopConstraints,
+    joints: baseRobot.joints,
+    materials: mergeDeclaredRobotMaterials(baseRobot.materials, snapshotRobot.materials),
+    closedLoopConstraints: baseRobot.closedLoopConstraints,
+    inspectionContext: baseRobot.inspectionContext,
     selection:
       'selection' in currentRobot
         ? { ...((currentRobot as RobotState).selection || { type: null, id: null }) }

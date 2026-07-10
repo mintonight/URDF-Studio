@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { ViewerProps, ViewerSceneMode } from '../types';
@@ -113,6 +113,9 @@ export function useCameraFocus({
   const isFocusingRef = useRef(false);
   const autoFramedScopeKeyRef = useRef<string | null>(null);
   const userInterruptedAutoFrameRef = useRef(false);
+  const [focusTargetHasVisibleBounds, setFocusTargetHasVisibleBounds] = useState<boolean | null>(
+    null,
+  );
   const currentAutoFrameScopeKey = robot
     ? resolveCameraAutoFrameScopeKey(autoFrameScopeKey, robot.uuid)
     : null;
@@ -170,19 +173,33 @@ export function useCameraFocus({
   // Handle focus target change
   useEffect(() => {
     if (!active) return;
-    if (!focusTarget || !robot || !resolvedFocusObject) return;
-    frameObject(resolvedFocusObject, computeVisibleBounds(resolvedFocusObject));
+    if (!focusTarget || !robot || !resolvedFocusObject) {
+      setFocusTargetHasVisibleBounds(null);
+      return;
+    }
+
+    const focusBounds = computeVisibleBounds(resolvedFocusObject);
+    const hasVisibleBounds = Boolean(focusBounds && !focusBounds.isEmpty());
+    setFocusTargetHasVisibleBounds(hasVisibleBounds);
+    if (!hasVisibleBounds) {
+      return;
+    }
+
+    frameObject(resolvedFocusObject, focusBounds);
   }, [active, focusTarget, frameObject, resolvedFocusObject, robot]);
 
   useEffect(() => {
     if (!active) return;
     if (!robot) return;
+    const focusBlocksAutoFrame = Boolean(
+      focusTarget && resolvedFocusObject && focusTargetHasVisibleBounds !== false,
+    );
     if (
       !shouldAutoFrameRobotChange({
         autoFrameOnRobotChange,
         currentScopeKey: currentAutoFrameScopeKey,
         lastAutoFramedScopeKey: autoFramedScopeKeyRef.current,
-        focusTarget: resolvedFocusObject ? focusTarget : null,
+        focusTarget: focusBlocksAutoFrame ? focusTarget : null,
         mode,
         active,
       })
@@ -202,13 +219,19 @@ export function useCameraFocus({
         };
       },
       applyFrame: ({ state }) => {
-        if (resolvedFocusObject || userInterruptedAutoFrameRef.current) {
+        if (
+          (resolvedFocusObject && focusTargetHasVisibleBounds !== false) ||
+          userInterruptedAutoFrameRef.current
+        ) {
           return false;
         }
 
         return frameObject(robot, state);
       },
-      isActive: () => active && !resolvedFocusObject && !userInterruptedAutoFrameRef.current,
+      isActive: () =>
+        active &&
+        (!resolvedFocusObject || focusTargetHasVisibleBounds === false) &&
+        !userInterruptedAutoFrameRef.current,
       delays: [0, 96, 224],
     });
   }, [
@@ -216,6 +239,7 @@ export function useCameraFocus({
     autoFrameOnRobotChange,
     currentAutoFrameScopeKey,
     focusTarget,
+    focusTargetHasVisibleBounds,
     frameObject,
     mode,
     resolvedFocusObject,

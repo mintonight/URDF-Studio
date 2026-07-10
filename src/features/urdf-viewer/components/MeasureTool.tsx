@@ -16,8 +16,12 @@ import {
   type MeasureMeasurement,
 } from '../utils/measurements';
 import { resolveRobotMeasureTargetFromSelection } from '../utils/measureTargetResolvers';
-import { useSelectionStore } from '@/store/selectionStore';
 import { throttle } from '@/shared/utils';
+
+const EMPTY_MEASURE_SELECTION: NonNullable<ViewerProps['selection']> = {
+  type: null,
+  id: null,
+};
 
 // Point-mode pointer tuning (mirrors the classic free-point measure tool).
 const MEASURE_POINT_THROTTLE_MS = 33;
@@ -463,10 +467,10 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
   showDecomposition,
   deleteTooltip = 'Click to delete this measurement',
   measureTargetResolverRef,
+  selection = EMPTY_MEASURE_SELECTION,
+  hoveredSelection = EMPTY_MEASURE_SELECTION,
 }) => {
   const { camera, gl } = useThree();
-  const selection = useSelectionStore((state) => state.selection);
-  const hoveredSelection = useSelectionStore((state) => state.hoveredSelection);
   const [hoveredMeasurementId, setHoveredMeasurementId] = useState<string | null>(null);
   const lastSelectionSignatureRef = useRef('none');
   const lastHoverSignatureRef = useRef('none');

@@ -2559,10 +2559,10 @@ test('buildUsdExportBundleFromPreparedCache keeps prepared USD geometry while st
         name: 'base_link',
         visible: true,
         visual: {
-          type: GeometryType.NONE,
-          dimensions: { x: 0, y: 0, z: 0 },
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
           color: '#808080',
-          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          origin: { xyz: { x: 0.12, y: 0.34, z: 0.56 }, rpy: { r: 0.1, p: 0.2, y: 0.3 } },
         },
         collision: {
           type: GeometryType.NONE,

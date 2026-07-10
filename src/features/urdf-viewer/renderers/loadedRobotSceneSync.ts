@@ -305,11 +305,14 @@ function resolveRobotLinkDataByRuntimeName(
     return null;
   }
 
-  return (
-    robotLinks[runtimeLinkName] ??
-    Object.values(robotLinks).find((link) => link.name === runtimeLinkName) ??
-    null
+  const direct = robotLinks[runtimeLinkName];
+  if (direct) {
+    return direct;
+  }
+  const nameMatches = Object.values(robotLinks).filter(
+    (link) => link.name === runtimeLinkName,
   );
+  return nameMatches.length === 1 ? nameMatches[0]! : null;
 }
 
 function resolveSemanticLinkIdForRuntimeLink(
@@ -721,7 +724,16 @@ export function syncLoadedRobotScene({
     parentLink: THREE.Object3D | null,
     insideCollider: boolean,
   ) => {
-    const nextParentLink = isLinkNode(node) ? node : parentLink;
+    const nodeIsLink = isLinkNode(node);
+    const nextParentLink = nodeIsLink ? node : parentLink;
+    if (nodeIsLink) {
+      const semanticLinkId =
+        resolveRobotLinkDataByRuntimeName(robotLinkData, node.name)?.id ?? node.name;
+      if (node.userData.semanticLinkId !== semanticLinkId) {
+        changed = true;
+        node.userData.semanticLinkId = semanticLinkId;
+      }
+    }
     const nodeIsCollider = Boolean(
       asRuntimeObject3D(node).isURDFCollider || node.userData?.isCollisionGroup === true,
     );

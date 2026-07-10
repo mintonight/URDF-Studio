@@ -24,7 +24,7 @@ test('resolveSnapshotPreviewCaptureOptions keeps the export look but caps previe
   assert.equal(options.environmentPreset, 'contrast');
   assert.equal(options.shadowStyle, 'crisp');
   assert.equal(options.groundStyle, 'reflective');
-  assert.equal(options.dofMode, 'hero');
+  assert.equal(options.dofMode, 'off');
   assert.equal(options.backgroundStyle, 'dark');
   assert.equal(options.hideGrid, false);
 });

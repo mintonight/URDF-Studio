@@ -26,10 +26,10 @@ import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRe
 import { translations, type Language } from '@/shared/i18n';
 import { useViewerController } from '@/features/editor';
 import { resolveDefaultViewerToolMode } from '@/features/editor';
-import { computeCameraFrame } from '@/features/urdf-viewer/utils/cameraFrame';
+import { computeCameraFrame } from '@/features/urdf-viewer';
 import { buildUnifiedViewerResourceScopes } from '@/app/utils/unifiedViewerResourceScopes';
 import { ViewerSceneConnector } from '../unified-viewer/ViewerSceneConnector';
-import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
+import { subscribeWorkspaceGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 import { computeVisibleMeshBounds } from '@/shared/utils/threeBounds';
 
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './types';
@@ -705,7 +705,7 @@ export function SnapshotPreviewRenderer({
         showGroundShadow={false}
         showViewportGizmo={false}
         groundOffset={session.groundPlaneOffset}
-        subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
+        subscribeGroundPlaneInvalidation={subscribeWorkspaceGroundPlaneInvalidation}
         initialCameraSnapshot={initialPreviewCameraSnapshot}
         orbitControlsEventSource="canvas"
         orbitControlsProps={{

@@ -85,6 +85,7 @@ interface PendingPointerSelection {
 }
 
 export interface UseMouseInteractionOptions {
+  enabled?: boolean;
   robot: THREE.Object3D | null;
   robotVersion: number;
   toolMode: ToolMode;
@@ -151,6 +152,7 @@ export interface UseMouseInteractionResult {
 }
 
 export function useMouseInteraction({
+  enabled = true,
   robot,
   robotVersion,
   toolMode,
@@ -416,6 +418,19 @@ export function useMouseInteraction({
 
   // Mouse tracking for hover detection AND joint dragging
   useEffect(() => {
+    if (!enabled) {
+      isDraggingJoint.current = false;
+      dragJoint.current = null;
+      pointerButtonsRef.current = 0;
+      pendingPointerSelectionRef.current = null;
+      pointerInteractionActiveRef.current = false;
+      pointerInteractionHitTargetRef.current = false;
+      pointerDownPositionRef.current = null;
+      pointerExceededClickThresholdRef.current = false;
+      gizmoPointerDownRef.current = null;
+      return undefined;
+    }
+
     const setOrbitControlsEnabled = (enabled: boolean) => {
       if (orbitControls && typeof orbitControls.enabled === 'boolean') {
         orbitControls.enabled = enabled;
@@ -1443,6 +1458,7 @@ export function useMouseInteraction({
       pickTargetCachesRef.current.collision.targets = [];
     };
   }, [
+    enabled,
     gl,
     camera,
     scene,

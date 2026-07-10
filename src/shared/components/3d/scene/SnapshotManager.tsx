@@ -5,15 +5,21 @@ import * as THREE from 'three';
 import type { RefObject } from 'react';
 import type { Theme } from '@/types';
 import {
+  createSnapshotCaptureAbortError,
   getSnapshotFileExtension,
   getSnapshotMimeType,
+  isSnapshotCaptureAbortError,
   normalizeSnapshotCaptureOptions,
   resolveSnapshotAspectRatio,
   resolveSnapshotLongEdgeDimensions,
   SNAPSHOT_DETAIL_SUPERSAMPLE_SCALE,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
+  type SnapshotCaptureProgress,
+  type SnapshotCaptureRequest,
+  type SnapshotCaptureRunControls,
   type SnapshotPreviewAction,
+  throwIfSnapshotCaptureAborted,
 } from './snapshotConfig';
 import { resolveSnapshotPreviewCaptureOptions } from './snapshotPreviewConfig';
 import { optimizePngBuffer } from '@/core/image-compressor';
@@ -34,7 +40,6 @@ import {
   resolveSnapshotRenderTargetSamples,
   resolveSnapshotTiledRenderPlan,
 } from './snapshotResolution';
-import { renderSceneWithDofToCanvas, resolveSnapshotDofSettings } from './snapshotPostprocessing';
 import {
   applyWorkspaceCameraSnapshot,
   resolveWorkspaceCameraRenderViewOffset,
@@ -54,7 +59,6 @@ const SNAPSHOT_INTERNAL_RENDER_PIXEL_BUDGET = {
   ultra: 48_000_000,
 } as const;
 
-const SNAPSHOT_DOF_PIXEL_BUDGET_MULTIPLIER = 0.72;
 const SNAPSHOT_TILED_RENDER_SCALE_THRESHOLD = 0.95;
 
 const SNAPSHOT_HDR_PRELOAD_FILE = '/potsdamer_platz_1k.hdr';
@@ -188,16 +192,70 @@ export const SnapshotManager = ({
       }
     };
 
-    const waitFrames = async (count: number) => {
-      for (let index = 0; index < count; index += 1) {
-        invalidate();
-        await new Promise<void>((resolve) => {
-          pendingCaptureRef.current = requestAnimationFrame(() => {
-            pendingCaptureRef.current = null;
+    const clampProgress = (progress: number) =>
+      Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+
+    const emitCaptureProgress = (
+      onProgress: SnapshotCaptureRequest['onProgress'] | undefined,
+      phase: SnapshotCaptureProgress['phase'],
+      progress: number,
+    ) => {
+      onProgress?.({
+        phase,
+        progress: clampProgress(progress),
+      });
+    };
+
+    const waitAnimationFrame = (signal?: AbortSignal) =>
+      new Promise<void>((resolve, reject) => {
+        throwIfSnapshotCaptureAborted(signal);
+
+        let settled = false;
+        function cleanup() {
+          signal?.removeEventListener('abort', handleAbort);
+        }
+
+        function handleAbort() {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          clearPendingFrames();
+          cleanup();
+          reject(createSnapshotCaptureAbortError());
+        }
+
+        signal?.addEventListener('abort', handleAbort, { once: true });
+        pendingCaptureRef.current = requestAnimationFrame(() => {
+          pendingCaptureRef.current = null;
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          cleanup();
+          try {
+            throwIfSnapshotCaptureAborted(signal);
             resolve();
-          });
+          } catch (error) {
+            reject(error);
+          }
         });
+      });
+
+    const waitFrames = async (
+      count: number,
+      signal?: AbortSignal,
+      onProgress?: SnapshotCaptureRequest['onProgress'],
+    ) => {
+      for (let index = 0; index < count; index += 1) {
+        throwIfSnapshotCaptureAborted(signal);
+        emitCaptureProgress(onProgress, 'warming-up', 0.12 + (index / Math.max(1, count)) * 0.18);
+        invalidate();
+        await waitAnimationFrame(signal);
       }
+      emitCaptureProgress(onProgress, 'warming-up', 0.3);
     };
 
     const resolveSnapshotSize = (
@@ -239,24 +297,21 @@ export const SnapshotManager = ({
       if (options.groundStyle === 'reflective') {
         frameCount = Math.max(frameCount, 4);
       }
-      if (options.dofMode !== 'off') {
-        frameCount = Math.max(frameCount, 3);
-      }
       return frameCount;
     };
 
     const resolveSnapshotRenderPixelBudget = (
       options: ReturnType<typeof normalizeSnapshotCaptureOptions>,
     ) => {
-      const baseBudget = SNAPSHOT_INTERNAL_RENDER_PIXEL_BUDGET[options.detailLevel];
-      if (options.dofMode === 'off') {
-        return baseBudget;
-      }
-
-      return Math.max(12_000_000, Math.floor(baseBudget * SNAPSHOT_DOF_PIXEL_BUDGET_MULTIPLIER));
+      return SNAPSHOT_INTERNAL_RENDER_PIXEL_BUDGET[options.detailLevel];
     };
 
-    const canvasToBlob = async (canvas: HTMLCanvasElement, options: SnapshotCaptureOptions) => {
+    const canvasToBlob = async (
+      canvas: HTMLCanvasElement,
+      options: SnapshotCaptureOptions,
+      signal?: AbortSignal,
+    ) => {
+      throwIfSnapshotCaptureAborted(signal);
       const mimeType = getSnapshotMimeType(options.imageFormat);
       const quality =
         mimeType === 'image/png'
@@ -264,7 +319,7 @@ export const SnapshotManager = ({
           : Math.min(1, Math.max(0.6, options.imageQuality / 100));
 
       if (canvas.toBlob) {
-        return await new Promise<Blob>((resolve, reject) => {
+        const blob = await new Promise<Blob>((resolve, reject) => {
           canvas.toBlob(
             (blob) => {
               if (!blob) {
@@ -282,35 +337,56 @@ export const SnapshotManager = ({
             quality,
           );
         });
+        throwIfSnapshotCaptureAborted(signal);
+        return blob;
       }
 
       const dataUrl = canvas.toDataURL(mimeType, quality);
+      throwIfSnapshotCaptureAborted(signal);
       const response = await fetch(dataUrl);
-      return response.blob();
+      const blob = await response.blob();
+      throwIfSnapshotCaptureAborted(signal);
+      return blob;
     };
 
     // Losslessly re-compress PNG exports with oxipng (in a worker). Canvas-encoded
     // PNGs are not well optimized, so this typically trims a meaningful chunk of
     // bytes. Only runs for the downloaded export — the live preview stays fast and
     // unoptimized. Any failure degrades gracefully to the original PNG.
-    const optimizePngBlobForExport = async (blob: Blob, options: SnapshotCaptureOptions) => {
+    const optimizePngBlobForExport = async (
+      blob: Blob,
+      options: SnapshotCaptureOptions,
+      signal?: AbortSignal,
+    ) => {
       if (options.imageFormat !== 'png') {
         return blob;
       }
 
       try {
+        throwIfSnapshotCaptureAborted(signal);
         const sourceBuffer = await blob.arrayBuffer();
+        throwIfSnapshotCaptureAborted(signal);
         const optimizedBuffer = await optimizePngBuffer(sourceBuffer, {
           level: options.pngOptimizeLevel,
+          signal,
         });
+        throwIfSnapshotCaptureAborted(signal);
         return new Blob([optimizedBuffer], { type: 'image/png' });
       } catch (error) {
+        if (isSnapshotCaptureAbortError(error) || signal?.aborted) {
+          throw error;
+        }
         logRegressionError('[Snapshot] PNG optimization failed; exporting unoptimized PNG.', error);
         return blob;
       }
     };
 
-    const downloadCanvas = async (canvas: HTMLCanvasElement, options: SnapshotCaptureOptions) => {
+    const downloadCanvas = async (
+      canvas: HTMLCanvasElement,
+      options: SnapshotCaptureOptions,
+      controls: SnapshotCaptureRunControls,
+    ) => {
+      const { onProgress, signal } = controls;
       const safeRobotName = (robotName || 'robot').replace(/[\\/:*?"<>|]/g, '_');
       const now = new Date();
       const timestamp = [
@@ -333,10 +409,25 @@ export const SnapshotManager = ({
         document.body.removeChild(link);
       };
 
-      const blob = await optimizePngBlobForExport(await canvasToBlob(canvas, options), options);
+      throwIfSnapshotCaptureAborted(signal);
+      emitCaptureProgress(onProgress, 'encoding', 0.78);
+      const encodedBlob = await canvasToBlob(canvas, options, signal);
+      emitCaptureProgress(
+        onProgress,
+        options.imageFormat === 'png' ? 'optimizing' : 'downloading',
+        options.imageFormat === 'png' ? 0.86 : 0.94,
+      );
+      const blob = await optimizePngBlobForExport(encodedBlob, options, signal);
+      throwIfSnapshotCaptureAborted(signal);
+      emitCaptureProgress(onProgress, 'downloading', 0.97);
       const url = URL.createObjectURL(blob);
-      triggerDownload(url);
-      URL.revokeObjectURL(url);
+      try {
+        throwIfSnapshotCaptureAborted(signal);
+        triggerDownload(url);
+        emitCaptureProgress(onProgress, 'complete', 1);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     };
 
     const buildCanvasFromPixelBuffer = (pixelBuffer: Uint8Array, width: number, height: number) => {
@@ -473,6 +564,8 @@ export const SnapshotManager = ({
       requestedSamples,
       backgroundFill,
       visibleViewport,
+      signal,
+      onProgress,
     }: {
       scene: THREE.Scene;
       camera: SnapshotTileCamera;
@@ -482,6 +575,8 @@ export const SnapshotManager = ({
       requestedSamples: number;
       backgroundFill: SnapshotBackgroundFill;
       visibleViewport?: WorkspaceCameraVisibleViewport | null;
+      signal?: AbortSignal;
+      onProgress?: SnapshotCaptureRequest['onProgress'];
     }) => {
       const context = gl.getContext();
       const tiledPlan = resolveSnapshotTiledRenderPlan({
@@ -511,7 +606,8 @@ export const SnapshotManager = ({
       const previousView = cloneSnapshotCameraView(camera);
 
       try {
-        tiledPlan.tiles.forEach((tile) => {
+        tiledPlan.tiles.forEach((tile, tileIndex) => {
+          throwIfSnapshotCaptureAborted(signal);
           camera.setViewOffset(
             visibleViewOffset?.fullWidth ?? tiledPlan.fullRenderWidth,
             visibleViewOffset?.fullHeight ?? tiledPlan.fullRenderHeight,
@@ -541,6 +637,11 @@ export const SnapshotManager = ({
             tile.outputWidth,
             tile.outputHeight,
           );
+          emitCaptureProgress(
+            onProgress,
+            'rendering',
+            0.34 + ((tileIndex + 1) / Math.max(1, tiledPlan.tiles.length)) * 0.38,
+          );
         });
       } finally {
         restoreSnapshotCameraView(camera, previousView);
@@ -552,7 +653,11 @@ export const SnapshotManager = ({
     const renderSnapshotCanvas = async (
       snapshotOptions: SnapshotCaptureOptions,
       frozenCamera?: THREE.Camera,
+      controls: SnapshotCaptureRunControls = {},
     ) => {
+      const { onProgress, signal } = controls;
+      throwIfSnapshotCaptureAborted(signal);
+      emitCaptureProgress(onProgress, 'preparing', 0.08);
       const viewportAspectRatio =
         snapshotOptions.cameraSnapshot?.visibleViewport?.aspectRatio ??
         snapshotOptions.cameraSnapshot?.aspectRatio ??
@@ -588,6 +693,7 @@ export const SnapshotManager = ({
       let backgroundFill: SnapshotBackgroundFill = { kind: 'transparent' };
 
       try {
+        throwIfSnapshotCaptureAborted(signal);
         const { scene: latestScene, camera: liveCamera } = get();
         const captureCamera = frozenCamera ?? cloneSnapshotCamera(liveCamera);
         if (snapshotOptions.cameraSnapshot) {
@@ -601,6 +707,7 @@ export const SnapshotManager = ({
           latestScene,
           gl,
           snapshotOptions.backgroundStyle,
+          theme,
         );
         restoreBackgroundStyle = backgroundState.restore;
         backgroundFill = backgroundState.fill;
@@ -633,11 +740,8 @@ export const SnapshotManager = ({
         let restoreCameraViewOffset: (() => void) | null = null;
 
         try {
-          const dofSettings = resolveSnapshotDofSettings(
-            latestScene,
-            captureCamera,
-            snapshotOptions.dofMode,
-          );
+          throwIfSnapshotCaptureAborted(signal);
+          emitCaptureProgress(onProgress, 'rendering', 0.34);
           const desiredRenderWidth = Math.max(
             1,
             Math.round(outputPlan.targetWidth * supersampleScale),
@@ -651,7 +755,6 @@ export const SnapshotManager = ({
             renderPlan.targetHeight / desiredRenderHeight,
           );
           const shouldUseTiledSupersampling =
-            !dofSettings &&
             supersampleScale > 1 &&
             isSnapshotTileCamera(captureCamera) &&
             effectiveSupersampleRatio < SNAPSHOT_TILED_RENDER_SCALE_THRESHOLD;
@@ -666,28 +769,12 @@ export const SnapshotManager = ({
               requestedSamples: SNAPSHOT_RENDER_TARGET_SAMPLES[snapshotOptions.detailLevel],
               backgroundFill,
               visibleViewport,
+              signal,
+              onProgress,
             });
             capturedAtOutputSize = true;
-          } else if (dofSettings) {
-            restoreCameraViewOffset = applySnapshotCameraVisibleViewport(
-              captureCamera,
-              visibleViewport,
-              renderPlan.targetWidth,
-              renderPlan.targetHeight,
-            );
-            capturedCanvas = renderSceneWithDofToCanvas({
-              gl,
-              scene: latestScene,
-              camera: captureCamera,
-              width: renderPlan.targetWidth,
-              height: renderPlan.targetHeight,
-              samples: Math.min(
-                gl.capabilities.maxSamples,
-                SNAPSHOT_RENDER_TARGET_SAMPLES[snapshotOptions.detailLevel],
-              ),
-              settings: dofSettings,
-            });
           } else {
+            throwIfSnapshotCaptureAborted(signal);
             restoreCameraViewOffset = applySnapshotCameraVisibleViewport(
               captureCamera,
               visibleViewport,
@@ -701,6 +788,7 @@ export const SnapshotManager = ({
               height: renderPlan.targetHeight,
               requestedSamples: SNAPSHOT_RENDER_TARGET_SAMPLES[snapshotOptions.detailLevel],
             });
+            emitCaptureProgress(onProgress, 'rendering', 0.72);
           }
         } finally {
           restoreCameraViewOffset?.();
@@ -720,7 +808,9 @@ export const SnapshotManager = ({
         restoreSceneVisibility = null;
         restoreBackgroundStyle();
         restoreBackgroundStyle = null;
+        throwIfSnapshotCaptureAborted(signal);
         if (!capturedAtOutputSize) {
+          emitCaptureProgress(onProgress, 'encoding', 0.74);
           capturedCanvas = createExportCanvas(
             capturedCanvas,
             outputPlan.targetWidth,
@@ -729,6 +819,7 @@ export const SnapshotManager = ({
           );
         }
         invalidate();
+        emitCaptureProgress(onProgress, 'encoding', 0.76);
         return {
           canvas: capturedCanvas,
           width: outputPlan.targetWidth,
@@ -751,16 +842,27 @@ export const SnapshotManager = ({
       resolveOptions: (options?: Partial<SnapshotCaptureOptions> | null) => SnapshotCaptureOptions,
     ) => {
       const snapshotOptions = resolveOptions(requestedOptions);
+      const controls: SnapshotCaptureRunControls = {
+        signal: requestedOptions?.signal,
+        onProgress: requestedOptions?.onProgress,
+      };
       const frozenCamera = cloneSnapshotCamera(get().camera);
+      throwIfSnapshotCaptureAborted(controls.signal);
+      emitCaptureProgress(controls.onProgress, 'preparing', 0.04);
       await ensureSnapshotHdrPreloaded();
+      throwIfSnapshotCaptureAborted(controls.signal);
       clearPendingFrames();
       setSnapshotRenderActive(true);
       setActiveSnapshotOptions(snapshotOptions);
       invalidate();
 
       try {
-        await waitFrames(resolveSnapshotWarmupFrameCount(snapshotOptions));
-        return await renderSnapshotCanvas(snapshotOptions, frozenCamera);
+        await waitFrames(
+          resolveSnapshotWarmupFrameCount(snapshotOptions),
+          controls.signal,
+          controls.onProgress,
+        );
+        return await renderSnapshotCanvas(snapshotOptions, frozenCamera, controls);
       } finally {
         setActiveSnapshotOptions(null);
         setSnapshotRenderActive(false);
@@ -770,7 +872,10 @@ export const SnapshotManager = ({
 
     const captureAction: SnapshotCaptureAction = async (requestedOptions) => {
       const capture = await runSnapshotCapture(requestedOptions, normalizeSnapshotCaptureOptions);
-      await downloadCanvas(capture.canvas, capture.options);
+      await downloadCanvas(capture.canvas, capture.options, {
+        signal: requestedOptions?.signal,
+        onProgress: requestedOptions?.onProgress,
+      });
     };
 
     if (actionRef) {
@@ -818,6 +923,7 @@ export const SnapshotManager = ({
     previewActionRef,
     robotName,
     setSnapshotRenderActive,
+    theme,
   ]);
 
   return activeSnapshotOptions ? (

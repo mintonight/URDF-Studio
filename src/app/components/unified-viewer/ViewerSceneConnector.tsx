@@ -6,7 +6,9 @@ import type {
   RobotData,
   RobotFile,
   UrdfOrigin,
+  WorkspaceSelection,
 } from '@/types';
+import type { AssemblyScenePlacement, AssemblySceneProjection } from '@/core/robot';
 import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
@@ -15,8 +17,6 @@ import type {
 import type { ViewerController } from '@/features/editor';
 import type { ViewerResourceScope } from '@/features/editor';
 import { ViewerScene } from '@/features/editor';
-import { useSelectionStore } from '@/store/selectionStore';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
 
 import { buildUnifiedViewerSceneProps } from '@/app/utils/unifiedViewerSceneProps';
 import type { FilePreviewState } from './types';
@@ -43,6 +43,7 @@ interface ViewerSceneConnectorProps {
     objectIndex?: number;
     helperKind?: ViewerHelperKind;
   };
+  hoveredSelection?: InteractionSelection;
   onHover?: (
     type: InteractionSelection['type'],
     id: string | null,
@@ -58,6 +59,9 @@ interface ViewerSceneConnectorProps {
     objectType: 'visual' | 'collision',
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onJointMotionCommit?: (
+    context: import('@/features/editor').ViewerJointChangeContext,
+  ) => void;
   robot: RobotData;
   showCollision?: boolean;
   showCollisionAlwaysOnTop?: boolean;
@@ -77,8 +81,11 @@ interface ViewerSceneConnectorProps {
   isMeshPreview?: boolean;
   ikDragActive?: boolean;
   viewerReloadKey?: number;
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+  /** Omitted only for isolated read-only renderers such as snapshot preview. */
+  workspace?: AssemblyState | null;
+  sceneProjection?: AssemblySceneProjection | null;
+  scenePlacement?: AssemblyScenePlacement | null;
+  workspaceSelection?: WorkspaceSelection;
   onAssemblyTransform?: (transform: {
     position: { x: number; y: number; z: number };
     rotation: { r: number; p: number; y: number };
@@ -94,20 +101,6 @@ interface ViewerSceneConnectorProps {
   onBridgeTransform?: (
     bridgeId: string,
     origin: UrdfOrigin,
-    options?: import('@/types/viewer').UpdateCommitOptions,
-  ) => void;
-  sourceSceneAssemblyComponentId?: string | null;
-  sourceSceneAssemblyComponentTransform?: {
-    position: { x: number; y: number; z: number };
-    rotation: { r: number; p: number; y: number };
-  } | null;
-  showSourceSceneAssemblyComponentControls?: boolean;
-  onSourceSceneAssemblyComponentTransform?: (
-    componentId: string,
-    transform: {
-      position: { x: number; y: number; z: number };
-      rotation: { r: number; p: number; y: number };
-    },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
   t: typeof import('@/shared/i18n').translations.en;
@@ -129,9 +122,11 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   onRuntimeRobotLoaded,
   mode,
   selection,
+  hoveredSelection,
   onHover,
   onMeshSelect,
   onUpdate,
+  onJointMotionCommit,
   robot,
   showCollision,
   showCollisionAlwaysOnTop,
@@ -141,24 +136,15 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   isMeshPreview = false,
   ikDragActive = false,
   viewerReloadKey = 0,
-  assemblyState = null,
-  assemblySelection,
+  workspace,
+  sceneProjection,
+  scenePlacement,
+  workspaceSelection,
   onAssemblyTransform,
   onComponentTransform,
   onBridgeTransform,
-  sourceSceneAssemblyComponentId = null,
-  sourceSceneAssemblyComponentTransform = null,
-  showSourceSceneAssemblyComponentControls = false,
-  onSourceSceneAssemblyComponentTransform,
   t,
 }: ViewerSceneConnectorProps) {
-  const shouldSubscribeToHoveredSelection = effectiveSourceFile?.format === 'usd' && !isMeshPreview;
-  const hoveredSelection = useSelectionStore(
-    React.useCallback(
-      (state) => (shouldSubscribeToHoveredSelection ? state.hoveredSelection : undefined),
-      [shouldSubscribeToHoveredSelection],
-    ),
-  );
   const sceneProps = buildUnifiedViewerSceneProps({
     controller,
     document: {
@@ -182,6 +168,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
       onHover,
       onMeshSelect,
       onUpdate,
+      onJointMotionCommit,
       robot,
       showCollision,
       showCollisionAlwaysOnTop,
@@ -192,16 +179,14 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
       ikDragActive,
       viewerReloadKey,
     },
-    assembly: {
-      assemblyState,
-      assemblySelection,
+    workspace: {
+      workspace,
+      sceneProjection,
+      scenePlacement,
+      workspaceSelection,
       onAssemblyTransform,
       onComponentTransform,
       onBridgeTransform,
-      sourceSceneAssemblyComponentId,
-      sourceSceneAssemblyComponentTransform,
-      showSourceSceneAssemblyComponentControls,
-      onSourceSceneAssemblyComponentTransform,
     },
   });
 

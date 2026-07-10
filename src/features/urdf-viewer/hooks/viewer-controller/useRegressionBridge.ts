@@ -19,6 +19,7 @@ type RuntimeJointLike = RuntimeViewerJoint;
 interface UseRegressionBridgeParams {
   active: boolean;
   centerOfMassSize: number;
+  enabled?: boolean;
   highlightMode: HighlightMode;
   jointAxisSize: number;
   modelOpacity: number;
@@ -76,6 +77,7 @@ interface UseRegressionBridgeParams {
 export function useRegressionBridge({
   active,
   centerOfMassSize,
+  enabled = true,
   highlightMode,
   jointAxisSize,
   modelOpacity,
@@ -120,6 +122,10 @@ export function useRegressionBridge({
   showVisual,
 }: UseRegressionBridgeParams) {
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const regressionDebugEnabled = isRegressionDebugEnabled();
     if (!regressionDebugEnabled) {
       return;
@@ -257,6 +263,7 @@ export function useRegressionBridge({
     active,
     activeJointRef,
     centerOfMassSize,
+    enabled,
     highlightMode,
     jointAnglesRef,
     jointAxisSize,

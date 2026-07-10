@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import type { AssemblyState } from '@/types';
+import type { AssemblySceneProjection } from '@/core/robot';
 import {
   collectSnapCandidatesFromFace,
   type SnapPointKind,
@@ -80,28 +80,19 @@ function findLinkAncestor(object: THREE.Object3D): THREE.Object3D | null {
   return null;
 }
 
-/**
- * Map a merged-runtime link name back to its owning component + component-local
- * link id. Component robots are stored already prefixed (`${componentId}_...`),
- * so a direct key lookup works; we also fall back to matching by display name.
- * Inlined here (rather than importing `resolveAssemblySelection` from the
- * assembly feature) to keep urdf-viewer free of cross-feature dependencies.
- */
 function resolveComponentAndLink(
-  assemblyState: AssemblyState,
-  linkName: string,
+  projection: AssemblySceneProjection,
+  linkObject: THREE.Object3D,
 ): { componentId: string; linkId: string } | null {
-  for (const component of Object.values(assemblyState.components)) {
-    const direct = component.robot.links[linkName];
-    if (direct) {
-      return { componentId: component.id, linkId: direct.id };
-    }
-    const byName = Object.values(component.robot.links).find((link) => link.name === linkName);
-    if (byName) {
-      return { componentId: component.id, linkId: byName.id };
-    }
+  const semanticLinkId =
+    typeof linkObject.userData.semanticLinkId === 'string'
+      ? linkObject.userData.semanticLinkId
+      : linkObject.name;
+  const ref = projection.globalToEntityRef.get(semanticLinkId);
+  if (ref?.type !== 'link') {
+    return null;
   }
-  return null;
+  return { componentId: ref.componentId, linkId: ref.entityId };
 }
 
 function toWorldPose(input: WorldPoseInput): THREE.Matrix4 {
@@ -183,7 +174,7 @@ export function chooseSnapCandidate(
  */
 export function resolveJointSnapFromHit(
   hit: JointSnapHit,
-  assemblyState: AssemblyState,
+  projection: AssemblySceneProjection,
   snapFilter: SnapPointKind[] | null,
   options: JointSnapResolveOptions = {},
 ): ResolvedJointSnap | null {
@@ -198,7 +189,7 @@ export function resolveJointSnapFromHit(
     return null;
   }
 
-  const resolved = resolveComponentAndLink(assemblyState, linkObject.name);
+  const resolved = resolveComponentAndLink(projection, linkObject);
   if (!resolved) {
     return null;
   }

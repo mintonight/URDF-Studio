@@ -531,11 +531,9 @@ export function useRendererBackend(
           inFlightBackendRef.current = null;
         }
 
-        // Update state in one transition so the old runtime scene remains mounted
-        // until the prepared scene graph is ready to replace it.
         robotRef.current = nextRobot;
         mountedRobotHasCollisionGroupsRef.current = hasRuntimeCollisionGroups(nextRobot);
-        startTransition(() => {
+        const commitLoadedRobot = () => {
           setRobot(nextRobot);
           linkMeshMapRef.current = sceneGraph.linkMeshMap;
           setResolvedRobotLinks(sceneGraph.robotLinks);
@@ -546,7 +544,15 @@ export function useRendererBackend(
           setRobotVersion((v) => v + 1);
           setIsLoading(false);
           setLoadingProgress(null);
-        });
+        };
+
+        if (previousRobot) {
+          // Update replacements in one transition so the old runtime scene remains mounted
+          // until the prepared scene graph is ready to replace it.
+          startTransition(commitLoadedRobot);
+        } else {
+          commitLoadedRobot();
+        }
 
         // Notify callbacks
         onRobotLoadedRef.current?.(nextRobot);

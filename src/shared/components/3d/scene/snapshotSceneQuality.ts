@@ -7,6 +7,7 @@ import type {
   SnapshotShadowStyle,
 } from './snapshotConfig';
 import { SNAPSHOT_DETAIL_SHADOW_MAP_SIZE } from './snapshotConfig';
+import { WORKSPACE_CANVAS_BACKGROUND } from './constants';
 
 const SNAPSHOT_GRID_OBJECT_NAME = 'ReferenceGrid';
 const SNAPSHOT_KEEP_HELPER_OBJECT_NAMES = new Set([
@@ -351,6 +352,7 @@ export function applySnapshotBackgroundStyle(
   scene: THREE.Scene,
   gl: THREE.WebGLRenderer,
   backgroundStyle: SnapshotBackgroundStyle,
+  theme: string = 'light',
 ): { restore: Cleanup; fill: SnapshotBackgroundFill } {
   const previousBackground = scene.background;
   const previousClearColor = gl.getClearColor(new THREE.Color()).clone();
@@ -358,13 +360,15 @@ export function applySnapshotBackgroundStyle(
 
   let fill: SnapshotBackgroundFill;
   if (backgroundStyle === 'viewport') {
+    const fallbackColor =
+      theme === 'dark' ? WORKSPACE_CANVAS_BACKGROUND.dark : WORKSPACE_CANVAS_BACKGROUND.light;
     fill =
       scene.background instanceof THREE.Color
         ? {
             kind: 'solid',
             colors: [`#${scene.background.getHexString()}`, `#${scene.background.getHexString()}`],
           }
-        : { kind: 'transparent' };
+        : { kind: 'solid', colors: [fallbackColor, fallbackColor] };
   } else if (backgroundStyle === 'transparent') {
     fill = { kind: 'transparent' };
   } else {

@@ -9,6 +9,10 @@ import {
 } from 'react';
 import { useSelectionStore } from '@/store/selectionStore';
 import { hasJointInteractionPreview, useJointInteractionPreviewStore } from '@/store';
+import type {
+  JointInteractionPreviewSnapshot,
+  WorkspaceJointInteractionPreview,
+} from '@/store/jointInteractionPreviewStore';
 import { alignObjectLowestPointToZ, computeVisibleMeshBounds } from '@/shared/utils';
 import {
   ORIGIN_AXES_SIZE_FALLBACK_MAX,
@@ -88,6 +92,7 @@ interface UseViewerControllerProps {
   setGroundPlaneOffset?: (offset: number) => void;
   groundPlaneOffsetReadOnly?: boolean;
   active?: boolean;
+  enableRegressionBridge?: boolean;
   jointStateScopeKey?: string | null;
   defaultToolMode?: ToolMode;
   toolModeScopeKey?: string | null;
@@ -95,6 +100,12 @@ interface UseViewerControllerProps {
     RobotState,
     'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
   > | null;
+  projectJointInteractionPreview?: (
+    preview: Pick<
+      JointInteractionPreviewSnapshot,
+      'activeJointId' | 'jointAngles' | 'jointQuaternions' | 'jointOrigins'
+    >,
+  ) => Record<string, WorkspaceJointInteractionPreview>;
 }
 
 export const useViewerController = ({
@@ -113,13 +124,14 @@ export const useViewerController = ({
   setGroundPlaneOffset,
   groundPlaneOffsetReadOnly = false,
   active = true,
+  enableRegressionBridge = true,
   jointStateScopeKey = null,
   defaultToolMode = 'select',
   toolModeScopeKey = null,
   closedLoopRobotState = null,
+  projectJointInteractionPreview,
 }: UseViewerControllerProps) => {
   const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
-  const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
   const isOrbitDragging = useRef(false);
   const [robot, setRobot] = useState<RuntimeRobotObject | null>(null);
   const [jointPanelRobot, setJointPanelRobot] = useState<RuntimeRobotObject | null>(null);
@@ -381,20 +393,25 @@ export const useViewerController = ({
         return;
       }
 
+      const jointQuaternions = Object.fromEntries(
+        Object.entries(preview.jointQuaternions ?? {}).filter(([, quaternion]) =>
+          Boolean(quaternion),
+        ),
+      ) as Record<string, NonNullable<ViewerJointMotionStateValue['quaternion']>>;
+      const rendererPreview = {
+        activeJointId: preview.activeJointId,
+        jointAngles: { ...(preview.jointAngles ?? {}) },
+        jointQuaternions,
+        jointOrigins: {},
+      };
       useJointInteractionPreviewStore.getState().publishPreview({
         source: 'viewer',
         dragSessionId: ensureJointInteractionPreviewSessionId(),
-        activeJointId: preview.activeJointId,
-        jointAngles: { ...(preview.jointAngles ?? {}) },
-        jointQuaternions: Object.fromEntries(
-          Object.entries(preview.jointQuaternions ?? {}).filter(([, quaternion]) =>
-            Boolean(quaternion),
-          ),
-        ) as Record<string, NonNullable<ViewerJointMotionStateValue['quaternion']>>,
-        jointOrigins: {},
+        ...rendererPreview,
+        workspaceByComponent: projectJointInteractionPreview?.(rendererPreview) ?? {},
       });
     },
-    [ensureJointInteractionPreviewSessionId],
+    [ensureJointInteractionPreviewSessionId, projectJointInteractionPreview],
   );
 
   const clearJointInteractionPreview = useCallback(() => {
@@ -1077,6 +1094,7 @@ export const useViewerController = ({
   useRegressionBridge({
     active,
     centerOfMassSize,
+    enabled: enableRegressionBridge,
     highlightMode,
     jointAxisSize,
     modelOpacity,
@@ -1319,10 +1337,14 @@ export const useViewerController = ({
         ? { ...resolvedAngles, ...drivenMotion.angles }
         : resolvedAngles;
       if (shouldCommitToApp) {
-        Object.entries(resolvedAngles).forEach(([jointKey, resolvedAngle]) => {
+        const [activeEntry] = Object.entries(resolvedAngles);
+        if (activeEntry) {
+          const [jointKey, resolvedAngle] = activeEntry;
           const joint = jointControlRobot?.joints?.[jointKey];
-          emitJointChangeToApp(joint?.name || jointKey, resolvedAngle);
-        });
+          emitJointChangeToApp(joint?.name || jointKey, resolvedAngle, {
+            jointAngles: nextPreviewAngles,
+          });
+        }
         storeAppliedJointMotionState(nextPreviewAngles);
         recordPendingLocalCommittedJointAngles(nextPreviewAngles);
       }
@@ -1878,7 +1900,9 @@ export const useViewerController = ({
         requestSceneRefresh();
       }
 
-      emitJointChangeToApp(resolvedJointName, resolvedAngle);
+      emitJointChangeToApp(resolvedJointName, resolvedAngle, {
+        jointAngles: committedAngles,
+      });
     },
     [
       applyRuntimeJointMotionPreview,
@@ -1998,10 +2022,9 @@ export const useViewerController = ({
       helperKind?: ViewerHelperKind,
       highlightObjectId?: number,
     ) => {
-      setHoveredSelection({ type, id, subType, objectIndex, helperKind, highlightObjectId });
       onHover?.(type, id, subType, objectIndex, helperKind, highlightObjectId);
     },
-    [onHover, setHoveredSelection],
+    [onHover],
   );
 
   const registerRuntimeAutoFitGroundHandler = useCallback((handler: (() => void) | null) => {

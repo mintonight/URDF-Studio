@@ -52,7 +52,7 @@ test('prepareUsdVisualMesh keeps Go2 USDA base meshes in the shadow pass', () =>
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 
-test('prepareUsdVisualMesh keeps dense USD visual meshes in the shadow pass', () => {
+test('prepareUsdVisualMesh skips extremely dense USD visual meshes', () => {
   const mesh = createIndexedTriangleMesh(86240);
 
   mesh.castShadow = false;
@@ -60,8 +60,8 @@ test('prepareUsdVisualMesh keeps dense USD visual meshes in the shadow pass', ()
 
   prepareUsdVisualMesh(mesh);
 
-  assert.equal(mesh.castShadow, true);
-  assert.equal(mesh.receiveShadow, true);
+  assert.equal(mesh.castShadow, false);
+  assert.equal(mesh.receiveShadow, false);
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 

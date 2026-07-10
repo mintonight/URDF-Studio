@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
-import type { AssemblyState } from '@/types';
+import { DEFAULT_LINK, type AssemblyState } from '@/types';
 import { getFaceCenter, getFaceNormal } from '@/core/geometry/meshSnapPoints';
+import { createAssemblySceneProjection } from '@/core/robot';
 
 import { chooseSnapCandidate, resolveJointSnapFromHit, type ResolvedJointSnapCandidate } from './jointSnapResolver.ts';
 
@@ -87,25 +88,45 @@ function buildCylinderRuntime(): { mesh: THREE.Mesh; topFace: number } {
 }
 
 const ASSEMBLY_STATE = {
+  name: 'workspace',
+  transform: {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  },
   components: {
     comp_a: {
       id: 'comp_a',
       name: 'A',
+      sourceFile: 'a.urdf',
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { r: 0, p: 0, y: 0 },
+      },
+      visible: true,
       robot: {
+        name: 'A',
+        rootLinkId: 'comp_a_base_link',
         links: {
-          comp_a_base_link: { id: 'comp_a_base_link', name: 'base_link' },
+          comp_a_base_link: {
+            ...structuredClone(DEFAULT_LINK),
+            id: 'comp_a_base_link',
+            name: 'base_link',
+          },
         },
+        joints: {},
       },
     },
   },
-} as unknown as AssemblyState;
+  bridges: {},
+} satisfies AssemblyState;
+const SCENE_PROJECTION = createAssemblySceneProjection(ASSEMBLY_STATE);
 
 test('resolveJointSnapFromHit maps a hit back to its component link and world frame', () => {
   const { mesh } = buildRuntime();
 
   const result = resolveJointSnapFromHit(
     { object: mesh, faceIndex: 0, point: new THREE.Vector3(10.5, 0.3, 0) },
-    ASSEMBLY_STATE,
+    SCENE_PROJECTION,
     ['surface', 'faceCenter'],
   );
 
@@ -129,7 +150,7 @@ test('resolveJointSnapFromHit prefers smart face candidates over raw surface hit
 
   const result = resolveJointSnapFromHit(
     { object: mesh, faceIndex: 0, point: new THREE.Vector3(10.5, 0.3, 0) },
-    ASSEMBLY_STATE,
+    SCENE_PROJECTION,
     ['surface', 'faceCenter'],
   );
 
@@ -173,7 +194,7 @@ test('resolveJointSnapFromHit adds and chooses circle center candidates', () => 
 
   const result = resolveJointSnapFromHit(
     { object: mesh, faceIndex: topFace, point: new THREE.Vector3(10.6, 1, 0.2) },
-    ASSEMBLY_STATE,
+    SCENE_PROJECTION,
     null,
   );
 
@@ -187,11 +208,11 @@ test('resolveJointSnapFromHit returns null for hits without a link ancestor or f
   const { mesh, orphan } = buildRuntime();
 
   assert.equal(
-    resolveJointSnapFromHit({ object: orphan, faceIndex: 0, point: new THREE.Vector3() }, ASSEMBLY_STATE, null),
+    resolveJointSnapFromHit({ object: orphan, faceIndex: 0, point: new THREE.Vector3() }, SCENE_PROJECTION, null),
     null,
   );
   assert.equal(
-    resolveJointSnapFromHit({ object: mesh, faceIndex: null, point: new THREE.Vector3() }, ASSEMBLY_STATE, null),
+    resolveJointSnapFromHit({ object: mesh, faceIndex: null, point: new THREE.Vector3() }, SCENE_PROJECTION, null),
     null,
   );
 });

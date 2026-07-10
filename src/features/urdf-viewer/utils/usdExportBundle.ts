@@ -1,4 +1,5 @@
 import { type RobotState, type UsdPreparedExportCache } from '../../../types/index.ts';
+import { assertCanonicalRobotData } from '@/core/robot/canonicalWorkspace';
 import { adaptUsdViewerSnapshotToRobotData } from './usdViewerRobotAdapter.ts';
 import { resolveUsdPrimitiveGeometryFromDescriptor as resolvePrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometry.ts';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
@@ -216,6 +217,7 @@ export function buildUsdExportBundleFromPreparedCache(
   if (!preparedCache?.robotData || typeof preparedCache.robotData !== 'object') {
     return null;
   }
+  assertCanonicalRobotData(preparedCache.robotData, 'USD prepared cache.robotData');
 
   const snapshotRobot = cloneRobotState({
     ...preparedCache.robotData,

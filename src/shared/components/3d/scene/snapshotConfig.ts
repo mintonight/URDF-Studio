@@ -88,7 +88,28 @@ export interface SnapshotCaptureOptions {
   bypassPreviewResolutionCap?: boolean;
 }
 
-export type SnapshotCaptureAction = (options?: Partial<SnapshotCaptureOptions>) => Promise<void>;
+export type SnapshotCaptureProgressPhase =
+  | 'preparing'
+  | 'warming-up'
+  | 'rendering'
+  | 'encoding'
+  | 'optimizing'
+  | 'downloading'
+  | 'complete';
+
+export interface SnapshotCaptureProgress {
+  phase: SnapshotCaptureProgressPhase;
+  progress: number;
+}
+
+export interface SnapshotCaptureRunControls {
+  signal?: AbortSignal;
+  onProgress?: (progress: SnapshotCaptureProgress) => void;
+}
+
+export type SnapshotCaptureRequest = Partial<SnapshotCaptureOptions> & SnapshotCaptureRunControls;
+
+export type SnapshotCaptureAction = (options?: SnapshotCaptureRequest | null) => Promise<void>;
 export interface SnapshotPreviewResult {
   blob: Blob;
   width: number;
@@ -100,6 +121,31 @@ export type SnapshotPreviewAction = (
   options?: Partial<SnapshotCaptureOptions>,
 ) => Promise<SnapshotPreviewResult>;
 
+export function createSnapshotCaptureAbortError(): Error | DOMException {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Snapshot export cancelled', 'AbortError');
+  }
+
+  const error = new Error('Snapshot export cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+
+export function isSnapshotCaptureAbortError(error: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
+}
+
+export function throwIfSnapshotCaptureAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createSnapshotCaptureAbortError();
+  }
+}
+
 export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   longEdgePx: SNAPSHOT_MIN_LONG_EDGE,
   imageFormat: 'png',
@@ -110,7 +156,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   groundStyle: 'shadow',
   dofMode: 'off',
   backgroundStyle: 'studio',
-  hideGrid: false,
+  hideGrid: true,
   aspectRatioPreset: 'viewport',
   pngOptimizeLevel: SNAPSHOT_DEFAULT_PNG_OPTIMIZE_LEVEL,
 };
@@ -247,11 +293,6 @@ export function normalizeSnapshotCaptureOptions(
     imageFormat === 'jpeg' && requestedBackgroundStyle === 'transparent'
       ? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle
       : requestedBackgroundStyle;
-  const requestedDofMode = SNAPSHOT_DOF_MODES.includes(options?.dofMode as SnapshotDofMode)
-    ? (options?.dofMode as SnapshotDofMode)
-    : DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.dofMode;
-  const dofMode = backgroundStyle === 'transparent' ? 'off' : requestedDofMode;
-
   return {
     longEdgePx,
     imageFormat,
@@ -260,7 +301,7 @@ export function normalizeSnapshotCaptureOptions(
     environmentPreset,
     shadowStyle,
     groundStyle,
-    dofMode,
+    dofMode: 'off',
     backgroundStyle,
     hideGrid: options?.hideGrid ?? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid,
     aspectRatioPreset: normalizeSnapshotAspectRatioPreset(options?.aspectRatioPreset),

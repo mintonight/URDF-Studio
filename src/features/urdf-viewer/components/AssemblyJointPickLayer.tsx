@@ -4,6 +4,7 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 
 import type { AssemblyState } from '@/types';
+import type { AssemblySceneProjection } from '@/core/robot';
 import {
   useJointPickSessionStore,
   type JointPickSide,
@@ -40,7 +41,8 @@ function isFreePointOverride(event: MouseEvent): boolean {
 
 interface AssemblyJointPickLayerProps {
   robot: THREE.Object3D | null;
-  assemblyState: AssemblyState | null;
+  workspace: AssemblyState | null;
+  sceneProjection: AssemblySceneProjection | null;
   hidden?: boolean;
 }
 
@@ -106,7 +108,7 @@ const CommittedSnap = memo(({ frame, tone }: { frame: PickedSnapFrame; tone: str
 });
 
 export const AssemblyJointPickLayer = memo(
-  ({ robot, assemblyState, hidden = false }: AssemblyJointPickLayerProps) => {
+  ({ robot, workspace, sceneProjection, hidden = false }: AssemblyJointPickLayerProps) => {
     const { camera, gl } = useThree();
     const active = useJointPickSessionStore((state) => state.active);
     const side = useJointPickSessionStore((state) => state.side);
@@ -120,13 +122,29 @@ export const AssemblyJointPickLayer = memo(
     const [hover, setHover] = useState<HoverSnap | null>(null);
 
     // Latest values for the throttled DOM handlers (avoids stale closures).
-    const ctxRef = useRef({ side, snapFilter, parentComponentId, childComponentId, assemblyState, robot });
+    const ctxRef = useRef({
+      side,
+      snapFilter,
+      parentComponentId,
+      childComponentId,
+      workspace,
+      sceneProjection,
+      robot,
+    });
     useEffect(() => {
-      ctxRef.current = { side, snapFilter, parentComponentId, childComponentId, assemblyState, robot };
-    }, [side, snapFilter, parentComponentId, childComponentId, assemblyState, robot]);
+      ctxRef.current = {
+        side,
+        snapFilter,
+        parentComponentId,
+        childComponentId,
+        workspace,
+        sceneProjection,
+        robot,
+      };
+    }, [side, snapFilter, parentComponentId, childComponentId, workspace, sceneProjection, robot]);
 
     useEffect(() => {
-      if (!active || hidden || !robot || !assemblyState) {
+      if (!active || hidden || !robot || !workspace || !sceneProjection) {
         setHover(null);
         return undefined;
       }
@@ -153,7 +171,7 @@ export const AssemblyJointPickLayer = memo(
         freePointOverride = false,
       ): { snap: ResolvedJointSnap; valid: boolean; side: JointPickSide | null } | null => {
         const ctx = ctxRef.current;
-        if (!ctx.robot || !ctx.assemblyState) {
+        if (!ctx.robot || !ctx.workspace || !ctx.sceneProjection) {
           return null;
         }
         raycaster.setFromCamera(pointer, camera);
@@ -164,7 +182,7 @@ export const AssemblyJointPickLayer = memo(
           }
           const snap = resolveJointSnapFromHit(
             { object: hit.object, point: hit.point, faceIndex: hit.faceIndex },
-            ctx.assemblyState,
+            ctx.sceneProjection,
             ctx.snapFilter,
             {
               camera,
@@ -273,7 +291,7 @@ export const AssemblyJointPickLayer = memo(
         domElement.removeEventListener('click', handleClick);
         setHover(null);
       };
-    }, [active, hidden, robot, assemblyState, camera, gl, commitSnap]);
+    }, [active, hidden, robot, workspace, sceneProjection, camera, gl, commitSnap]);
 
     const connectorPoints = useMemo(() => {
       if (!parentSnap || !childSnap) {

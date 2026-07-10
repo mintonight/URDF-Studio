@@ -1,11 +1,6 @@
 import React from 'react';
 
-import type { AppMode, AssemblyState, RobotData, RobotFile, RobotState, Theme } from '@/types';
-import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
-import {
-  denormalizeSourceSceneAssemblyComponentTransform,
-  normalizeSourceSceneAssemblyComponentTransform,
-} from '@/app/utils/sourceSceneAssemblyTransform';
+import type { AppMode, RobotData, RobotFile, Theme } from '@/types';
 import { useResolvedTheme } from '@/shared/hooks/useTheme';
 import {
   createInitialUnifiedViewerMountState,
@@ -15,12 +10,9 @@ import {
 } from '@/app/utils/unifiedViewerMountState';
 import { captureUnifiedViewerOptionsVisibility } from '@/app/utils/unifiedViewerOptionsRestore';
 import { buildUnifiedViewerResourceScopes } from '@/app/utils/unifiedViewerResourceScopes';
-import { resolveUnifiedViewerEditorRobot } from '@/app/utils/unifiedViewerSceneRobots';
 import { resolveUnifiedViewerViewportState } from '@/app/utils/unifiedViewerViewportState';
 import { useUIStore } from '@/store';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type { DocumentLoadLifecycleState } from '@/store/assetsStore';
-import type { UpdateCommitOptions } from '@/types/viewer';
 import { setRegressionViewerResourceScope } from '@/shared/debug/regressionState';
 import {
   buildViewerRobotLinksScopeSignature,
@@ -36,28 +28,15 @@ interface UseUnifiedViewerDerivedStateParams {
   pendingViewerToolMode?: ToolMode | null;
   theme: Theme;
   showOptionsPanel: boolean;
-  editorRobotInput?: RobotState;
   // Viewer-bound robot is RobotData (no selection) — keeping it selection-free
   // is what stops the empty-click cascade that flashes models off for a frame.
   robot: RobotData;
-  assemblyWorkspaceActive: boolean;
   urdfContent: string;
   sourceFilePath?: string;
   sourceFile?: RobotFile | null;
   assets: Record<string, string>;
   allFileContents: Record<string, string>;
   availableFiles: RobotFile[];
-  assemblyState?: AssemblyState | null;
-  sourceSceneAssemblyComponentId?: string | null;
-  assemblySelection?: AssemblySelection;
-  onComponentTransform?: (
-    componentId: string,
-    transform: {
-      position: { x: number; y: number; z: number };
-      rotation: { r: number; p: number; y: number };
-    },
-    options?: UpdateCommitOptions,
-  ) => void;
   viewerReloadKey?: number;
   documentLoadState: DocumentLoadLifecycleState;
 }
@@ -68,19 +47,13 @@ export function useUnifiedViewerDerivedState({
   pendingViewerToolMode = null,
   theme,
   showOptionsPanel,
-  editorRobotInput,
   robot,
-  assemblyWorkspaceActive,
   urdfContent,
   sourceFilePath,
   sourceFile,
   assets,
   allFileContents,
   availableFiles,
-  assemblyState,
-  sourceSceneAssemblyComponentId = null,
-  assemblySelection,
-  onComponentTransform,
   viewerReloadKey = 0,
   documentLoadState,
 }: UseUnifiedViewerDerivedStateParams) {
@@ -129,15 +102,6 @@ export function useUnifiedViewerDerivedState({
     );
   }, [isPreviewing, mode, viewerToolSessionActive]);
 
-  const editorRobot = React.useMemo(
-    () =>
-      resolveUnifiedViewerEditorRobot({
-        robot: editorRobotInput ?? robot,
-        viewerRobot: robot,
-        assemblyWorkspaceActive,
-      }),
-    [assemblyWorkspaceActive, editorRobotInput, robot],
-  );
   const viewerRobotLinksScopeSignature = React.useMemo(
     () =>
       buildViewerRobotLinksScopeSignature(
@@ -205,52 +169,6 @@ export function useUnifiedViewerDerivedState({
     };
   }, [effectiveSourceFile?.name, effectiveSourceFilePath, viewerResourceScope]);
 
-  const sourceSceneAssemblyComponent = React.useMemo(() => {
-    if (!sourceSceneAssemblyComponentId || !assemblyState) {
-      return null;
-    }
-
-    const component = assemblyState.components[sourceSceneAssemblyComponentId];
-    if (!component || component.visible === false) {
-      return null;
-    }
-
-    return component;
-  }, [assemblyState, sourceSceneAssemblyComponentId]);
-  const sourceSceneAssemblyComponentTransform = React.useMemo(
-    () => normalizeSourceSceneAssemblyComponentTransform(sourceSceneAssemblyComponent),
-    [sourceSceneAssemblyComponent],
-  );
-  const handleSourceSceneAssemblyComponentTransform = React.useCallback(
-    (
-      componentId: string,
-      transform: {
-        position: { x: number; y: number; z: number };
-        rotation: { r: number; p: number; y: number };
-      },
-      options?: UpdateCommitOptions,
-    ) => {
-      if (!onComponentTransform) {
-        return;
-      }
-
-      const normalizedTransform =
-        sourceSceneAssemblyComponent && sourceSceneAssemblyComponent.id === componentId
-          ? denormalizeSourceSceneAssemblyComponentTransform(
-              sourceSceneAssemblyComponent,
-              transform,
-            )
-          : cloneAssemblyTransform(transform);
-
-      onComponentTransform(componentId, normalizedTransform, options);
-    },
-    [onComponentTransform, sourceSceneAssemblyComponent],
-  );
-  const showSourceSceneAssemblyComponentControls = Boolean(
-    sourceSceneAssemblyComponent &&
-    assemblySelection?.type === 'component' &&
-    assemblySelection.id === sourceSceneAssemblyComponent.id,
-  );
   const viewportState = React.useMemo(
     () =>
       resolveUnifiedViewerViewportState({
@@ -277,16 +195,11 @@ export function useUnifiedViewerDerivedState({
     resolvedTheme,
     viewerOptionsVisibleRef,
     optionsVisibleAtPointerDownRef,
-    editorRobot,
     effectiveUrdfContent,
     effectiveSourceFilePath,
     effectiveSourceFile,
     activeViewportFileName,
     viewerResourceScope,
-    sourceSceneAssemblyComponent,
-    sourceSceneAssemblyComponentTransform,
-    handleSourceSceneAssemblyComponentTransform,
-    showSourceSceneAssemblyComponentControls,
     viewportState,
   };
 }

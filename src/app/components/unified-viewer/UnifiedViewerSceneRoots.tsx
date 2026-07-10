@@ -1,8 +1,14 @@
 import React from 'react';
 import type { Group as ThreeGroup, Object3D as ThreeObject3D } from 'three';
 
-import type { AssemblyState, InteractionSelection, RobotData, UrdfOrigin } from '@/types';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
+import type {
+  AssemblyState,
+  InteractionSelection,
+  RobotData,
+  UrdfOrigin,
+  WorkspaceSelection,
+} from '@/types';
+import type { AssemblyScenePlacement, AssemblySceneProjection } from '@/core/robot';
 import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
@@ -32,6 +38,7 @@ interface UnifiedViewerSceneRootsProps {
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
   viewerSceneMode: 'editor';
   selection?: InteractionSelection;
+  hoveredSelection?: InteractionSelection;
   onHover?: (
     type: InteractionSelection['type'],
     id: string | null,
@@ -47,6 +54,9 @@ interface UnifiedViewerSceneRootsProps {
     objectType: 'visual' | 'collision',
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onJointMotionCommit?: (
+    context: import('@/features/editor').ViewerJointChangeContext,
+  ) => void;
   robot: RobotData;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
@@ -63,8 +73,10 @@ interface UnifiedViewerSceneRootsProps {
   ) => void;
   isMeshPreview?: boolean;
   viewerReloadKey?: number;
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+  workspace: AssemblyState;
+  sceneProjection: AssemblySceneProjection;
+  scenePlacement: AssemblyScenePlacement;
+  workspaceSelection: WorkspaceSelection;
   onAssemblyTransform?: (transform: {
     position: { x: number; y: number; z: number };
     rotation: { r: number; p: number; y: number };
@@ -80,20 +92,6 @@ interface UnifiedViewerSceneRootsProps {
   onBridgeTransform?: (
     bridgeId: string,
     origin: UrdfOrigin,
-    options?: import('@/types/viewer').UpdateCommitOptions,
-  ) => void;
-  sourceSceneAssemblyComponent: import('@/types').AssemblyComponent | null;
-  sourceSceneAssemblyComponentTransform: {
-    position: { x: number; y: number; z: number };
-    rotation: { r: number; p: number; y: number };
-  } | null;
-  showSourceSceneAssemblyComponentControls: boolean;
-  onSourceSceneAssemblyComponentTransform?: (
-    componentId: string,
-    transform: {
-      position: { x: number; y: number; z: number };
-      rotation: { r: number; p: number; y: number };
-    },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
   t: typeof import('@/shared/i18n').translations.en;
@@ -118,24 +116,24 @@ export function UnifiedViewerSceneRoots({
   onRuntimeRobotLoaded,
   viewerSceneMode,
   selection,
+  hoveredSelection,
   onHover,
   onMeshSelect,
   onUpdate,
+  onJointMotionCommit,
   robot,
   focusTarget,
   onCollisionTransformPreview,
   onCollisionTransform,
   isMeshPreview = false,
   viewerReloadKey = 0,
-  assemblyState = null,
-  assemblySelection,
+  workspace,
+  sceneProjection,
+  scenePlacement,
+  workspaceSelection,
   onAssemblyTransform,
   onComponentTransform,
   onBridgeTransform,
-  sourceSceneAssemblyComponent,
-  sourceSceneAssemblyComponentTransform,
-  showSourceSceneAssemblyComponentControls,
-  onSourceSceneAssemblyComponentTransform,
   t,
   ikDragActive,
 }: UnifiedViewerSceneRootsProps) {
@@ -158,9 +156,11 @@ export function UnifiedViewerSceneRoots({
           onRuntimeRobotLoaded={onRuntimeRobotLoaded}
           mode={viewerSceneMode}
           selection={selection}
+          hoveredSelection={hoveredSelection}
           onHover={onHover}
           onMeshSelect={onMeshSelect}
           onUpdate={onUpdate}
+          onJointMotionCommit={onJointMotionCommit}
           robot={robot}
           focusTarget={focusTarget}
           onCollisionTransformPreview={onCollisionTransformPreview}
@@ -168,15 +168,13 @@ export function UnifiedViewerSceneRoots({
           isMeshPreview={isMeshPreview}
           ikDragActive={ikDragActive}
           viewerReloadKey={viewerReloadKey}
-          assemblyState={assemblyState}
-          assemblySelection={assemblySelection}
+          workspace={workspace}
+          sceneProjection={sceneProjection}
+          scenePlacement={scenePlacement}
+          workspaceSelection={workspaceSelection}
           onAssemblyTransform={onAssemblyTransform}
           onComponentTransform={onComponentTransform}
           onBridgeTransform={onBridgeTransform}
-          sourceSceneAssemblyComponentId={sourceSceneAssemblyComponent?.id ?? null}
-          sourceSceneAssemblyComponentTransform={sourceSceneAssemblyComponentTransform}
-          showSourceSceneAssemblyComponentControls={showSourceSceneAssemblyComponentControls}
-          onSourceSceneAssemblyComponentTransform={onSourceSceneAssemblyComponentTransform}
           t={t}
         />
       </React.Suspense>

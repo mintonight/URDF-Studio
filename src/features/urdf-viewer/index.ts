@@ -23,3 +23,19 @@ export {
   createStableViewerResourceScope,
 } from './utils/viewerResourceScope';
 export type { ViewerResourceScope } from './utils/viewerResourceScope';
+export { computeCameraFrame } from './utils/cameraFrame';
+export {
+  EMPTY_RENDERER_SELECTION,
+  groupProjectedJointMotionByComponent,
+  isWorkspaceTransformSelection,
+  projectJointPreviewToWorkspaceComponents,
+  projectWorkspaceJointMotionToRenderer,
+  projectWorkspaceSelectionToRenderer,
+  resolveRendererSelectionToWorkspace,
+  resolveWorkspaceFocusTarget,
+} from './utils/workspaceSceneProjection';
+export type {
+  ProjectedWorkspaceJointMotionState,
+  RendererJointInteractionPreview,
+  WorkspaceJointMotionGroup,
+} from './utils/workspaceSceneProjection';

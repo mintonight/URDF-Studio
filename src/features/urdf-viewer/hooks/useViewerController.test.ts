@@ -564,7 +564,7 @@ function resetSelectionStore() {
   const state = useSelectionStore.getState();
   state.setHoverFrozen(false);
   state.clearHover();
-  state.setHoveredSelection({ type: null, id: null });
+  state.setHoveredSelection(null);
 }
 
 test('handleAutoFitGround delegates to the active runtime auto-fit handler when registered', () => {
@@ -641,8 +641,7 @@ test('paint tool state switches back to select when the paint panel closes', asy
   }
 });
 
-test('handleHoverWrapper keeps the shared hover store in sync and still forwards the callback', async () => {
-  resetSelectionStore();
+test('handleHoverWrapper forwards renderer hover without writing canonical selection state', async () => {
   const forwarded: Array<{
     type: 'link' | 'joint' | 'tendon' | null;
     id: string | null;
@@ -663,14 +662,6 @@ test('handleHoverWrapper keeps the shared hover store in sync and still forwards
       getHook().handleHoverWrapper('link', 'base_link', 'visual', 2);
     });
 
-    assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
-      type: 'link',
-      id: 'base_link',
-      subType: 'visual',
-      objectIndex: 2,
-      helperKind: undefined,
-      highlightObjectId: undefined,
-    });
     assert.deepEqual(forwarded, [
       {
         type: 'link',
@@ -686,12 +677,18 @@ test('handleHoverWrapper keeps the shared hover store in sync and still forwards
       getHook().handleHoverWrapper(null, null);
     });
 
-    assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
+    assert.deepEqual(forwarded[1], {
+      type: null,
+      id: null,
+      subType: undefined,
+      objectIndex: undefined,
+      helperKind: undefined,
+      highlightObjectId: undefined,
+    });
   } finally {
     await act(async () => {
       root.unmount();
     });
-    resetSelectionStore();
   }
 });
 
@@ -910,11 +907,15 @@ test('closedLoopRobotState sanitizes runtime-shaped joints before preview sessio
 test('handleRuntimeJointAnglesChange keeps USD drag previews local until the drag ends', async () => {
   const robotState = createSimpleRobotFixture();
   const runtimeRobot = createRuntimeRobotFixture(robotState);
-  const committedJointChanges: Array<{ jointName: string; angle: number }> = [];
+  const committedJointChanges: Array<{
+    jointName: string;
+    angle: number;
+    context?: { jointAngles?: Record<string, number> };
+  }> = [];
   const { root, getHook } = await mountControllerWithProps({
     active: false,
-    onJointChange: (jointName, angle) => {
-      committedJointChanges.push({ jointName, angle });
+    onJointChange: (jointName, angle, context) => {
+      committedJointChanges.push({ jointName, angle, context });
     },
     syncJointChangesToApp: true,
   });
@@ -938,7 +939,13 @@ test('handleRuntimeJointAnglesChange keeps USD drag previews local until the dra
       getHook().handleRuntimeJointAnglesChange({ joint_a: 0.45 });
     });
 
-    assert.deepEqual(committedJointChanges, [{ jointName: 'joint_a', angle: 0.45 }]);
+    assert.deepEqual(committedJointChanges, [
+      {
+        jointName: 'joint_a',
+        angle: 0.45,
+        context: { jointAngles: { joint_a: 0.45 } },
+      },
+    ]);
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.45);
     assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.45);
   } finally {
@@ -1565,8 +1572,7 @@ test('setIsDragging freezes hover updates without clearing the visible hover for
 
   try {
     useSelectionStore.getState().setHoveredSelection({
-      type: 'link',
-      id: 'base_link',
+      entity: { type: 'link', componentId: 'component_1', entityId: 'base_link' },
       subType: 'visual',
       objectIndex: 0,
     });
@@ -1578,14 +1584,12 @@ test('setIsDragging freezes hover updates without clearing the visible hover for
     let selectionState = useSelectionStore.getState();
     assert.equal(selectionState.hoverFrozen, true);
     assert.deepEqual(selectionState.hoveredSelection, {
-      type: 'link',
-      id: 'base_link',
+      entity: { type: 'link', componentId: 'component_1', entityId: 'base_link' },
       subType: 'visual',
       objectIndex: 0,
     });
     assert.deepEqual(selectionState.deferredHoveredSelection, {
-      type: 'link',
-      id: 'base_link',
+      entity: { type: 'link', componentId: 'component_1', entityId: 'base_link' },
       subType: 'visual',
       objectIndex: 0,
     });

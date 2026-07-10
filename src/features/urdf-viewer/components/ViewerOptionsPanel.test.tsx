@@ -62,7 +62,7 @@ function resetSelectionStore() {
     useSelectionStore.getState().endHoverBlock();
   }
   state.clearHover();
-  state.setHoveredSelection({ type: null, id: null });
+  state.setHoveredSelection(null);
 }
 
 async function renderPanel(
@@ -522,7 +522,9 @@ test('ViewerOptionsPanel freezes shared hover while the pointer is over the pane
   resetSelectionStore();
 
   const { dom, container, root } = createComponentRoot();
-  useSelectionStore.getState().setHoveredSelection({ type: 'link', id: 'base_link' });
+  useSelectionStore.getState().setHoveredSelection({
+    entity: { type: 'link', componentId: 'component_1', entityId: 'base_link' },
+  });
 
   await renderPanel(root, false);
 
@@ -535,7 +537,7 @@ test('ViewerOptionsPanel freezes shared hover while the pointer is over the pane
 
   let nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.equal(nextState.hoveredSelection, null);
 
   await act(async () => {
     panelRoot.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
@@ -543,7 +545,7 @@ test('ViewerOptionsPanel freezes shared hover while the pointer is over the pane
 
   nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, false);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.equal(nextState.hoveredSelection, null);
 
   await act(async () => {
     root.unmount();

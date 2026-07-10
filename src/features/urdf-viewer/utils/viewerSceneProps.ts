@@ -1,6 +1,6 @@
 import type { AssemblyState, RobotFile } from '@/types';
-import type { AssemblyTransform } from '@/types';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
+import type { AssemblyScenePlacement, AssemblySceneProjection } from '@/core/robot';
+import type { WorkspaceSelection } from '@/types';
 import type { ViewerController } from '../hooks/useViewerController';
 import type { ToolMode, ViewerProps, ViewerDocumentLoadEvent, ViewerSceneMode } from '../types';
 import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
@@ -24,10 +24,12 @@ interface BuildViewerScenePropsArgs {
   mode: ViewerSceneMode;
   selection?: ViewerProps['selection'];
   hoveredSelection?: ViewerProps['hoveredSelection'];
+  interactionEnabled?: boolean;
   hoverSelectionEnabled?: boolean;
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
   onUpdate?: ViewerProps['onUpdate'];
+  onJointMotionCommit?: ViewerProps['onJointMotionCommit'];
   robotLinks?: ViewerProps['robotLinks'];
   robotJoints?: ViewerProps['robotJoints'];
   robotData?: ViewerProps['robotData'];
@@ -39,19 +41,13 @@ interface BuildViewerScenePropsArgs {
   isMeshPreview?: boolean;
   ikDragActive?: boolean;
   runtimeInstanceKey?: number;
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+  workspace?: AssemblyState | null;
+  sceneProjection?: AssemblySceneProjection | null;
+  scenePlacement?: AssemblyScenePlacement | null;
+  workspaceSelection?: WorkspaceSelection;
   onAssemblyTransform?: ViewerProps['onAssemblyTransform'];
   onComponentTransform?: ViewerProps['onComponentTransform'];
   onBridgeTransform?: ViewerProps['onBridgeTransform'];
-  sourceSceneAssemblyComponentId?: string | null;
-  sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
-  showSourceSceneAssemblyComponentControls?: boolean;
-  onSourceSceneAssemblyComponentTransform?: (
-    componentId: string,
-    transform: AssemblyTransform,
-    options?: import('@/types/viewer').UpdateCommitOptions,
-  ) => void;
 }
 
 export interface ViewerSceneBaseProps extends BuildViewerScenePropsArgs {
@@ -77,9 +73,11 @@ export function buildViewerSceneProps({
   mode,
   selection,
   hoveredSelection,
+  interactionEnabled = true,
   hoverSelectionEnabled = true,
   onMeshSelect,
   onUpdate,
+  onJointMotionCommit,
   robotLinks,
   robotJoints,
   robotData,
@@ -91,15 +89,13 @@ export function buildViewerSceneProps({
   isMeshPreview = false,
   ikDragActive = false,
   runtimeInstanceKey = 0,
-  assemblyState,
-  assemblySelection,
+  workspace,
+  sceneProjection,
+  scenePlacement,
+  workspaceSelection,
   onAssemblyTransform,
   onComponentTransform,
   onBridgeTransform,
-  sourceSceneAssemblyComponentId,
-  sourceSceneAssemblyComponentTransform,
-  showSourceSceneAssemblyComponentControls = false,
-  onSourceSceneAssemblyComponentTransform,
 }: BuildViewerScenePropsArgs): ViewerSceneBaseProps {
   return {
     resolvedTheme,
@@ -120,10 +116,12 @@ export function buildViewerSceneProps({
     mode,
     selection,
     hoveredSelection,
+    interactionEnabled,
     hoverSelectionEnabled,
     onHover: hoverSelectionEnabled ? controller.handleHoverWrapper : undefined,
     onMeshSelect,
     onUpdate,
+    onJointMotionCommit,
     robotLinks,
     robotJoints,
     robotData,
@@ -135,15 +133,13 @@ export function buildViewerSceneProps({
     isMeshPreview,
     ikDragActive,
     runtimeInstanceKey,
-    assemblyState,
-    assemblySelection,
+    workspace,
+    sceneProjection,
+    scenePlacement,
+    workspaceSelection,
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
-    sourceSceneAssemblyComponentId,
-    sourceSceneAssemblyComponentTransform,
-    showSourceSceneAssemblyComponentControls,
-    onSourceSceneAssemblyComponentTransform,
     toolMode: controller.toolMode,
   };
 }

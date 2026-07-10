@@ -20,7 +20,7 @@ test('normalizeSnapshotCaptureOptions defaults the export background to studio',
   assert.equal(options.shadowStyle, 'balanced');
   assert.equal(options.groundStyle, 'shadow');
   assert.equal(options.dofMode, 'off');
-  assert.equal(options.hideGrid, false);
+  assert.equal(options.hideGrid, true);
   assert.equal(options.aspectRatioPreset, 'viewport');
 });
 
@@ -42,14 +42,14 @@ test('normalizeSnapshotCaptureOptions falls back from transparent backgrounds fo
   assert.equal(options.backgroundStyle, 'studio');
 });
 
-test('normalizeSnapshotCaptureOptions disables DOF when the export stays transparent', () => {
+test('normalizeSnapshotCaptureOptions ignores requested DOF because snapshot depth of field is disabled', () => {
   const options = normalizeSnapshotCaptureOptions({
     imageFormat: 'png',
-    backgroundStyle: 'transparent',
+    backgroundStyle: 'dark',
     dofMode: 'hero',
   });
 
-  assert.equal(options.backgroundStyle, 'transparent');
+  assert.equal(options.backgroundStyle, 'dark');
   assert.equal(options.dofMode, 'off');
 });
 

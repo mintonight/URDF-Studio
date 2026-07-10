@@ -3,11 +3,25 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import {
+  applySnapshotBackgroundStyle,
   applySnapshotLightingPreset,
   applySnapshotSceneVisibility,
   applySnapshotShadowQuality,
   SNAPSHOT_ENVIRONMENT_PRESET_RENDER_SETTINGS,
 } from './snapshotSceneQuality.ts';
+
+function createSnapshotBackgroundTestRenderer() {
+  const clearColor = new THREE.Color('#000000');
+  let clearAlpha = 1;
+  return {
+    getClearColor: (target: THREE.Color) => target.copy(clearColor),
+    getClearAlpha: () => clearAlpha,
+    setClearColor: (color: THREE.ColorRepresentation, alpha?: number) => {
+      clearColor.set(color);
+      clearAlpha = alpha ?? clearAlpha;
+    },
+  } as unknown as THREE.WebGLRenderer;
+}
 
 test('applySnapshotSceneVisibility keeps visual content while hiding snapshot-excluded helpers', () => {
   const scene = new THREE.Scene();
@@ -97,6 +111,20 @@ test('applySnapshotSceneVisibility hides known runtime helper names and viewer h
 
   assert.equal(namedHelper.visible, true);
   assert.equal(viewerHelper.visible, true);
+});
+
+test('applySnapshotBackgroundStyle uses workspace fallback for viewport background without scene color', () => {
+  const scene = new THREE.Scene();
+  const gl = createSnapshotBackgroundTestRenderer();
+
+  const result = applySnapshotBackgroundStyle(scene, gl, 'viewport', 'dark');
+
+  assert.deepEqual(result.fill, {
+    kind: 'solid',
+    colors: ['#1f1f1f', '#1f1f1f'],
+  });
+
+  result.restore();
 });
 
 test('applySnapshotLightingPreset applies a visible rig change and restores it afterwards', () => {

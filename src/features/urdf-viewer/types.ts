@@ -15,8 +15,12 @@ import type {
   UrdfJoint,
   UrdfLink,
   UrdfOrigin,
+  WorkspaceSelection,
 } from '@/types';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
+import type {
+  AssemblyScenePlacement,
+  AssemblySceneProjection,
+} from '@/core/robot';
 import type {
   MeasureAnchorMode,
   MeasureGroup,
@@ -112,6 +116,8 @@ export interface ViewerProps {
     angle: number,
     context?: ViewerJointChangeContext,
   ) => void;
+  /** Runtime-global joint IDs; workspace adapters resolve these through projection maps. */
+  onJointMotionCommit?: (context: ViewerJointChangeContext) => void;
   syncJointChangesToApp?: boolean;
   jointAngleState?: Record<string, number>;
   jointMotionState?: Record<string, ViewerJointMotionStateValue>;
@@ -175,8 +181,10 @@ export interface ViewerProps {
   onTransformPendingChange?: (pending: boolean) => void;
   /** Visual ground alignment offset applied after load. */
   groundPlaneOffset?: number;
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+  workspace?: AssemblyState | null;
+  sceneProjection?: AssemblySceneProjection | null;
+  scenePlacement?: AssemblyScenePlacement | null;
+  workspaceSelection?: WorkspaceSelection;
   onAssemblyTransform?: (transform: AssemblyTransform) => void;
   onComponentTransform?: (
     componentId: string,
@@ -235,6 +243,7 @@ export interface RobotModelProps {
   onPaintStatusChange?: (status: ViewerPaintStatus | null) => void;
   onJointChange?: (name: string, angle: number, context?: ViewerJointChangeContext) => void;
   onJointChangeCommit?: (name: string, angle: number) => void;
+  onJointMotionCommit?: (context: ViewerJointChangeContext) => void;
   initialJointAngles?: Record<string, number>;
   registerSceneRefresh?: (
     refreshScene: ((options?: { force?: boolean }) => void) | null,
@@ -294,14 +303,17 @@ export interface RobotModelProps {
   onTransformPending?: (pending: boolean) => void;
   isSelectionLockedRef?: React.RefObject<boolean>;
   selection?: ViewerProps['selection'];
+  interactionEnabled?: boolean;
   hoverSelectionEnabled?: boolean;
   hoveredSelection?: ViewerProps['hoveredSelection'];
   interactionLayerPriority?: ViewerInteractiveLayer[];
   isMeshPreview?: boolean;
   groundPlaneOffset?: number;
   active?: boolean;
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+  workspace?: AssemblyState | null;
+  sceneProjection?: AssemblySceneProjection | null;
+  scenePlacement?: AssemblyScenePlacement | null;
+  workspaceSelection?: WorkspaceSelection;
   onAssemblyTransform?: (transform: AssemblyTransform) => void;
   onComponentTransform?: (
     componentId: string,
@@ -311,14 +323,6 @@ export interface RobotModelProps {
   onBridgeTransform?: (
     bridgeId: string,
     origin: UrdfOrigin,
-    options?: import('@/types/viewer').UpdateCommitOptions,
-  ) => void;
-  sourceSceneAssemblyComponentId?: string | null;
-  sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
-  showSourceSceneAssemblyComponentControls?: boolean;
-  onSourceSceneAssemblyComponentTransform?: (
-    componentId: string,
-    transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
@@ -364,6 +368,8 @@ export interface MeasureToolProps {
   showDecomposition: boolean;
   deleteTooltip?: string;
   measureTargetResolverRef?: React.RefObject<MeasureTargetResolver | null>;
+  selection?: InteractionSelection;
+  hoveredSelection?: InteractionSelection;
 }
 
 export interface JointInteractionProps {

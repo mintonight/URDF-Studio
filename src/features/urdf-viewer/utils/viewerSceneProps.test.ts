@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type { ViewerController } from '../hooks/useViewerController';
 import { buildViewerSceneProps } from './viewerSceneProps';
 import type { AssemblyState } from '@/types';
+import { createAssemblyScenePlacement, createAssemblySceneProjection } from '@/core/robot';
 
 function createControllerStub(overrides: Partial<ViewerController> = {}): ViewerController {
   return {
@@ -41,6 +42,7 @@ test('buildViewerSceneProps uses controller-owned defaults for viewer scene wiri
   assert.equal(sceneProps.groundPlaneOffset, 1.25);
   assert.equal(sceneProps.toolMode, 'measure');
   assert.equal(sceneProps.active, true);
+  assert.equal(sceneProps.interactionEnabled, true);
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
@@ -58,6 +60,8 @@ test('buildViewerSceneProps preserves explicit overrides for preview and handoff
   const onAssemblyTransform = () => {};
   const onComponentTransform = () => {};
   const onBridgeTransform = () => {};
+  const workspace = createAssemblyStateStub();
+  const sceneProjection = createAssemblySceneProjection(workspace);
 
   const sceneProps = buildViewerSceneProps({
     controller,
@@ -78,8 +82,10 @@ test('buildViewerSceneProps preserves explicit overrides for preview and handoff
     hoverSelectionEnabled: false,
     onHover,
     onMeshSelect,
-    assemblyState: createAssemblyStateStub(),
-    assemblySelection: { type: 'component', id: 'comp_alpha' },
+    workspace,
+    sceneProjection,
+    scenePlacement: createAssemblyScenePlacement(workspace, sceneProjection),
+    workspaceSelection: { entity: { type: 'component', componentId: 'comp_alpha' } },
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
@@ -91,11 +97,12 @@ test('buildViewerSceneProps preserves explicit overrides for preview and handoff
   assert.equal(sceneProps.mode, 'editor');
   assert.equal(sceneProps.groundPlaneOffset, 3.5);
   assert.equal(sceneProps.toolMode, 'select');
+  assert.equal(sceneProps.interactionEnabled, true);
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
-  assert.equal(sceneProps.assemblySelection?.id, 'comp_alpha');
+  assert.equal(sceneProps.workspaceSelection?.entity.type, 'component');
   assert.equal(sceneProps.onAssemblyTransform, onAssemblyTransform);
   assert.equal(sceneProps.onComponentTransform, onComponentTransform);
   assert.equal(sceneProps.onBridgeTransform, onBridgeTransform);

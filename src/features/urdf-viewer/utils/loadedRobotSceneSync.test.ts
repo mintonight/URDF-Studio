@@ -7,6 +7,10 @@ import { JSDOM } from 'jsdom';
 import { parseURDF } from '@/core/parsers';
 import { URDFLink, URDFVisual } from '@/core/parsers/urdf/loader/URDFClasses';
 import { prepareAssemblyRobotData } from '@/core/robot/assemblyComponentPreparation';
+import {
+  createAssemblySceneProjection,
+  createSingleComponentWorkspace,
+} from '@/core/robot';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { DEFAULT_LINK, GeometryType } from '@/types';
 
@@ -42,12 +46,11 @@ function toViewerTuple(r: number, g: number, b: number, materialName: string): n
   return material.color.toArray().map((value) => Number(value.toFixed(4)));
 }
 
-function readPreparedAssemblyRobotData(filePath: string, componentId: string, rootName: string) {
+function readPreparedAssemblyRobotData(filePath: string) {
   const parsed = parseURDF(readFileSync(filePath, 'utf8'));
   assert.ok(parsed, `expected ${filePath} to parse`);
-  return prepareAssemblyRobotData(parsed, {
-    componentId,
-    rootName,
+  const { selection: _selection, ...robot } = parsed;
+  return prepareAssemblyRobotData(robot, {
     sourceFilePath: filePath,
     sourceFormat: 'urdf',
   });
@@ -172,28 +175,36 @@ test('syncLoadedRobotScene upgrades late URDF visual meshes to shared matte mate
 test('syncLoadedRobotScene keeps conflicting Unitree workspace materials scoped to each component visual', () => {
   const g1Robot = readPreparedAssemblyRobotData(
     'test/unitree_ros/robots/g1_description/g1_23dof.urdf',
-    'comp_g1_23dof',
-    'g1_23dof',
   );
   const h1Robot = readPreparedAssemblyRobotData(
     'test/unitree_ros/robots/h1_description/urdf/h1_with_hand.urdf',
-    'comp_h1_with_hand',
-    'h1_with_hand',
   );
+
+  const workspace = createSingleComponentWorkspace(g1Robot, {
+    componentId: 'comp_g1_23dof',
+    componentName: 'g1_23dof',
+  });
+  workspace.components.comp_h1_with_hand = createSingleComponentWorkspace(h1Robot, {
+    componentId: 'comp_h1_with_hand',
+    componentName: 'h1_with_hand',
+  }).components.comp_h1_with_hand!;
+  const projectedLinks = createAssemblySceneProjection(workspace).robotData.links;
 
   const g1LinkId = 'comp_g1_23dof_left_hip_roll_link';
   const h1LinkId = 'comp_h1_with_hand_logo_link';
   const robotLinks = {
-    [g1LinkId]: g1Robot.links[g1LinkId],
-    [h1LinkId]: h1Robot.links[h1LinkId],
+    [g1LinkId]: projectedLinks[g1LinkId],
+    [h1LinkId]: projectedLinks[h1LinkId],
   };
+  const g1WhiteMaterialName = 'comp_g1_23dof_white';
+  const h1WhiteMaterialName = 'comp_h1_with_hand_white';
   const urdfMaterials = resolveURDFMaterialsForScene('<robot name="workspace" />', robotLinks);
   const expectedG1White = collectURDFMaterialsFromLinks({
     [g1LinkId]: robotLinks[g1LinkId],
-  }).get('white');
+  }).get(g1WhiteMaterialName);
   const expectedH1White = collectURDFMaterialsFromLinks({
     [h1LinkId]: robotLinks[h1LinkId],
-  }).get('white');
+  }).get(h1WhiteMaterialName);
 
   assert.ok(expectedG1White?.rgba, 'expected Unitree G1 fixture to define a white material');
   assert.ok(expectedH1White?.rgba, 'expected Unitree H1 fixture to define a white material');
@@ -205,8 +216,8 @@ test('syncLoadedRobotScene keeps conflicting Unitree workspace materials scoped 
   const h1Link = new URDFLink();
   h1Link.name = h1LinkId;
 
-  const g1Visual = createUrdfVisualRoot(`${g1LinkId}::visual::0`, 'white');
-  const h1Visual = createUrdfVisualRoot(`${h1LinkId}::visual::0`, 'white');
+  const g1Visual = createUrdfVisualRoot(`${g1LinkId}::visual::0`, g1WhiteMaterialName);
+  const h1Visual = createUrdfVisualRoot(`${h1LinkId}::visual::0`, h1WhiteMaterialName);
 
   g1Link.add(g1Visual.visual);
   h1Link.add(h1Visual.visual);
