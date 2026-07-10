@@ -64,3 +64,4 @@ snapshot-default-page.png
 *.jpeg
 canvas-jpg-chunks.json
 /.trellis
+/.worktrees/
