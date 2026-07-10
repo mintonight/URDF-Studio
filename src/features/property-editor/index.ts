@@ -8,7 +8,14 @@ export { PropertyEditor } from './components/PropertyEditor';
 export { CollisionOptimizationDialog } from './components/CollisionOptimizationDialog';
 
 // Types
-export type { PropertyEditorProps } from './components/PropertyEditor';
+export type {
+  PropertyEditorProps,
+  WorkspaceAssemblyPropertyPatch,
+  WorkspaceComponentPropertyPatch,
+  WorkspaceJointPropertyPatch,
+  WorkspaceLinkPropertyPatch,
+  WorkspacePropertyPatch,
+} from './components/PropertyEditor';
 export {
   analyzeCollisionOptimization,
   applyCollisionOptimizationOperationsToLinks,

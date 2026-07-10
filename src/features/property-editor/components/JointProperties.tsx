@@ -8,7 +8,7 @@ import { ExternalLink } from 'lucide-react';
 import { JointType, type AppMode, type MotorSpec } from '@/types';
 import { normalizeJointLimitOrder } from '@/core/robot';
 import { translations } from '@/shared/i18n';
-import type { Language } from '@/store';
+import type { Language } from '@/store/uiStore';
 import {
   getDefaultJointLimit,
   getJointEffortUnitLabel,
@@ -29,6 +29,7 @@ import {
 } from './FormControls';
 import { useMotorConfig } from '../hooks/useMotorConfig';
 import { TransformFields } from './TransformFields';
+import type { WorkspaceJointPropertyPatch } from '@/store/workspace/types';
 
 const AXIS_BASED_TYPES = new Set<JointType>([
   JointType.REVOLUTE,
@@ -92,13 +93,13 @@ const getJointTypeLabel = (jointType: JointType, t: (typeof translations)['en'])
 
 interface JointData {
   name?: string;
-  type?: string;
+  type?: JointType;
   hardware?: {
     brand?: string;
     motorType?: string;
     armature?: number;
     motorId?: string;
-    motorDirection?: number;
+    motorDirection?: 1 | -1;
   };
   limit?: { velocity?: number; effort?: number; lower?: number; upper?: number };
   dynamics?: { friction?: number; damping?: number };
@@ -110,7 +111,7 @@ interface JointPropertiesProps {
   data: JointData;
   mode: AppMode;
   selection: { id: string | null; type: string | null };
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onUpdate: (type: 'link' | 'joint', id: string, data: WorkspaceJointPropertyPatch) => void;
   motorLibrary: Record<string, MotorSpec[]>;
   t: (typeof translations)['en'];
   lang: Language;
@@ -152,7 +153,7 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
   const effortUnit = getJointEffortUnitLabel(jointType);
 
   const updateJoint = (updates: Partial<JointData>) => {
-    onUpdate('joint', selection.id!, { ...data, ...updates });
+    onUpdate('joint', selection.id!, { ...data, ...updates } as WorkspaceJointPropertyPatch);
   };
 
   const handleJointTypeChange = (nextType: JointType) => {
@@ -368,7 +369,7 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                         updateJoint({
                           hardware: {
                             ...data.hardware,
-                            motorDirection: parseInt(event.currentTarget.value, 10),
+                            motorDirection: event.currentTarget.value === '-1' ? -1 : 1,
                           },
                         })
                       }

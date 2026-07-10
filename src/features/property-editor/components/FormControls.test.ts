@@ -5,7 +5,7 @@ import React, { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { useUIStore } from '@/store';
+import { useUIStore } from '@/store/uiStore';
 import { InlineInputGroup, NumberInput, ReadonlyVectorStatRow } from './FormControls.tsx';
 import { TransformFields } from './TransformFields.tsx';
 import type { EulerRadiansValue } from '../utils/rotationFormat.ts';

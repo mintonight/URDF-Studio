@@ -9,7 +9,8 @@ import { JSDOM } from 'jsdom';
 import type { AppMode, RobotState, UrdfLink } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
-import { useUIStore } from '@/store';
+import { useUIStore } from '@/store/uiStore';
+import { applyLinkPatch } from '@/app/hooks/workspace-mutations/linkPatch';
 import { LinkProperties } from './LinkProperties.tsx';
 
 function createLink(): UrdfLink {
@@ -56,6 +57,10 @@ function createRobot(link: UrdfLink): RobotState {
   };
 }
 
+function mergeTestLinkUpdate(currentLink: UrdfLink, nextData: unknown): UrdfLink {
+  return applyLinkPatch(currentLink, nextData as Partial<UrdfLink>);
+}
+
 function renderLinkProperties(
   mode: AppMode,
   detailLinkTab: 'visual' | 'collision' | 'physics' = 'visual',
@@ -66,6 +71,7 @@ function renderLinkProperties(
 
   return renderToStaticMarkup(
     React.createElement(LinkProperties, {
+      componentId: 'component_1',
       data: link,
       robot,
       mode,
@@ -283,6 +289,7 @@ test('tab buttons and rotation mode controls stay shrinkable for narrow property
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -350,6 +357,7 @@ test('visual tab renders geometry controls with an embedded material section', a
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -425,6 +433,7 @@ test('visual tab shows authored material summaries inside the embedded material 
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -474,6 +483,7 @@ test('visual geometry dimension labels stay shrinkable inside narrow inline rows
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -518,6 +528,7 @@ test('physics tab keeps diagonal inertia inline and principal axes in a matrix l
       useUIStore.getState().setDetailLinkTab('physics');
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -619,6 +630,7 @@ test('physics tab reuses collision-style rotation shortcuts for inertial origin'
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -670,14 +682,17 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
     const robot = React.useMemo(() => createRobot(link), [link]);
 
     return React.createElement(LinkProperties, {
+      componentId: 'component_1',
       data: link,
       robot,
       mode: 'editor',
       selection: robot.selection,
       onUpdate: (_type, _id, nextData) => {
-        const nextLink = nextData as UrdfLink;
-        updates.push(nextLink);
-        setLink(nextLink);
+        setLink((currentLink) => {
+          const nextLink = mergeTestLinkUpdate(currentLink, nextData);
+          updates.push(nextLink);
+          return nextLink;
+        });
       },
       motorLibrary: {},
       assets: {},
@@ -736,7 +751,7 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
     assert.equal(firstUpdate.inertial?.inertia.izz, 2);
     assert.equal(useUIStore.getState().massInertiaChangeBehavior, 'reestimate');
     assert.match(
-      container.textContent ?? '',
+      dom.window.document.body.textContent ?? '',
       /ixx=2(?:\.0+)?/,
       'the floating notice should summarize the updated inertia tensor',
     );
@@ -797,6 +812,7 @@ test('collision tab lists every collision geometry for the selected link', async
     await act(async () => {
       root.render(
         React.createElement(LinkProperties, {
+          componentId: 'component_1',
           data: link,
           robot,
           mode: 'editor',
@@ -899,12 +915,13 @@ test('collision tab supports renaming collision bodies and shows custom names in
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
         selection,
         onUpdate: (_type, _id, nextData) => {
-          setLink(nextData as UrdfLink);
+          setLink((currentLink) => mergeTestLinkUpdate(currentLink, nextData));
         },
         onSelect: () => {},
         onSelectGeometry: (linkId, subType, objectIndex = 0) => {
@@ -984,12 +1001,13 @@ test('collision list supports right-click rename for collision entries', async (
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
         selection,
         onUpdate: (_type, _id, nextData) => {
-          setLink(nextData as UrdfLink);
+          setLink((currentLink) => mergeTestLinkUpdate(currentLink, nextData));
         },
         onSelect: () => {},
         onSelectGeometry: (linkId, subType, objectIndex = 0) => {
@@ -1089,6 +1107,7 @@ test('collision list selection switches the editor to the clicked collision body
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
@@ -1170,12 +1189,13 @@ test('collision list visibility button toggles the clicked collision body', asyn
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
         selection,
         onUpdate: (_type, _id, nextData) => {
-          setLink(nextData as UrdfLink);
+          setLink((currentLink) => mergeTestLinkUpdate(currentLink, nextData));
         },
         onSelect: () => {},
         onSelectGeometry: (linkId, subType, objectIndex = 0, suppressPulse, suppressAutoReveal) => {
@@ -1250,12 +1270,13 @@ test('collision tab add button appends a new collision body and selects it when 
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
         selection,
         onUpdate: (_type, _id, nextData) => {
-          setLink(nextData as UrdfLink);
+          setLink((currentLink) => mergeTestLinkUpdate(currentLink, nextData));
         },
         onSelect: () => {},
         onSelectGeometry: (linkId, subType, objectIndex = 0) => {
@@ -1338,12 +1359,13 @@ test('collision tab delete button removes the active collision body and keeps th
       );
 
       return React.createElement(LinkProperties, {
+        componentId: 'component_1',
         data: link,
         robot,
         mode: 'editor',
         selection,
         onUpdate: (_type, _id, nextData) => {
-          setLink(nextData as UrdfLink);
+          setLink((currentLink) => mergeTestLinkUpdate(currentLink, nextData));
         },
         onSelect: () => {},
         onSelectGeometry: (linkId, subType, objectIndex = 0) => {

@@ -7,7 +7,9 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
-import { useAssetsStore, useCollisionTransformStore, useSelectionStore } from '@/store';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useCollisionTransformStore } from '@/store/collisionTransformStore';
+import { useSelectionStore } from '@/store/selectionStore';
 import {
   canEditGeometryBaseTexture,
   getVisualGeometryByObjectIndex,
@@ -59,6 +61,7 @@ import {
 } from './geometryEditorUtils';
 
 export const GeometryEditor: React.FC<GeometryEditorProps> = ({
+  componentId,
   data,
   robot,
   category,
@@ -611,7 +614,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
           meshPath: undefined,
         },
       });
-      setSelection({ type: 'link', id: data.id });
+      setSelection({ entity: { type: 'link', componentId, entityId: data.id } });
       return;
     }
 
@@ -625,13 +628,12 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
 
     onUpdate(nextLink);
     if (nextObjectIndex === null) {
-      setSelection({ type: 'link', id: data.id });
+      setSelection({ entity: { type: 'link', componentId, entityId: data.id } });
       return;
     }
 
     setSelection({
-      type: 'link',
-      id: data.id,
+      entity: { type: 'link', componentId, entityId: data.id },
       subType: 'collision',
       objectIndex: nextObjectIndex,
     });

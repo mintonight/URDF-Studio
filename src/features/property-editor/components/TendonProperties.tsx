@@ -1,7 +1,10 @@
 import React from 'react';
-import type { RobotMjcfInspectionTendonSummary } from '@/types';
+import type {
+  RobotMjcfInspectionTendonSummary,
+  RobotMjcfTendonVisualizationUpdate,
+} from '@/types';
 import { formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
-import type { Language } from '@/store';
+import type { Language } from '@/store/uiStore';
 import { translations } from '@/shared/i18n';
 import {
   PROPERTY_EDITOR_HELPER_TEXT_CLASS,
@@ -15,7 +18,7 @@ import {
 interface TendonPropertiesProps {
   data: RobotMjcfInspectionTendonSummary;
   lang: Language;
-  onUpdate?: (nextData: RobotMjcfInspectionTendonSummary) => void;
+  onUpdate?: (patch: RobotMjcfTendonVisualizationUpdate) => void;
 }
 
 interface TendonLabels {
@@ -228,13 +231,10 @@ export const TendonProperties: React.FC<TendonPropertiesProps> = ({ data, lang, 
   const rgba = normalizeRgba(data.rgba);
   const colorHex = rgbaToHex(rgba);
   const updateTendon = React.useCallback(
-    (updates: Partial<RobotMjcfInspectionTendonSummary>) => {
-      onUpdate?.({
-        ...data,
-        ...updates,
-      });
+    (updates: RobotMjcfTendonVisualizationUpdate) => {
+      onUpdate?.(updates);
     },
-    [data, onUpdate],
+    [onUpdate],
   );
   const updateRgbaChannel = React.useCallback(
     (index: 0 | 1 | 2 | 3, value: number) => {

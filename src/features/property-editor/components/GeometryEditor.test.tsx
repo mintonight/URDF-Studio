@@ -8,7 +8,9 @@ import { JSDOM } from 'jsdom';
 import type { RobotState, UrdfLink } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
-import { useCollisionTransformStore, useSelectionStore, useUIStore } from '@/store';
+import { useCollisionTransformStore } from '@/store/collisionTransformStore';
+import { useSelectionStore } from '@/store/selectionStore';
+import { useUIStore } from '@/store/uiStore';
 import { GeometryEditor } from './GeometryEditor.tsx';
 import { __resetMeshAnalysisWorkerBridgeForTests } from '../utils/meshAnalysisWorkerBridge.ts';
 
@@ -137,11 +139,11 @@ function resetGeometryEditorTestState() {
   __resetMeshAnalysisWorkerBridgeForTests();
   useCollisionTransformStore.setState({ pendingCollisionTransform: null });
   useSelectionStore.setState({
-    selection: { type: null, id: null },
-    hoveredSelection: { type: null, id: null },
-    deferredHoveredSelection: { type: null, id: null },
+    selection: null,
+    hoveredSelection: null,
+    deferredHoveredSelection: null,
     hoverFrozen: false,
-    attentionSelection: { type: null, id: null },
+    attentionSelection: null,
     focusTarget: null,
     interactionGuard: null,
   });
@@ -459,6 +461,7 @@ async function renderGeometryEditor(
   await act(async () => {
     root.render(
       React.createElement(GeometryEditor, {
+        componentId: 'test-component',
         data: link,
         robot,
         category,

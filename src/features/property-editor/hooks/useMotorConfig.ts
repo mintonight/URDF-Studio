@@ -10,7 +10,7 @@ interface JointHardware {
   motorType?: string;
   armature?: number;
   motorId?: string;
-  motorDirection?: number;
+    motorDirection?: 1 | -1;
   hardwareInterface?: 'effort' | 'position' | 'velocity';
 }
 
@@ -67,7 +67,7 @@ export function useMotorConfig({
   motorLibrary: Record<string, MotorSpec[]>;
   data: JointDataForMotor | null;
   selectionId: string | null;
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onUpdate: (type: 'link' | 'joint', id: string, data: JointDataForMotor) => void;
 }) {
   const [motorBrand, setMotorBrand] = useState<string>('');
   const [displayMotorSource, setDisplayMotorSource] = useState<MotorSource>('None');

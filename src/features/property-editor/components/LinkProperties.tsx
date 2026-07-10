@@ -15,9 +15,17 @@ import type {
   MotorSpec,
   UrdfLink,
 } from '@/types';
+import type {
+  WorkspaceJointPropertyPatch,
+  WorkspaceLinkPropertyPatch,
+} from '@/store/workspace/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
-import { useUIStore, type Language, type MassInertiaChangeBehavior } from '@/store';
+import {
+  useUIStore,
+  type Language,
+  type MassInertiaChangeBehavior,
+} from '@/store/uiStore';
 import { MAX_PROPERTY_DECIMALS, formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
 import {
   appendCollisionBody,
@@ -239,11 +247,16 @@ const getGeometryTypeLabel = (type: GeometryType, t: (typeof translations)['en']
                     : t.none;
 
 interface LinkPropertiesProps {
+  componentId: string;
   data: UrdfLink;
   robot: RobotState;
   mode: AppMode;
   selection: RobotState['selection'];
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onUpdate: (
+    type: 'link' | 'joint',
+    id: string,
+    data: WorkspaceLinkPropertyPatch | WorkspaceJointPropertyPatch,
+  ) => void;
   onSelect?: (
     type: Exclude<InteractionSelection['type'], null>,
     id: string,
@@ -272,6 +285,7 @@ interface CollisionListContextMenuState {
 }
 
 export const LinkProperties: React.FC<LinkPropertiesProps> = ({
+  componentId,
   data,
   robot,
   selection,
@@ -348,9 +362,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     nextDiagonalInertia[index] = value;
 
     onUpdate('link', selection.id!, {
-      ...data,
       inertial: {
-        ...inertial,
         inertia: composeInertiaTensorFromDerivedValues(nextDiagonalInertia, principalAxes),
       },
     });
@@ -445,13 +457,11 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       options?: { remember?: boolean },
     ) => {
       const nextInertial = {
-        ...(linkSnapshot.inertial ?? DEFAULT_INERTIAL),
         mass: nextMass,
         ...(behavior === 'reestimate' && scaledEstimate ? { inertia: scaledEstimate.inertia } : {}),
       };
 
       onUpdate('link', linkSnapshot.id, {
-        ...linkSnapshot,
         inertial: nextInertial,
       });
 
@@ -519,7 +529,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       <input
         type="text"
         value={data.name}
-        onChange={(e) => onUpdate('link', selection.id!, { ...data, name: e.target.value })}
+        onChange={(e) => onUpdate('link', selection.id!, { name: e.target.value })}
         className={PROPERTY_EDITOR_INPUT_CLASS}
       />
     </InlineInputGroup>
@@ -594,24 +604,18 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
             rotationQuickStepDegrees={90}
             onPositionChange={(xyz) =>
               onUpdate('link', selection.id!, {
-                ...data,
                 inertial: {
-                  ...inertial,
                   origin: {
-                    xyz: xyz as { x: number; y: number; z: number },
-                    rpy: inertial.origin?.rpy || { r: 0, p: 0, y: 0 },
+                    xyz: toXYZ(xyz),
                   },
                 },
               })
             }
             onRotationChange={(rpy) =>
               onUpdate('link', selection.id!, {
-                ...data,
                 inertial: {
-                  ...inertial,
                   origin: {
-                    xyz: inertial.origin?.xyz || { x: 0, y: 0, z: 0 },
-                    rpy,
+                    rpy: toRPY(rpy),
                   },
                 },
               })
@@ -631,8 +635,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
                 value={inertial.inertia[field]}
                 onChange={(v) =>
                   onUpdate('link', selection.id!, {
-                    ...data,
-                    inertial: { ...inertial, inertia: { ...inertial.inertia, [field]: v } },
+                    inertial: { inertia: { [field]: v } },
                   })
                 }
               />
@@ -718,6 +721,32 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     },
     [data.id, onSelect, onSelectGeometry],
   );
+  const buildVisualPatch = React.useCallback(
+    (nextLink: UrdfLink): Partial<UrdfLink> => ({
+      visual: nextLink.visual,
+      visualBodies: nextLink.visualBodies,
+    }),
+    [],
+  );
+  const buildCollisionPatch = React.useCallback(
+    (nextLink: UrdfLink): Partial<UrdfLink> => ({
+      collision: nextLink.collision,
+      collisionBodies: nextLink.collisionBodies,
+    }),
+    [],
+  );
+  const handleVisualGeometryUpdate = React.useCallback(
+    (nextLink: UrdfLink) => {
+      onUpdate('link', selection.id!, buildVisualPatch(nextLink));
+    },
+    [buildVisualPatch, onUpdate, selection.id],
+  );
+  const handleCollisionGeometryUpdate = React.useCallback(
+    (nextLink: UrdfLink) => {
+      onUpdate('link', selection.id!, buildCollisionPatch(nextLink));
+    },
+    [buildCollisionPatch, onUpdate, selection.id],
+  );
 
   const handleToggleCollisionGeometryVisibility = React.useCallback(
     (objectIndex: number, isVisible: boolean) => {
@@ -725,7 +754,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
         visible: !isVisible,
       });
 
-      onUpdate('link', data.id, nextLink);
+      onUpdate('link', data.id, buildCollisionPatch(nextLink));
 
       if (onSelectGeometry) {
         // Keep the editor focused on the toggled collision body without forcing
@@ -736,7 +765,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
 
       onSelect?.('link', data.id, 'collision');
     },
-    [data, onSelect, onSelectGeometry, onUpdate],
+    [buildCollisionPatch, data, onSelect, onSelectGeometry, onUpdate],
   );
 
   const beginCollisionListRenaming = React.useCallback(
@@ -783,12 +812,13 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       const nextLink = updateCollisionGeometryByObjectIndex(data, collisionListEditingObjectIndex, {
         name: normalizedName,
       });
-      onUpdate('link', data.id, nextLink);
+      onUpdate('link', data.id, buildCollisionPatch(nextLink));
     }
 
     cancelCollisionListRenaming();
   }, [
     cancelCollisionListRenaming,
+    buildCollisionPatch,
     collisionGeometryEntries,
     collisionListEditingDraft,
     collisionListEditingObjectIndex,
@@ -825,9 +855,9 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     const nextEntries = getCollisionGeometryEntries(nextLink);
     const nextObjectIndex = Math.max(0, nextEntries.length - 1);
 
-    onUpdate('link', data.id, nextLink);
+    onUpdate('link', data.id, buildCollisionPatch(nextLink));
     onSelectGeometry?.(data.id, 'collision', nextObjectIndex);
-  }, [data, onAddCollisionBody, onSelectGeometry, onUpdate]);
+  }, [buildCollisionPatch, data, onAddCollisionBody, onSelectGeometry, onUpdate]);
 
   const handleDeleteCollisionBodyClick = React.useCallback(() => {
     if (collisionGeometryEntries.length === 0) {
@@ -844,7 +874,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       return;
     }
 
-    onUpdate('link', data.id, nextLink);
+    onUpdate('link', data.id, buildCollisionPatch(nextLink));
 
     if (nextObjectIndex === null) {
       onSelect?.('link', data.id);
@@ -859,6 +889,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     onSelect?.('link', data.id, 'collision');
   }, [
     collisionGeometryEntries.length,
+    buildCollisionPatch,
     data,
     onSelect,
     onSelectGeometry,
@@ -1049,17 +1080,18 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
         <DetailGeometryTabPanel activeTab={linkTab} tab="visual">
           {linkTab === 'visual' ? (
             <GeometryEditor
+              componentId={componentId}
               data={data}
               robot={robot}
               category="visual"
-              onUpdate={(d) => onUpdate('link', selection.id!, d)}
+              onUpdate={handleVisualGeometryUpdate}
               assets={assets}
               onUploadAsset={onUploadAsset}
               sourceFilePath={sourceFilePath}
               t={t}
               lang={lang}
               isTabbed={true}
-              onLinkNameChange={(name) => onUpdate('link', selection.id!, { ...data, name })}
+              onLinkNameChange={(name) => onUpdate('link', selection.id!, { name })}
             />
           ) : null}
         </DetailGeometryTabPanel>
@@ -1069,10 +1101,11 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
             <div className="space-y-2">
               {collisionBodiesSection}
               <GeometryEditor
+                componentId={componentId}
                 data={data}
                 robot={robot}
                 category="collision"
-                onUpdate={(d) => onUpdate('link', selection.id!, d)}
+                onUpdate={handleCollisionGeometryUpdate}
                 assets={assets}
                 onUploadAsset={onUploadAsset}
                 sourceFilePath={sourceFilePath}

@@ -1,4 +1,4 @@
-import type { Language } from '@/store';
+import type { Language } from '@/store/uiStore';
 import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
 import type { translations } from '@/shared/i18n';
@@ -8,6 +8,7 @@ export type GeometryEditorCategory = 'visual' | 'collision';
 export type GeometryUpdate = Partial<UrdfVisual>;
 
 export interface GeometryEditorProps {
+  componentId: string;
   data: UrdfLink;
   robot: RobotState;
   category: GeometryEditorCategory;

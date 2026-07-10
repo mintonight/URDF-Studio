@@ -7,7 +7,7 @@ import {
   getMjcfJointDisplayName,
   getMjcfLinkDisplayName,
 } from '@/shared/utils/robot/mjcfDisplayNames';
-import type { Language } from '@/store';
+import type { Language } from '@/store/uiStore';
 import { JointProperties } from './JointProperties';
 
 type RelatedJointEntry = { joint: UrdfJoint };

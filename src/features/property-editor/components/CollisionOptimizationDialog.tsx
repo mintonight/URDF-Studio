@@ -13,7 +13,7 @@ import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS, CompactSwitch } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
-import { useManagedWindowLayer } from '@/store';
+import { useManagedWindowLayer } from '@/store/useManagedWindowLayer';
 import { GeometryType, type InteractionSelection } from '@/types';
 import type {
   CollisionOptimizationAnalysis,

@@ -12,7 +12,7 @@ import {
   getJointValueUnitLabel,
   getJointVelocityUnitLabel,
 } from '@/shared/utils/jointUnits';
-import { useUIStore } from '@/store';
+import { useUIStore } from '@/store/uiStore';
 import { JointProperties } from './JointProperties.tsx';
 
 function escapeForRegExp(value: string) {

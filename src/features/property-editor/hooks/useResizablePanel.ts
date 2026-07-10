@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useUIStore } from '@/store';
+import { useUIStore } from '@/store/uiStore';
 import { usePointerResize } from '@/shared/hooks/usePointerResize';
 
 const PROPERTY_EDITOR_MIN_WIDTH = 220;

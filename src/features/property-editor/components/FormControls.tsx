@@ -105,10 +105,12 @@ export const InlineInputGroup = ({
 export const ReadonlyValueField = ({
   children,
   className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) => <div className={`${PROPERTY_EDITOR_READONLY_VALUE_CLASS} ${className}`}>{children}</div>;
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={`${PROPERTY_EDITOR_READONLY_VALUE_CLASS} ${className}`} {...props}>
+    {children}
+  </div>
+);
 
 interface PropertyEditorSelectProps extends Omit<
   React.ComponentProps<typeof PanelSelect>,
@@ -129,17 +131,23 @@ export const ReadonlyStatField = ({
   label,
   value,
   align = 'start',
+  valueTestId,
 }: {
   label: string;
   value: string;
   align?: 'start' | 'center';
+  valueTestId?: string;
 }) => (
-  <div className="grid gap-0.5">
+  <div className="grid min-w-0 gap-0.5">
     <div className={`${PROPERTY_EDITOR_SUBLABEL_CLASS} ${align === 'center' ? 'text-center' : ''}`}>
       {label}
     </div>
-    <ReadonlyValueField className={align === 'center' ? 'justify-center text-center' : ''}>
-      {value}
+    <ReadonlyValueField
+      className={`min-w-0 w-full overflow-hidden ${align === 'center' ? 'justify-center text-center' : ''}`}
+      data-testid={valueTestId}
+      title={value}
+    >
+      <span className="block min-w-0 truncate">{value}</span>
     </ReadonlyValueField>
   </div>
 );

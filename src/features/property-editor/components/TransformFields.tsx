@@ -1,6 +1,6 @@
 import React from 'react';
 import { translations } from '@/shared/i18n';
-import type { Language } from '@/store';
+import type { Language } from '@/store/uiStore';
 import type { Vec3Value } from './FormControls';
 import {
   PROPERTY_EDITOR_SUBLABEL_CLASS,

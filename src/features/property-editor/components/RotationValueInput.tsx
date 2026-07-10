@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { SegmentedControl } from '@/shared/components/ui';
-import type { Language } from '@/store';
-import { useUIStore } from '@/store';
+import { useUIStore, type Language } from '@/store/uiStore';
 import { translations } from '@/shared/i18n';
 import { MAX_PROPERTY_DECIMALS } from '@/core/utils/numberPrecision';
 import {

@@ -59,12 +59,21 @@ test('collectCollisionTargets assigns stable ids, component metadata, body index
     kind: 'assembly' as const,
     assembly: {
       name: 'target assembly',
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { r: 0, p: 0, y: 0 },
+      },
       components: {
         arm: {
           id: 'arm',
           name: 'Arm Component',
           robot,
           sourceFile: 'arm.urdf',
+          transform: {
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { r: 0, p: 0, y: 0 },
+          },
+          visible: true,
         },
       },
       bridges: {},
