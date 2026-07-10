@@ -61,21 +61,33 @@ async function main() {
 
     // ── Test 1: Export as URDF ──
     const urdfExport = await page.evaluate(() => {
-      const s = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.()?.store;
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const s = api?.getRegressionSnapshot?.()?.store;
       if (!s) return { error: 'no store' };
       const links = Object.values(s.links ?? {});
       const joints = Object.values(s.joints ?? {});
+      const projection = api?.__workspaceStore__?.getState?.()?.getSceneProjection?.();
+      const bridgeJointIds = projection
+        ? [...projection.globalToEntityRef.entries()]
+            .filter(([, ref]) => ref?.type === 'bridge')
+            .map(([globalId]) => globalId)
+        : [];
       let xml = `<?xml version="1.0"?>\n<robot name="${s.name ?? 'robot'}">\n`;
       for (const l of links) xml += `  <link name="${l?.name ?? '?'}"/>\n`;
       for (const j of joints) xml += `  <joint name="${j?.name ?? '?'}" type="${j?.type ?? 'fixed'}"/>\n`;
       xml += `</robot>`;
-      return { xml, linkCount: links.length, jointCount: joints.length };
+      return { xml, linkCount: links.length, jointCount: joints.length, bridgeJointIds };
     });
 
     assert(suite, !!urdfExport.xml, 'URDF export generated');
     assert(suite, urdfExport.xml.includes('<robot'), 'URDF has <robot> root');
     assertGreaterThan(suite, urdfExport.linkCount, topoA.linkCount, 'export has more links than single robot');
-    assert(suite, urdfExport.xml.includes('asm_bridge'), 'bridge joint in export');
+    assertEqual(suite, urdfExport.bridgeJointIds.length, 1, 'one projected bridge joint');
+    assert(
+      suite,
+      urdfExport.bridgeJointIds.every((id) => urdfExport.xml.includes(`name="${id}"`)),
+      'projected bridge joint is present in export',
+    );
 
     // ── Test 2: Export as MJCF ──
     const mjcfExport = await page.evaluate(() => {

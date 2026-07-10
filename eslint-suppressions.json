@@ -73,9 +73,6 @@
     }
   },
   "src/app/components/UnifiedViewer.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "react-hooks/exhaustive-deps": {
       "count": 5
     }
@@ -115,11 +112,6 @@
       "count": 1
     }
   },
-  "src/app/hooks/urdfSourceExportUtils.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "src/app/hooks/useFileExport.sdf.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -135,11 +127,6 @@
       "count": 2
     }
   },
-  "src/app/hooks/usePendingHistoryCoordinator.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/app/hooks/usePluginLaunch.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -148,26 +135,6 @@
   "src/app/hooks/usePreparedUsdViewerAssets.ts": {
     "react-hooks/exhaustive-deps": {
       "count": 1
-    }
-  },
-  "src/app/hooks/useWorkspaceModeTransitions.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
-  "src/app/hooks/useWorkspaceMutations.ts": {
-    "react-hooks/exhaustive-deps": {
-      "count": 4
-    }
-  },
-  "src/app/hooks/workspace-source-sync/useSourceEditBaseline.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/app/hooks/workspaceSourceSyncUtils.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
     }
   },
   "src/app/hooks/workspaceSourceSyncUtils.ts": {
@@ -399,11 +366,6 @@
       "count": 1
     }
   },
-  "src/features/file-io/utils/projectImport.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/features/file-io/utils/usdAssetCollection.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -457,11 +419,6 @@
       "count": 1
     }
   },
-  "src/features/property-editor/components/PropertyEditor.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/features/property-editor/components/RotationValueInput.tsx": {
     "react-hooks/exhaustive-deps": {
       "count": 3
@@ -477,19 +434,9 @@
       "count": 1
     }
   },
-  "src/features/robot-tree/components/TreeEditor.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
-  "src/features/robot-tree/components/VirtualTreeViewDemo.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
   "src/features/robot-tree/components/tree-editor/TreeEditorJointSection.tsx": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 4
+      "count": 2
     }
   },
   "src/features/robot-tree/components/tree-editor/useTreeEditorLayout.ts": {
@@ -503,11 +450,6 @@
     },
     "react-hooks/exhaustive-deps": {
       "count": 3
-    }
-  },
-  "src/features/urdf-viewer/components/HoverSelectionSync.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
     }
   },
   "src/features/urdf-viewer/components/JointInteraction.tsx": {
@@ -942,11 +884,6 @@
   "src/shared/utils/three/dispose.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
-    }
-  },
-  "src/store/assemblyStore.import.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
     }
   },
   "vite.config.ts": {

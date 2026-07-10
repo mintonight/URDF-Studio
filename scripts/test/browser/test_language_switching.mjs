@@ -3,7 +3,8 @@
 /**
  * Language Switching browser regression test.
  *
- * Covers: detecting current language, switching language, verifying UI changes.
+ * Covers: detecting current language, switching language, verifying UI changes,
+ *         and keeping canonical Component properties fully localized.
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
@@ -58,7 +59,35 @@ async function main() {
     assert(suite, afterSwitch.storeLang === switchResult.to, 'store language updated');
     assert(suite, afterSwitch.dataLang === switchResult.to, 'document data-lang updated');
 
-    // ── 4. Switch back ──
+    // ── 4. Component properties stay fully localized ──
+    const componentSelection = await page.evaluate(() => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const componentId = Object.keys(
+        api?.__workspaceStore__?.getState?.()?.workspace?.components ?? {},
+      )[0];
+      if (!componentId) return { ok: false, componentId: null };
+
+      api?.__uiStore__?.getState?.()?.setLang?.('zh');
+      api?.__selectionStore__?.getState?.()?.setSelection?.({
+        entity: { type: 'component', componentId },
+      });
+      return { ok: true, componentId };
+    });
+    assert(suite, componentSelection.ok, 'component selected for localization check');
+    await page.waitForSelector('[data-testid="component-properties"]');
+    await delay(200);
+
+    const componentPropertyText = await page.evaluate(() =>
+      document.querySelector('[data-testid="property-editor-sidebar-content"]')?.innerText ?? '');
+    assert(suite, componentPropertyText.includes('组件'), 'component kind localized to Chinese');
+    assert(suite, componentPropertyText.includes('变换'), 'component transform localized to Chinese');
+    assert(suite, componentPropertyText.includes('位置'), 'component position localized to Chinese');
+    assert(suite, componentPropertyText.includes('旋转'), 'component rotation localized to Chinese');
+    assert(suite, !/\bcomponent\b/i.test(componentPropertyText), 'raw component kind is not exposed');
+    assert(suite, !/position-|rotation-/i.test(componentPropertyText),
+      'raw transform field identifiers are not exposed');
+
+    // ── 5. Switch back ──
     await page.evaluate((from) => {
       const store = window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.();
       store?.setLang?.(from);

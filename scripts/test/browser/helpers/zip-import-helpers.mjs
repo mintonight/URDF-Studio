@@ -5,7 +5,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 
 import {
-  ensureDir, collectFiles, triggerRobotLoad,
+  ensureDir, collectFiles, retryPageAction, triggerRobotLoad,
 } from '../../helpers/browser-helpers.mjs';
 
 function normalizeZipPath(filePath) {
@@ -58,12 +58,19 @@ export async function resolveUploadedRobotFileName(page, expectedName, timeoutMs
     };
   };
 
-  await page.waitForFunction(
-    (fn, resolverSource) => {
-      const resolver = new Function(`return (${resolverSource})`)();
-      return Boolean(resolver(fn).name);
-    },
-    { timeout: timeoutMs }, expectedName, resolveSelection.toString(),
+  await retryPageAction(
+    () =>
+      page.waitForFunction(
+        (fn, resolverSource) => {
+          const resolver = new Function(`return (${resolverSource})`)();
+          return Boolean(resolver(fn).name);
+        },
+        { timeout: Math.min(timeoutMs, 5_000) },
+        expectedName,
+        resolveSelection.toString(),
+      ),
+    timeoutMs,
+    `uploaded robot file "${expectedName}" registration`,
   );
 
   const result = await page.evaluate(

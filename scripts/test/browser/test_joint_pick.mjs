@@ -93,13 +93,26 @@ async function seedJointPickFixtures(page) {
   // so the evaluate never resolves and Puppeteer times out
   // (Runtime.callFunctionOn timed out). Trigger it without awaiting, then poll
   // for the loaded robot name instead.
-  await page.evaluate((fileName) => {
-    void window.__URDF_STUDIO_DEBUG__.loadRobotByName(fileName);
-  }, CYLINDER_FILE);
+  await loadFixtureModel(page, CYLINDER_FILE);
+}
+
+async function loadFixtureModel(page, fileName) {
+  await page.evaluate((nextFileName) => {
+    void window.__URDF_STUDIO_DEBUG__.loadRobotByName(nextFileName);
+  }, fileName);
   await page.waitForFunction(
-    () => Boolean(window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.name),
+    (expectedFileName) => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const selectedFile = api?.__assetsStore__?.getState?.()?.selectedFile ?? null;
+      const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+      return String(selectedFile?.name ?? '').endsWith(expectedFileName) &&
+        Object.values(workspace?.components ?? {}).some((component) =>
+          String(component?.sourceFile ?? '').endsWith(expectedFileName));
+    },
     { timeout: 60_000 },
+    fileName,
   );
+  await waitForReady(page);
 }
 
 async function jointPickSession(page) {
@@ -161,10 +174,11 @@ async function clearViewerSelection(page) {
 
 async function clickByTitle(page, titles) {
   return page.evaluate((wanted) => {
-    for (const title of wanted) {
-      const button = document.querySelector(`button[title="${title}"]`);
-      if (button instanceof HTMLElement) { button.click(); return true; }
-    }
+    const normalizedWanted = new Set([...wanted, 'create-bridge'].map((value) => value.toLowerCase()));
+    const button = [...document.querySelectorAll('button')].find((candidate) =>
+      [candidate.title, candidate.getAttribute('aria-label'), candidate.textContent]
+        .some((value) => normalizedWanted.has(String(value ?? '').trim().toLowerCase())));
+    if (button instanceof HTMLElement) { button.click(); return true; }
     return false;
   }, titles);
 }
@@ -188,26 +202,35 @@ async function waitForBridgeModal(page, timeoutMs = 8000) {
   }
 }
 
-// Attribute a link target to a component by LONGEST component-id prefix, so a
-// component id that is a prefix of another (comp_a1 vs comp_a1_1) does not
-// swallow the other component's links.
-function ownsTarget(targetId, componentId, allIds) {
-  if (typeof targetId !== 'string' || !targetId.startsWith(`${componentId}_`)) return false;
-  return !allIds.some(
-    (other) =>
-      other !== componentId && other.length > componentId.length && targetId.startsWith(`${other}_`),
-  );
-}
-
-async function targetsForComponent(page, componentId, allIds, modalSafeMaxX) {
+async function targetsForComponent(page, componentId, _allIds, modalSafeMaxX) {
   const targets = await getProjectedInteractionTargets(page, { type: 'link' });
-  return targets.filter(
-    (target) => ownsTarget(target.id, componentId, allIds) && Number(target.clientX) < modalSafeMaxX,
+  return page.evaluate(
+    ({ nextTargets, expectedComponentId, maxX }) => {
+      const projection = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__
+        ?.getState?.()
+        ?.getSceneProjection?.();
+      return nextTargets.filter((target) => {
+        const ref = projection?.globalToEntityRef?.get(target.id) ?? null;
+        return ref?.type === 'link' && ref.componentId === expectedComponentId &&
+          Number(target.clientX) < maxX;
+      });
+    },
+    { nextTargets: targets, expectedComponentId: componentId, maxX: modalSafeMaxX },
   );
 }
 
 async function targetById(page, linkId) {
   return (await getProjectedInteractionTargets(page, { type: 'link' })).find((t) => t.id === linkId) ?? null;
+}
+
+async function focusComponent(page, componentId) {
+  await page.evaluate((nextComponentId) => {
+    window.__URDF_STUDIO_DEBUG__?.__selectionStore__?.getState?.()?.focusOn?.({
+      type: 'component',
+      componentId: nextComponentId,
+    });
+  }, componentId);
+  await delay(700);
 }
 
 // Wait until a component has projected at least `minCount` pickable link targets,
@@ -234,7 +257,8 @@ async function main() {
   try {
     // ── Two-component assembly with controlled primitive snap surfaces ──
     await seedJointPickFixtures(page);
-    await waitForReady(page);
+    await loadFixtureModel(page, BOX_FILE);
+    await loadFixtureModel(page, CYLINDER_FILE);
 
     await store.initAssembly(page, 'joint_pick_asm'); await delay(300);
     const cylinderFile = await findAvailableFile(page, CYLINDER_FILE);
@@ -266,20 +290,32 @@ async function main() {
     assert(suite, initialJointPick?.active === true, 'snap hover session active immediately');
 
     // ── Pick each component directly; the snap click also fills relation sides ──
-    // Wait for both components to finish projecting so target sampling is stable.
+    // Focus each component before sampling so the projected target point stays
+    // inside the canvas after switching from a single model to an assembly.
+    await focusComponent(page, compA.id);
     await waitForComponentTargets(page, compA.id, allIds, modalSafeMaxX, 1);
-    await waitForComponentTargets(page, compB.id, allIds, modalSafeMaxX, 1);
     const parentTargets = await targetsForComponent(page, compA.id, allIds, modalSafeMaxX);
-    const childTargets = await targetsForComponent(page, compB.id, allIds, modalSafeMaxX);
     assertGreaterThan(suite, parentTargets.length, 0, 'parent link targets projected');
-    assertGreaterThan(suite, childTargets.length, 0, 'child link targets projected');
     const parentTarget = parentTargets[0];
-    const childTarget = childTargets[0];
 
     await clickCanvasTarget(page, parentTarget); await delay(700);
+    const parentClickProbe = {
+      selection: await selectionOf(page),
+      session: await jointPickSession(page),
+      target: parentTarget,
+    };
+    if (!parentClickProbe.session?.parentSnap) {
+      console.error('Parent click did not commit a snap:', JSON.stringify(parentClickProbe));
+    }
     const parentSnap = await waitForSnapKind(page, 'parent', 'circleCenter');
     assert(suite, Boolean(parentSnap), 'parent snap committed by first canvas click');
     assertEqual(suite, parentSnap.kind, 'circleCenter', 'cylinder cap pick snaps to circle center');
+
+    await focusComponent(page, compB.id);
+    await waitForComponentTargets(page, compB.id, allIds, modalSafeMaxX, 1);
+    const childTargets = await targetsForComponent(page, compB.id, allIds, modalSafeMaxX);
+    assertGreaterThan(suite, childTargets.length, 0, 'child link targets projected');
+    const childTarget = childTargets[0];
     await clickCanvasTarget(page, childTarget); await delay(800);
     await page.waitForFunction(
       () => Boolean(window.__URDF_STUDIO_DEBUG__?.__jointPickSessionStore__?.getState?.()?.childSnap),

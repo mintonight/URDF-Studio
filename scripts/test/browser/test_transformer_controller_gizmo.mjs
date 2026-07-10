@@ -219,24 +219,32 @@ async function getBestEditableCollisionTarget(page) {
   });
 
   const resolved = await page.evaluate((nextTargets) => {
-    const links = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.links ?? {};
-    const resolveLinkKey = (identity) => {
+    const projection = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__
+      ?.getState?.()
+      ?.getSceneProjection?.();
+    const resolveLink = (identity) => {
       if (!identity) return null;
-      if (Object.prototype.hasOwnProperty.call(links, identity)) return identity;
-      const match = Object.entries(links)
-        .find(([, link]) => link?.id === identity || link?.name === identity);
-      return match?.[0] ?? null;
+      let globalId = identity;
+      let ref = projection?.globalToEntityRef?.get(globalId) ?? null;
+      if (ref?.type === 'link') return { globalId, ref };
+      globalId = Object.entries(projection?.robotData?.links ?? {}).find(
+        ([id, link]) => id === identity || link?.id === identity || link?.name === identity,
+      )?.[0];
+      ref = globalId ? projection?.globalToEntityRef?.get(globalId) ?? null : null;
+      return ref?.type === 'link' ? { globalId, ref } : null;
     };
 
     for (const target of nextTargets) {
-      const resolvedLinkId =
-        resolveLinkKey(target?.linkId) ??
-        resolveLinkKey(target?.id) ??
-        resolveLinkKey(target?.sourceName);
-      if (resolvedLinkId) {
+      const resolvedLink =
+        resolveLink(target?.linkId) ??
+        resolveLink(target?.id) ??
+        resolveLink(target?.sourceName);
+      if (resolvedLink) {
         return {
           ...target,
-          id: resolvedLinkId,
+          id: resolvedLink.globalId,
+          componentId: resolvedLink.ref.componentId,
+          entityId: resolvedLink.ref.entityId,
           objectIndex: target?.objectIndex ?? 0,
         };
       }
@@ -255,32 +263,39 @@ async function getBestEditableOriginTarget(page) {
   });
 
   return page.evaluate((projectedTargets) => {
-    const state = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.() ?? null;
-    const links = state?.links ?? {};
-    const joints = state?.joints ?? {};
-    const resolveLinkId = (identity) => {
+    const state = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__?.getState?.() ?? null;
+    const projection = state?.getSceneProjection?.();
+    const resolveLink = (identity) => {
       if (!identity) return null;
-      if (links[identity]) return identity;
-      const match = Object.entries(links).find(
-        ([linkId, link]) => linkId === identity || link?.id === identity || link?.name === identity,
-      );
-      return match?.[0] ?? null;
+      let globalId = identity;
+      let ref = projection?.globalToEntityRef?.get(globalId) ?? null;
+      if (ref?.type === 'link') return { globalId, ref };
+      globalId = Object.entries(projection?.robotData?.links ?? {}).find(
+        ([id, link]) => id === identity || link?.id === identity || link?.name === identity,
+      )?.[0];
+      ref = globalId ? projection?.globalToEntityRef?.get(globalId) ?? null : null;
+      return ref?.type === 'link' ? { globalId, ref } : null;
     };
 
     for (const target of projectedTargets) {
-      const linkId = resolveLinkId(target?.id ?? target?.linkId ?? target?.sourceName);
-      if (!linkId) {
+      const link = resolveLink(target?.id ?? target?.linkId ?? target?.sourceName);
+      if (!link) {
         continue;
       }
 
-      const parentJoint = Object.entries(joints).find(([, joint]) => joint?.childLinkId === linkId);
+      const component = state?.workspace?.components?.[link.ref.componentId] ?? null;
+      const parentJoint = Object.entries(component?.robot?.joints ?? {}).find(
+        ([, joint]) => joint?.childLinkId === link.ref.entityId,
+      );
       if (!parentJoint) {
         continue;
       }
 
       return {
         jointId: parentJoint[0],
-        linkId,
+        linkId: link.globalId,
+        componentId: link.ref.componentId,
+        entityId: link.ref.entityId,
         projected: target,
       };
     }
@@ -306,21 +321,25 @@ async function waitForEditableOriginTarget(page, timeoutMs = 10000) {
   }
 
   const fallback = await evaluateWithTransientRetry(page, () => {
-    const state = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.() ?? null;
-    const links = state?.links ?? {};
-    const joints = state?.joints ?? {};
-    const rootLinkId = state?.rootLinkId ?? null;
-
-    for (const [jointId, joint] of Object.entries(joints)) {
-      const linkId = joint?.childLinkId ?? null;
-      if (!linkId || linkId === rootLinkId || !links[linkId]) {
-        continue;
+    const state = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__?.getState?.() ?? null;
+    const projection = state?.getSceneProjection?.();
+    for (const component of Object.values(state?.workspace?.components ?? {})) {
+      for (const [jointId, joint] of Object.entries(component?.robot?.joints ?? {})) {
+        const entityId = joint?.childLinkId ?? null;
+        if (!entityId || entityId === component?.robot?.rootLinkId) continue;
+        const globalEntry = [...(projection?.globalToEntityRef?.entries?.() ?? [])].find(
+          ([, ref]) => ref?.type === 'link' &&
+            ref.componentId === component.id && ref.entityId === entityId,
+        );
+        if (!globalEntry) continue;
+        return {
+          jointId,
+          linkId: globalEntry[0],
+          componentId: component.id,
+          entityId,
+          projected: null,
+        };
       }
-      return {
-        jointId,
-        linkId,
-        projected: null,
-      };
     }
 
     return null;
@@ -332,13 +351,15 @@ async function waitForEditableOriginTarget(page, timeoutMs = 10000) {
 
 async function selectCollisionTarget(page, target) {
   const result = await evaluateWithTransientRetry(page, (nextTarget) => {
-    window.__URDF_STUDIO_DEBUG__?.__assemblySelectionStore__?.getState?.()?.clearSelection?.();
     const selectionStore = window.__URDF_STUDIO_DEBUG__?.__selectionStore__?.getState?.();
     if (!selectionStore?.setSelection) return { ok: false };
     selectionStore.setInteractionGuard?.(null);
     selectionStore.setSelection({
-      type: 'link',
-      id: nextTarget.id,
+      entity: {
+        type: 'link',
+        componentId: nextTarget.componentId,
+        entityId: nextTarget.entityId,
+      },
       subType: 'collision',
       objectIndex: nextTarget.objectIndex ?? 0,
     });
@@ -352,7 +373,13 @@ async function selectCollisionTarget(page, target) {
       (expectedId) => {
         const selection =
           window.__URDF_STUDIO_DEBUG__?.__selectionStore__?.getState?.()?.selection ?? null;
-        return selection?.type === 'link' && selection?.id === expectedId;
+        const projection = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__
+          ?.getState?.()
+          ?.getSceneProjection?.();
+        return selection?.entity?.type === 'link' &&
+          projection?.globalToEntityRef?.get(expectedId)?.componentId ===
+            selection.entity.componentId &&
+          projection?.globalToEntityRef?.get(expectedId)?.entityId === selection.entity.entityId;
       },
       { timeout: 5000 },
       target.id,
@@ -363,13 +390,15 @@ async function selectCollisionTarget(page, target) {
 
 async function selectOriginTarget(page, target) {
   const result = await evaluateWithTransientRetry(page, (nextTarget) => {
-    window.__URDF_STUDIO_DEBUG__?.__assemblySelectionStore__?.getState?.()?.clearSelection?.();
     const selectionStore = window.__URDF_STUDIO_DEBUG__?.__selectionStore__?.getState?.();
     if (!selectionStore?.setSelection) return { ok: false };
     selectionStore.setInteractionGuard?.(null);
     selectionStore.setSelection({
-      type: 'link',
-      id: nextTarget.linkId,
+      entity: {
+        type: 'link',
+        componentId: nextTarget.componentId,
+        entityId: nextTarget.entityId,
+      },
       helperKind: 'origin-axes',
     });
     return {
@@ -383,8 +412,12 @@ async function selectOriginTarget(page, target) {
         const selection =
           window.__URDF_STUDIO_DEBUG__?.__selectionStore__?.getState?.()?.selection ?? null;
         return (
-          selection?.type === 'link' &&
-          selection?.id === expectedId &&
+          selection?.entity?.type === 'link' &&
+          window.__URDF_STUDIO_DEBUG__?.__workspaceStore__
+            ?.getState?.()
+            ?.getSceneProjection?.()
+            ?.globalToEntityRef?.get(expectedId)?.componentId ===
+              selection.entity.componentId &&
           selection?.helperKind === 'origin-axes'
         );
       },

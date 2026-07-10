@@ -11,10 +11,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert, assertEqual,
   importModel, waitForReady, getTopology,
+  openSourceEditor, getSourceEditorText,
   store, writeReport, printSummary,
 } from './helpers/mjcf-helpers.mjs';
 
 const MODEL = { dir: 'franka_emika_panda', file: 'panda.xml' };
+const T1_MODEL = { dir: 'booster_t1', file: 't1.xml' };
 const EPSILON = 1e-9;
 
 function closeTo(actual, expected, epsilon = EPSILON) {
@@ -46,8 +48,11 @@ async function readViewer(page) {
 
 async function readRawJoint(page, jointId) {
   return page.evaluate((id) => {
-    const state = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-    const joint = state?.joints?.[id] ?? null;
+    const state = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__?.getState?.();
+    const ref = state?.getSceneProjection?.()?.globalToEntityRef?.get(id) ?? null;
+    const joint = ref?.type === 'joint'
+      ? state?.workspace?.components?.[ref.componentId]?.robot?.joints?.[ref.entityId] ?? null
+      : null;
     return joint
       ? {
           id: joint.id,
@@ -59,15 +64,285 @@ async function readRawJoint(page, jointId) {
   }, jointId);
 }
 
+async function prepareT1PhysicsEditor(page) {
+  const deadline = Date.now() + 30_000;
+  let lastProbe = { inputCount: 0, sidebarText: '' };
+
+  while (Date.now() < deadline) {
+    lastProbe = await page.evaluate(() => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const uiStore = api?.__uiStore__;
+      const uiState = uiStore?.getState?.();
+      uiStore?.setState?.({
+        appMode: 'editor',
+        detailLinkTab: 'physics',
+        massInertiaChangeBehavior: 'preserve',
+        rotationDisplayMode: 'euler_rad',
+        sidebar: {
+          ...(uiState?.sidebar ?? {}),
+          rightCollapsed: false,
+        },
+      });
+      const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+      const component = Object.values(workspace?.components ?? {}).find((candidate) =>
+        String(candidate?.sourceFile ?? '').endsWith('t1.xml')) ?? null;
+      const selectionStore = api?.__selectionStore__?.getState?.();
+      selectionStore?.setInteractionGuard?.(null);
+      if (component?.robot?.links?.Trunk) {
+        selectionStore?.setSelection?.({
+          entity: { type: 'link', componentId: component.id, entityId: 'Trunk' },
+        });
+      }
+
+      const sidebar = document.querySelector('[data-testid="property-editor-sidebar"]');
+      const inputCount = [...document.querySelectorAll('[data-testid="property-editor-sidebar"] input')]
+        .filter((input) => {
+          const rect = input.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }).length;
+      return {
+        inputCount,
+        sidebarText: sidebar?.textContent?.slice(0, 160) ?? '',
+      };
+    });
+
+    if (lastProbe.inputCount > 10) {
+      return;
+    }
+
+    await delay(500);
+  }
+
+  throw new Error(
+    `Timed out waiting for T1 physics editor inputs ` +
+      `(last: ${lastProbe.inputCount}, text: ${JSON.stringify(lastProbe.sidebarText)}).`,
+  );
+}
+
+async function waitForT1RobotLoaded(page) {
+  const deadline = Date.now() + 60_000;
+  let last = null;
+
+  while (Date.now() < deadline) {
+    last = await page.evaluate(() => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+      const documentLoadState = api?.getDocumentLoadState?.() ?? null;
+      const component =
+        Object.values(workspace?.components ?? {}).find((candidate) =>
+          String(candidate?.sourceFile ?? '').endsWith('t1.xml')) ?? null;
+      const rootLink = component?.robot?.links?.Trunk ?? null;
+
+      return {
+        documentLoadState,
+        hasTrunk: Boolean(rootLink),
+        rootMass: rootLink?.inertial?.mass ?? null,
+        componentId: component?.id ?? null,
+        componentSourceFile: component?.sourceFile ?? null,
+      };
+    });
+
+    if (
+      last.hasTrunk &&
+      last.rootMass !== null &&
+      Boolean(last.componentId) &&
+      String(last.documentLoadState?.fileName ?? '').endsWith('t1.xml')
+    ) {
+      return;
+    }
+
+    if (last.documentLoadState?.status === 'error') {
+      throw new Error(`T1 document load failed: ${last.documentLoadState.error ?? 'unknown'}`);
+    }
+
+    await delay(250);
+  }
+
+  throw new Error(`Timed out waiting for T1 robot store load (last: ${JSON.stringify(last)}).`);
+}
+
+async function waitForPandaRobotLoaded(page) {
+  const deadline = Date.now() + 60_000;
+  let last = null;
+
+  while (Date.now() < deadline) {
+    last = await page.evaluate(() => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+      const documentLoadState = api?.getDocumentLoadState?.() ?? null;
+      const component = Object.values(workspace?.components ?? {}).find((candidate) =>
+        String(candidate?.sourceFile ?? '').endsWith('panda.xml')) ?? null;
+      const links = component?.robot?.links ?? {};
+      const joints = component?.robot?.joints ?? {};
+
+      return {
+        documentLoadState,
+        hasBase: Boolean(links.panda_link0),
+        hasJoint: Boolean(joints.panda_joint1),
+        linkCount: Object.keys(links).length,
+        jointCount: Object.keys(joints).length,
+      };
+    });
+
+    if (
+      last.linkCount === 11 &&
+      last.jointCount === 10 &&
+      String(last.documentLoadState?.fileName ?? '').endsWith('panda.xml')
+    ) {
+      return;
+    }
+
+    if (last.documentLoadState?.status === 'error') {
+      throw new Error(`Panda document load failed: ${last.documentLoadState.error ?? 'unknown'}`);
+    }
+
+    await delay(250);
+  }
+
+  throw new Error(`Timed out waiting for Panda robot store load (last: ${JSON.stringify(last)}).`);
+}
+
+async function editVisiblePropertyInput(page, visibleIndex, value) {
+  const selector = '[data-testid="property-editor-sidebar"] input';
+  const target = await page.evaluateHandle((inputSelector, index) => {
+    const isVisible = (input) => {
+      const rect = input.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const inputs = [...document.querySelectorAll(inputSelector)].filter(isVisible);
+    return inputs[index] ?? null;
+  }, selector, visibleIndex);
+  const element = target.asElement();
+  if (!element) {
+    throw new Error(`Visible property input ${visibleIndex} was not found.`);
+  }
+
+  await element.click({ clickCount: 3 });
+  await page.keyboard.type(String(value));
+  await page.keyboard.press('Enter');
+  await delay(350);
+  await target.dispose();
+}
+
+async function readT1TrunkPropertyState(page) {
+  return page.evaluate(() => {
+    const api = window.__URDF_STUDIO_DEBUG__;
+    const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+    const component =
+      Object.values(workspace?.components ?? {}).find((candidate) =>
+        String(candidate?.sourceFile ?? '').endsWith('t1.xml')) ?? null;
+    const componentLink = component?.robot?.links?.Trunk ?? null;
+    const rootLink = componentLink;
+    const sourceDraft = component
+      ? api?.__assetsStore__?.getState?.()?.componentSourceDrafts?.[component.id] ?? null
+      : null;
+    const visibleInputs = [...document.querySelectorAll('[data-testid="property-editor-sidebar"] input')]
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((input) => input.value);
+
+    return {
+      rootMass: rootLink?.inertial?.mass ?? null,
+      seedMass: componentLink?.inertial?.mass ?? null,
+      rootComX: rootLink?.inertial?.origin?.xyz?.x ?? null,
+      seedComX: componentLink?.inertial?.origin?.xyz?.x ?? null,
+      rootRoll: rootLink?.inertial?.origin?.rpy?.r ?? null,
+      seedRoll: componentLink?.inertial?.origin?.rpy?.r ?? null,
+      componentId: component?.id ?? null,
+      inputValues: visibleInputs,
+      sourceContent: sourceDraft?.content ?? '',
+    };
+  });
+}
+
+async function runT1SourceScenePropertyRegression(suite, page, report) {
+  await importModel(page, T1_MODEL.dir, T1_MODEL.file);
+  await waitForReady(page);
+  await waitForT1RobotLoaded(page);
+  await prepareT1PhysicsEditor(page);
+
+  const before = await readT1TrunkPropertyState(page);
+  assert(suite, Boolean(before.componentId), 'T1 canonical component is present');
+  assertClose(suite, before.rootMass, 11.7, 'T1 component mass baseline loaded');
+  assertClose(suite, before.seedMass, 11.7, 'T1 canonical mass baseline loaded');
+
+  await editVisiblePropertyInput(page, 6, '12.34');
+  const afterMass = await readT1TrunkPropertyState(page);
+  assertClose(suite, afterMass.rootMass, 12.34, 'T1 UI mass edit updates root robot');
+  assertClose(suite, afterMass.seedMass, 12.34, 'T1 UI mass edit syncs seed component');
+  assertClose(suite, Number(afterMass.inputValues[6]), 12.34, 'T1 mass input keeps committed value');
+  assert(
+    suite,
+    afterMass.sourceContent.includes('mass="12.34"'),
+    'T1 mass edit patches selected t1.xml source',
+  );
+
+  await editVisiblePropertyInput(page, 7, '0.123456');
+  const afterCom = await readT1TrunkPropertyState(page);
+  assertClose(suite, afterCom.rootMass, 12.34, 'T1 COM edit preserves root mass');
+  assertClose(suite, afterCom.seedMass, 12.34, 'T1 COM edit preserves seed mass');
+  assertClose(suite, afterCom.rootComX, 0.123456, 'T1 UI inertial COM X edit updates root robot');
+  assertClose(suite, afterCom.seedComX, 0.123456, 'T1 UI inertial COM X edit syncs seed component');
+  assert(
+    suite,
+    afterCom.sourceContent.includes('pos="0.123456 -0.000001 0.105062"'),
+    'T1 inertial COM edit patches selected t1.xml source',
+  );
+
+  await editVisiblePropertyInput(page, 10, '0.222');
+  await delay(500);
+  const afterRoll = await readT1TrunkPropertyState(page);
+  assertClose(suite, afterRoll.rootMass, 12.34, 'T1 roll edit preserves root mass');
+  assertClose(suite, afterRoll.seedMass, 12.34, 'T1 roll edit preserves seed mass');
+  assertClose(suite, afterRoll.rootRoll, 0.222, 'T1 UI inertial roll edit updates root robot');
+  assertClose(suite, afterRoll.seedRoll, 0.222, 'T1 UI inertial roll edit syncs seed component');
+
+  await store.undo(page);
+  await delay(300);
+  const afterUndo = await readT1TrunkPropertyState(page);
+  assertClose(suite, afterUndo.rootRoll, before.rootRoll, 'T1 source-scene undo restores root roll');
+  assertClose(suite, afterUndo.seedRoll, before.seedRoll, 'T1 source-scene undo restores seed roll');
+
+  await store.redo(page);
+  await delay(300);
+  const afterRedo = await readT1TrunkPropertyState(page);
+  assertClose(suite, afterRedo.rootRoll, 0.222, 'T1 source-scene redo restores root roll edit');
+  assertClose(suite, afterRedo.seedRoll, 0.222, 'T1 source-scene redo restores seed roll edit');
+
+  await openSourceEditor(page);
+  const sourceEditorText = await getSourceEditorText(page);
+  assert(suite, sourceEditorText.includes('mass="12.34"'), 'T1 Source Code panel shows patched mass');
+  assert(
+    suite,
+    sourceEditorText.includes('pos="0.123456 -0.000001 0.105062"'),
+    'T1 Source Code panel shows patched inertial COM',
+  );
+
+  report.t1 = {
+    componentId: before.componentId,
+    mass: afterMass.rootMass,
+    comX: afterCom.rootComX,
+    roll: afterRoll.rootRoll,
+  };
+}
+
 async function main() {
   const suite = createTestSuite('MuJoCo MJCF Property Editor');
-  const session = await createSession();
-  const { page } = session;
   const report = {};
 
+  const session = await createSession();
+  const { page } = session;
   try {
+    await runT1SourceScenePropertyRegression(suite, page, report);
+
+    const t1Errs = session.errors();
+    assert(suite, t1Errs.page.length === 0, `no T1 page errors (${t1Errs.page.length})`);
+
     await importModel(page, MODEL.dir, MODEL.file);
     await waitForReady(page);
+    await waitForPandaRobotLoaded(page);
     const base = await getTopology(page);
     report.baseline = { linkCount: base.linkCount, jointCount: base.jointCount, name: base.name };
     console.log(`  Baseline: ${base.linkCount}L ${base.jointCount}J`);
@@ -214,8 +489,8 @@ async function main() {
     assertEqual(suite, finalTopo.linkCount, base.linkCount, 'topology link count unchanged');
     assertEqual(suite, finalTopo.jointCount, base.jointCount, 'topology joint count unchanged');
 
-    const errs = session.errors();
-    assert(suite, errs.page.length === 0, `no page errors (${errs.page.length})`);
+    const pandaErrs = session.errors();
+    assert(suite, pandaErrs.page.length === 0, `no page errors (${pandaErrs.page.length})`);
   } finally {
     await session.cleanup();
   }

@@ -363,20 +363,30 @@ function ringBuffer(limit = 100) {
 }
 
 export async function waitForDebugApi(page, timeoutMs) {
-  await page.waitForFunction(
-    () => Boolean(globalThis.window && window.__URDF_STUDIO_DEBUG__),
-    { timeout: timeoutMs },
+  await retryPageAction(
+    () =>
+      page.waitForFunction(
+        () => Boolean(globalThis.window && window.__URDF_STUDIO_DEBUG__),
+        { timeout: timeoutMs },
+      ),
+    timeoutMs,
+    'debug API availability',
   );
   try {
-    await page.evaluate(async () => {
-      const api = window.__URDF_STUDIO_DEBUG__;
-      for (const name of ['ping', 'healthCheck', 'healthcheck', 'ready']) {
-        if (typeof api?.[name] === 'function') {
-          await api[name]();
-          return;
-        }
-      }
-    });
+    await retryPageAction(
+      () =>
+        page.evaluate(async () => {
+          const api = window.__URDF_STUDIO_DEBUG__;
+          for (const name of ['ping', 'healthCheck', 'healthcheck', 'ready']) {
+            if (typeof api?.[name] === 'function') {
+              await api[name]();
+              return;
+            }
+          }
+        }),
+      Math.min(timeoutMs, 10_000),
+      'debug API ping',
+    );
   } catch {
     // ping is optional
   }
@@ -397,6 +407,7 @@ export function isTransientPageContextError(error) {
     message.includes('window.__URDF_STUDIO_DEBUG__ is not available') ||
     message.includes('Inspected target navigated or closed') ||
     message.includes('Navigating frame was detached') ||
+    message.includes('detached Frame') ||
     message.includes('frame got detached') ||
     message.includes('Protocol error') ||
     message.includes('Target closed') ||

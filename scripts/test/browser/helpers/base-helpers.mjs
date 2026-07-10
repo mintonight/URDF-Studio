@@ -42,21 +42,35 @@ export async function createSession(options = {}) {
     siteTimeoutMs: 120_000, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
     noStart: false, headed, startCommand: null,
   });
-  const browser = await launchBrowser({
-    headed, siteUrl, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
-  });
-  const { page, consoleMessages, pageErrors } = await createPage(browser, siteUrl, DEFAULT_OPERATION_TIMEOUT_MS);
-  await page.evaluate(() => window.__URDF_STUDIO_DEBUG__?.setBeforeUnloadPromptEnabled?.(false));
-  return {
-    page, browser,
-    async cleanup() { await browser.close(); await site.stop(); },
-    errors() {
-      return {
-        console: consoleMessages.snapshot().filter((e) => !e.includes('favicon') && !e.includes('DevTools') && e.length > 0),
-        page: pageErrors.snapshot(),
-      };
-    },
-  };
+  let browser = null;
+  try {
+    browser = await launchBrowser({
+      headed, siteUrl, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
+    });
+    const { page, consoleMessages, pageErrors } = await createPage(browser, siteUrl, DEFAULT_OPERATION_TIMEOUT_MS);
+    await page.evaluate(() => window.__URDF_STUDIO_DEBUG__?.setBeforeUnloadPromptEnabled?.(false));
+    return {
+      page, browser,
+      async cleanup() {
+        try {
+          await browser.close();
+        } catch (error) {
+          if (!isTransientPageContextError(error)) throw error;
+        }
+        await site.stop();
+      },
+      errors() {
+        return {
+          console: consoleMessages.snapshot().filter((e) => !e.includes('favicon') && !e.includes('DevTools') && e.length > 0),
+          page: pageErrors.snapshot(),
+        };
+      },
+    };
+  } catch (error) {
+    await browser?.close().catch(() => undefined);
+    await site.stop().catch(() => undefined);
+    throw error;
+  }
 }
 
 // ── Wait ─────────────────────────────────────────────────────────────
@@ -64,6 +78,20 @@ export async function createSession(options = {}) {
 export async function waitForReady(page, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
+  const cacheCurrentComponentRobot = () => page.evaluate(() => {
+    const api = window.__URDF_STUDIO_DEBUG__;
+    const selectedFile = api?.__assetsStore__?.getState?.()?.selectedFile ?? null;
+    const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+    const component = selectedFile
+      ? Object.values(workspace?.components ?? {}).find(
+          (candidate) => candidate?.sourceFile === selectedFile.name,
+        )
+      : null;
+    if (!selectedFile || !component?.robot) return false;
+    api.__browserRobotDataBySource__ ??= {};
+    api.__browserRobotDataBySource__[selectedFile.name] = structuredClone(component.robot);
+    return true;
+  });
   while (Date.now() < deadline) {
     try {
       const probe = await page.evaluate(() => {
@@ -71,6 +99,13 @@ export async function waitForReady(page, timeoutMs = 120_000) {
         const snap = api?.getRegressionSnapshot?.();
         const st = api?.getDocumentLoadState?.() ?? null;
         const runtime = snap?.primaryRuntime ?? snap?.runtime ?? null;
+        const selectedFile = api?.__assetsStore__?.getState?.()?.selectedFile ?? null;
+        const workspace = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
+        const selectedComponent = selectedFile
+          ? Object.values(workspace?.components ?? {}).find(
+              (component) => component?.sourceFile === selectedFile.name,
+            )
+          : null;
         const countEntries = (value) =>
           Array.isArray(value)
             ? value.length
@@ -87,6 +122,8 @@ export async function waitForReady(page, timeoutMs = 120_000) {
             countEntries(runtime?.links) ||
             countEntries(runtime?.visualMeshes),
           linkCount: countEntries(snap?.store?.links),
+          workspaceMatchesSelected: Boolean(selectedComponent),
+          workspaceLinkCount: countEntries(selectedComponent?.robot?.links),
         };
       });
       last = probe;
@@ -97,9 +134,19 @@ export async function waitForReady(page, timeoutMs = 120_000) {
       // 'loading' even after the runtime robot is fully built, so a built runtime
       // with links is the authoritative "loaded" signal (matches the menagerie
       // regression's snapshotWithDebug check).
-      if (probe.status === 'ready' || probe.status === 'hydrating') return;
-      if (probe.hasRuntime && (probe.linkCount > 0 || probe.runtimeLinkCount > 0)) return;
-      if (probe.status === 'loading' && probe.fileName && probe.linkCount > 1) return;
+      const canonicalReady = probe.workspaceMatchesSelected && probe.workspaceLinkCount > 0;
+      if (
+        canonicalReady
+        && (
+          probe.status === 'ready'
+          || probe.status === 'hydrating'
+          || (probe.hasRuntime && (probe.linkCount > 0 || probe.runtimeLinkCount > 0))
+          || (probe.status === 'loading' && probe.fileName)
+        )
+      ) {
+        await cacheCurrentComponentRobot();
+        return;
+      }
     } catch (error) {
       // An import can trigger a one-off SPA navigation that destroys the
       // execution context mid-poll. Treat that as "not ready yet" and retry;
@@ -150,7 +197,7 @@ export async function getTopology(page) {
 
 export async function getAssemblyState(page) {
   return page.evaluate(() => {
-    const a = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.assemblyState;
+    const a = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__?.getState?.()?.workspace;
     if (!a) return { exists: false };
     return {
       exists: true, name: a.name,
@@ -167,6 +214,7 @@ export async function getAssemblyState(page) {
       bridges: Object.entries(a.bridges ?? {}).map(([id, b]) => ({
         id, name: b.name, jointType: b.joint?.type,
         parentComponentId: b.parentComponentId, childComponentId: b.childComponentId,
+        origin: b.joint?.origin ?? null,
       })),
     };
   });
@@ -408,7 +456,12 @@ export async function measureCanvasContinuityDuring(page, action, options = {}) 
 	              visibleRuntimeMeshCount,
 	              lumaStdDev,
 	              lumaRange,
-	              nonBlank: lumaStdDev > 0.8 || lumaRange > 8,
+              // WebGL's default drawing buffer can be cleared immediately
+              // after presentation, so a 2D readback may look blank while the
+              // mounted runtime is still rendering. Treat a renderable runtime
+              // as authoritative and keep luma as an additional signal.
+              nonBlank:
+                hasRenderableRuntime || lumaStdDev > 0.8 || lumaRange > 8,
 	            };
           } catch (error) {
             return {
@@ -460,7 +513,7 @@ export async function getSemanticSnapshot(page) {
   return page.evaluate(() => {
     const api = window.__URDF_STUDIO_DEBUG__;
     const snapshot = api?.getRegressionSnapshot?.() ?? null;
-    const assemblyState = api?.__store__?.getState?.()?.assemblyState ?? null;
+    const assemblyState = api?.__workspaceStore__?.getState?.()?.workspace ?? null;
     const assetsState = api?.getAssetDebugState?.() ?? null;
     const usdScene = api?.getSelectedUsdSceneSummary?.() ?? null;
 
@@ -550,6 +603,7 @@ export async function getSemanticSnapshot(page) {
                 jointType: bridge.joint?.type ?? null,
                 parentComponentId: bridge.parentComponentId,
                 childComponentId: bridge.childComponentId,
+                origin: bridge.joint?.origin ?? null,
               }))
               .sort((left, right) => left.id.localeCompare(right.id)),
           }
@@ -674,6 +728,8 @@ export async function openSourceEditor(page) {
 
 export async function getSourceEditorText(page) {
   return page.evaluate(() => {
+    const activeEditorText = window.__URDF_STUDIO_DEBUG__?.__sourceEditor?.getValue?.();
+    if (typeof activeEditorText === 'string' && activeEditorText.length > 0) return activeEditorText;
     const monacoModels = globalThis.monaco?.editor?.getModels?.();
     const activeModel = Array.isArray(monacoModels) ? monacoModels[monacoModels.length - 1] : null;
     const monacoText = activeModel?.getValue?.();
@@ -760,12 +816,203 @@ export function assertNoBrowserErrors(suite, session, label = 'no browser errors
 
 // ── Store operations ─────────────────────────────────────────────────
 
-function storeOp(page, fn, ...args) {
-  return page.evaluate((src, callArgs) => {
-    const store = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-    if (!store) return { error: 'no store' };
-    return new Function('store', 'args', `return (${src})(store, ...args)`)(store, callArgs);
-  }, fn.toString(), args);
+function workspaceStoreOp(page, operation, ...args) {
+  return page.evaluate(({ operationName, callArgs }) => {
+    const api = window.__URDF_STUDIO_DEBUG__;
+    const store = api?.__workspaceStore__?.getState?.();
+    if (!store) return { ok: false, error: 'no workspace store' };
+
+    const normalize = (value) => String(value ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const basename = (value) => normalize(value).split('/').filter(Boolean).pop() ?? '';
+    const pathsMatch = (candidateName, expectedName) => {
+      const candidate = normalize(candidateName);
+      const expected = normalize(expectedName);
+      return candidate === expected || candidate.endsWith(`/${expected}`) ||
+        basename(candidate) === basename(expected);
+    };
+    const toVector = (value, keys) => Array.isArray(value)
+      ? Object.fromEntries(keys.map((key, index) => [key, Number(value[index] ?? 0)]))
+      : value;
+    const normalizeJointPatch = (patch) => {
+      if (!patch || typeof patch !== 'object') return patch;
+      return {
+        ...patch,
+        ...(patch.axis ? { axis: toVector(patch.axis, ['x', 'y', 'z']) } : {}),
+        ...(patch.origin
+          ? {
+              origin: {
+                ...patch.origin,
+                ...(patch.origin.xyz
+                  ? { xyz: toVector(patch.origin.xyz, ['x', 'y', 'z']) }
+                  : {}),
+                ...(patch.origin.rpy
+                  ? { rpy: toVector(patch.origin.rpy, ['r', 'p', 'y']) }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+    };
+    const getActiveComponent = () =>
+      store.workspace.components[store.activeComponentId] ??
+      Object.values(store.workspace.components)[0] ?? null;
+    const resolveEntityRef = (type, rendererIdOrName) => {
+      const projection = store.getSceneProjection();
+      let globalId = rendererIdOrName;
+      let ref = projection.globalToEntityRef.get(globalId);
+      if (ref?.type === type) return ref;
+      const entities = type === 'link' ? projection.robotData.links : projection.robotData.joints;
+      globalId = Object.entries(entities).find(([id, entity]) =>
+        id === rendererIdOrName || entity?.id === rendererIdOrName ||
+        entity?.name === rendererIdOrName)?.[0];
+      ref = globalId ? projection.globalToEntityRef.get(globalId) : null;
+      return ref?.type === type ? ref : null;
+    };
+
+    switch (operationName) {
+      case 'setName': {
+        const component = getActiveComponent();
+        if (!component) return { ok: false };
+        return {
+          ok: store.replaceComponentRobot(
+            component.id,
+            { ...component.robot, name: callArgs[0] },
+            { label: 'Rename robot' },
+          ),
+        };
+      }
+      case 'addChild': {
+        const ref = resolveEntityRef('link', callArgs[0]);
+        if (!ref) return { ok: false, error: `link not found: ${callArgs[0]}` };
+        const result = store.addChild({
+          componentId: ref.componentId,
+          parentLinkId: ref.entityId,
+        });
+        return result ? { ok: true, ...result } : { ok: false };
+      }
+      case 'updateLink': {
+        const ref = resolveEntityRef('link', callArgs[0]);
+        return { ok: Boolean(ref && store.updateLink(ref, callArgs[1])) };
+      }
+      case 'deleteLink': {
+        const ref = resolveEntityRef('link', callArgs[0]);
+        return { ok: Boolean(ref && store.deleteLink(ref)) };
+      }
+      case 'setLinkVisibility': {
+        const ref = resolveEntityRef('link', callArgs[0]);
+        return { ok: Boolean(ref && store.setLinkVisibility(ref, callArgs[1])) };
+      }
+      case 'setAllLinksVisibility': {
+        const component = getActiveComponent();
+        return { ok: Boolean(component && store.setAllLinksVisibility(component.id, callArgs[0])) };
+      }
+      case 'updateJoint': {
+        const ref = resolveEntityRef('joint', callArgs[0]);
+        return { ok: Boolean(ref && store.updateJoint(ref, normalizeJointPatch(callArgs[1]))) };
+      }
+      case 'deleteJoint': {
+        const ref = resolveEntityRef('joint', callArgs[0]);
+        return { ok: Boolean(ref && store.deleteJoint(ref)) };
+      }
+      case 'setJointAngle': {
+        const ref = resolveEntityRef('joint', callArgs[0]);
+        if (!ref || !store.setJointMotion(ref, callArgs[1])) return { ok: false };
+        store.flushPendingJointMotion();
+        return { ok: true };
+      }
+      case 'deleteSubtree': {
+        const ref = resolveEntityRef('link', callArgs[0]);
+        return { ok: Boolean(ref && store.deleteSubtree(ref)) };
+      }
+      case 'undo':
+        return { ok: store.undo() };
+      case 'redo':
+        return { ok: store.redo() };
+      case 'stabilizeHistory':
+        store.flushPendingJointMotion();
+        store.clearPendingAutoGroundComponentIds();
+        store.clearHistory();
+        return { ok: true };
+      case 'initAssembly': {
+        store.renameWorkspace(callArgs[0], { skipHistory: true });
+        store.clearHistory();
+        api.__browserAssemblyClaimedComponentIds__ = [];
+        return { ok: true };
+      }
+      case 'addComponent': {
+        const fileLike = callArgs[0];
+        const fileName = typeof fileLike === 'string' ? fileLike : fileLike?.name;
+        const availableFiles = api?.__assetsStore__?.getState?.()?.availableFiles ?? [];
+        const file = availableFiles.find((candidate) => pathsMatch(candidate?.name, fileName)) ??
+          fileLike;
+        if (!file?.name) return { ok: false, error: `file not found: ${fileName ?? '<null>'}` };
+
+        const claimedIds = new Set(api.__browserAssemblyClaimedComponentIds__ ?? []);
+        const existing = Object.values(store.workspace.components).find(
+          (component) => pathsMatch(component.sourceFile, file.name) && !claimedIds.has(component.id),
+        );
+        if (existing) {
+          claimedIds.add(existing.id);
+          api.__browserAssemblyClaimedComponentIds__ = [...claimedIds];
+          store.setActiveComponent(existing.id);
+          return { ok: true, id: existing.id, name: existing.name };
+        }
+
+        const cachedRobots = api.__browserRobotDataBySource__ ?? {};
+        const cachedRobotEntry = Object.entries(cachedRobots).find(([sourcePath]) =>
+          pathsMatch(sourcePath, file.name));
+        const sameSourceComponent = Object.values(store.workspace.components).find(
+          (component) => pathsMatch(component.sourceFile, file.name),
+        );
+        const robot = cachedRobotEntry?.[1] ?? sameSourceComponent?.robot ?? null;
+        if (!robot) return { ok: false, error: `robot data not cached: ${file.name}` };
+        const component = store.appendComponent({
+          name: robot.name,
+          sourceFile: file.name,
+          robot: structuredClone(robot),
+          queueAutoGround: false,
+        });
+        claimedIds.add(component.id);
+        api.__browserAssemblyClaimedComponentIds__ = [...claimedIds];
+        store.setActiveComponent(component.id);
+        return { ok: true, id: component.id, name: component.name };
+      }
+      case 'removeComponent':
+        return { ok: store.removeComponent(callArgs[0]) };
+      case 'updateComponentTransform': {
+        const componentId = callArgs[0];
+        const isBridgedChild = Object.values(store.workspace.bridges).some(
+          (bridge) => bridge.childComponentId === componentId,
+        );
+        return {
+          ok: !isBridgedChild && store.updateComponentTransform(componentId, callArgs[1]),
+        };
+      }
+      case 'toggleComponentVisibility':
+        return { ok: store.setComponentVisibility(callArgs[0], callArgs[1]) };
+      case 'addBridge': {
+        const params = callArgs[0];
+        const bridge = store.addBridge({
+          ...params,
+          joint: normalizeJointPatch(params.joint),
+        });
+        return bridge ? { ok: true, id: bridge.id, name: bridge.name } : { ok: false };
+      }
+      case 'removeBridge':
+        return { ok: store.removeBridge(callArgs[0]) };
+      case 'updateBridge': {
+        const patch = callArgs[1];
+        return {
+          ok: store.updateBridge(callArgs[0], {
+            ...patch,
+            ...(patch?.joint ? { joint: normalizeJointPatch(patch.joint) } : {}),
+          }),
+        };
+      }
+      default:
+        return { ok: false, error: `unknown workspace operation: ${operationName}` };
+    }
+  }, { operationName: operation, callArgs: args });
 }
 
 export async function findAvailableFile(page, fileName) {
@@ -794,56 +1041,37 @@ export async function findAvailableFile(page, fileName) {
 
 export const store = {
   // Robot
-  setName:            (page, name) => storeOp(page, (s, nextName) => { s.setName(nextName); return { ok: true }; }, name),
+  setName:            (page, name) => workspaceStoreOp(page, 'setName', name),
 
   // Links
-  addChild:           (page, parentId) => storeOp(page, (s, nextParentId) => {
-    const r = s.addChild(nextParentId);
-    return r ? { ok: true, linkId: r.linkId, jointId: r.jointId } : { ok: false };
-  }, parentId),
-  updateLink:         (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateLink(nextId, nextUpdate); return { ok: true }; }, id, upd),
-  deleteLink:         (page, id) => storeOp(page, (s, nextId) => { s.deleteLink(nextId); return { ok: true }; }, id),
-  setLinkVisibility:  (page, id, v) => storeOp(page, (s, nextId, visible) => { s.setLinkVisibility(nextId, visible); return { ok: true }; }, id, v),
-  setAllLinksVisibility: (page, v) => storeOp(page, (s, visible) => { s.setAllLinksVisibility(visible); return { ok: true }; }, v),
+  addChild:           (page, parentId) => workspaceStoreOp(page, 'addChild', parentId),
+  updateLink:         (page, id, upd) => workspaceStoreOp(page, 'updateLink', id, upd),
+  deleteLink:         (page, id) => workspaceStoreOp(page, 'deleteLink', id),
+  setLinkVisibility:  (page, id, v) => workspaceStoreOp(page, 'setLinkVisibility', id, v),
+  setAllLinksVisibility: (page, v) => workspaceStoreOp(page, 'setAllLinksVisibility', v),
 
   // Joints
-  updateJoint:        (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateJoint(nextId, nextUpdate); return { ok: true }; }, id, upd),
-  deleteJoint:        (page, id) => storeOp(page, (s, nextId) => { s.deleteJoint(nextId); return { ok: true }; }, id),
-  setJointAngle:      (page, name, angle) => storeOp(page, (s, nextName, nextAngle) => { s.setJointAngle(nextName, nextAngle); return { ok: true }; }, name, angle),
+  updateJoint:        (page, id, upd) => workspaceStoreOp(page, 'updateJoint', id, upd),
+  deleteJoint:        (page, id) => workspaceStoreOp(page, 'deleteJoint', id),
+  setJointAngle:      (page, name, angle) => workspaceStoreOp(page, 'setJointAngle', name, angle),
 
   // Subtree
-  deleteSubtree:      (page, id) => storeOp(page, (s, nextId) => { s.deleteSubtree(nextId); return { ok: true }; }, id),
+  deleteSubtree:      (page, id) => workspaceStoreOp(page, 'deleteSubtree', id),
 
   // History
-  undo:               (page) => storeOp(page, (s) => { if (typeof s.undo === 'function') { s.undo(); return { ok: true }; } return { ok: false }; }),
-  redo:               (page) => storeOp(page, (s) => { if (typeof s.redo === 'function') { s.redo(); return { ok: true }; } return { ok: false }; }),
+  undo:               (page) => workspaceStoreOp(page, 'undo'),
+  redo:               (page) => workspaceStoreOp(page, 'redo'),
+  stabilizeHistory:   (page) => workspaceStoreOp(page, 'stabilizeHistory'),
 
   // Assembly
-  initAssembly:       (page, name) => storeOp(page, (s, nextName) => { s.initAssembly(nextName); return { ok: true }; }, name),
-  addComponent:       (page, file) => storeOp(page, (s, fileLike) => {
-    const normalize = (value) => String(value ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
-    const basename = (value) => normalize(value).split('/').filter(Boolean).pop() ?? '';
-    const matches = (candidateName, expectedName) => {
-      const candidate = normalize(candidateName);
-      const expected = normalize(expectedName);
-      return candidate === expected || candidate.endsWith(`/${expected}`) || basename(candidate) === basename(expected);
-    };
-    const fileName = typeof fileLike === 'string' ? fileLike : fileLike?.name;
-    const availableFiles = window.__URDF_STUDIO_DEBUG__?.__assetsStore__?.getState?.()?.availableFiles ?? [];
-    const file = availableFiles.find((candidate) => matches(candidate?.name, fileName)) ?? fileLike;
-    if (!file?.content) return { ok: false, error: `file not found: ${fileName ?? '<null>'}` };
-    const c = s.addComponent(file, { queueAutoGround: true });
-    return c ? { ok: true, id: c.id, name: c.name } : { ok: false };
-  }, file),
-  removeComponent:    (page, id) => storeOp(page, (s, nextId) => { s.removeComponent(nextId); return { ok: true }; }, id),
-  updateComponentTransform: (page, id, t) => storeOp(page, (s, nextId, transform) => { s.updateComponentTransform(nextId, transform); return { ok: true }; }, id, t),
-  toggleComponentVisibility: (page, id, v) => storeOp(page, (s, nextId, visible) => { s.toggleComponentVisibility(nextId, visible); return { ok: true }; }, id, v),
-  addBridge:          (page, params) => storeOp(page, (s, nextParams) => {
-    const b = s.addBridge(nextParams);
-    return b ? { ok: true, id: b.id, name: b.name } : { ok: false };
-  }, params),
-  removeBridge:       (page, id) => storeOp(page, (s, nextId) => { s.removeBridge(nextId); return { ok: true }; }, id),
-  updateBridge:       (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateBridge(nextId, nextUpdate); return { ok: true }; }, id, upd),
+  initAssembly:       (page, name) => workspaceStoreOp(page, 'initAssembly', name),
+  addComponent:       (page, file) => workspaceStoreOp(page, 'addComponent', file),
+  removeComponent:    (page, id) => workspaceStoreOp(page, 'removeComponent', id),
+  updateComponentTransform: (page, id, t) => workspaceStoreOp(page, 'updateComponentTransform', id, t),
+  toggleComponentVisibility: (page, id, v) => workspaceStoreOp(page, 'toggleComponentVisibility', id, v),
+  addBridge:          (page, params) => workspaceStoreOp(page, 'addBridge', params),
+  removeBridge:       (page, id) => workspaceStoreOp(page, 'removeBridge', id),
+  updateBridge:       (page, id, upd) => workspaceStoreOp(page, 'updateBridge', id, upd),
 
   // Debug API shortcuts
   setJointAngles: (page, map) => page.evaluate((m) => {

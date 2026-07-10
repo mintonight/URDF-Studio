@@ -12,10 +12,10 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:cjs|mjs|js|jsx|ts|tsx)$/;
 const FAST_APP_TESTS = [
   'src/app/hooks/sourcePreservingExportUtils.test.ts',
   'src/app/hooks/useEditableSourcePatches.test.ts',
+  'src/app/hooks/useAppEffects.test.tsx',
   'src/app/hooks/workspaceGeneratedSourceState.test.ts',
-  'src/app/utils/assemblyRootComponentSelection.test.ts',
+  'src/app/utils/canonicalWorkspaceViewerDocument.test.ts',
   'src/app/utils/importPreparation.workerSafe.test.ts',
-  'src/app/utils/viewerDocumentLifecycleCallbacks.test.ts',
   'src/app/components/UnifiedViewer.typecheck.test.ts',
   'src/app/hooks/asset_import_from_url.test.ts',
 ];
@@ -227,7 +227,9 @@ function main() {
     throw new Error(`Suite "${label}" did not resolve any test files.`);
   }
 
-  const nodeArgs = ['--import', 'tsx', '--test', ...files, ...nodeTestArgs];
+  // Node stops parsing some test-runner flags after the first positional test
+  // file, so forwarded flags must precede the resolved file list.
+  const nodeArgs = ['--import', 'tsx', '--test', ...nodeTestArgs, ...files];
   console.log(`[run-node-tests] suite=${label} files=${files.length}`);
 
   if (dryRun) {

@@ -97,82 +97,80 @@ async function waitForModelRuntime(page, { requireVisualMeshes }) {
 }
 
 async function openSnapshotDialog(page) {
-  const findSnapshotButton = () => {
-    const buttons = [...document.querySelectorAll('button')];
-    const buttonStates = buttons.map((button) => {
-      const rect = button.getBoundingClientRect();
-      const style = window.getComputedStyle(button);
-      const text = button.textContent ?? '';
-      const label = button.getAttribute('aria-label') ?? '';
-      const title = button.getAttribute('title') ?? '';
-      const matches = /Snapshot|快照/i.test(`${text} ${label} ${title}`);
-      const visible =
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.visibility !== 'hidden' &&
-        style.display !== 'none';
+  await page.evaluate(() => {
+    globalThis.__URDF_STUDIO_FIND_SNAPSHOT_BUTTON__ = () => {
+      const buttons = [...document.querySelectorAll('button')];
+      const buttonStates = buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        const text = button.textContent ?? '';
+        const label = button.getAttribute('aria-label') ?? '';
+        const title = button.getAttribute('title') ?? '';
+        const matches = /Snapshot|快照/i.test(`${text} ${label} ${title}`);
+        const visible =
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.visibility !== 'hidden' &&
+          style.display !== 'none';
+        return {
+          button,
+          matches,
+          visible,
+          disabled: button.disabled,
+          text: text.trim(),
+          label,
+          title,
+        };
+      });
       return {
-        button,
-        matches,
-        visible,
-        disabled: button.disabled,
-        text: text.trim(),
-        label,
-        title,
+        button: buttonStates.find((state) => state.matches && state.visible && !state.disabled)
+          ?.button,
+        moreButton: buttonStates.find(
+          (state) =>
+            /More|更多/i.test(`${state.text} ${state.label} ${state.title}`) &&
+            state.visible &&
+            !state.disabled,
+        )?.button,
+        buttonStates: buttonStates
+          .filter((state) => state.matches)
+          .map(({ button: _button, ...state }) => state),
       };
-    });
-    return {
-      button: buttonStates.find((state) => state.matches && state.visible && !state.disabled)
-        ?.button,
-      moreButton: buttonStates.find(
-        (state) =>
-          /More|更多/i.test(`${state.text} ${state.label} ${state.title}`) &&
-          state.visible &&
-          !state.disabled,
-      )?.button,
-      buttonStates: buttonStates
-        .filter((state) => state.matches)
-        .map(({ button: _button, ...state }) => state),
     };
-  };
+  });
 
   let lastButtonStates = [];
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await page.waitForFunction(
-      (selectorSource) => {
-        const resolve = new Function(`return (${selectorSource})`)();
-        const result = resolve();
+      () => {
+        const result = globalThis.__URDF_STUDIO_FIND_SNAPSHOT_BUTTON__?.();
         return Boolean(result.button || result.moreButton);
       },
       { timeout: SNAPSHOT_PREVIEW_TIMEOUT_MS },
-      findSnapshotButton.toString(),
     );
-    await page.evaluate((selectorSource) => {
-      const resolve = new Function(`return (${selectorSource})`)();
-      const { button, moreButton } = resolve();
+    await page.evaluate(() => {
+      const { button, moreButton } =
+        globalThis.__URDF_STUDIO_FIND_SNAPSHOT_BUTTON__?.() ?? {};
       if (!button && moreButton instanceof HTMLButtonElement) {
         moreButton.click();
       }
-    }, findSnapshotButton.toString());
+    });
     await delay(150);
     await page.waitForFunction(
-      (selectorSource) => {
-        const resolve = new Function(`return (${selectorSource})`)();
-        return Boolean(resolve().button);
+      () => {
+        return Boolean(globalThis.__URDF_STUDIO_FIND_SNAPSHOT_BUTTON__?.().button);
       },
       { timeout: SNAPSHOT_PREVIEW_TIMEOUT_MS },
-      findSnapshotButton.toString(),
     );
-    const result = await page.evaluate((selectorSource) => {
-      const resolve = new Function(`return (${selectorSource})`)();
-      const { button, buttonStates } = resolve();
+    const result = await page.evaluate(() => {
+      const { button, buttonStates } =
+        globalThis.__URDF_STUDIO_FIND_SNAPSHOT_BUTTON__?.() ?? { buttonStates: [] };
       if (!(button instanceof HTMLButtonElement)) {
         return { clicked: false, buttonStates };
       }
       button.scrollIntoView({ block: 'center', inline: 'center' });
       button.click();
       return { clicked: true, buttonStates };
-    }, findSnapshotButton.toString());
+    });
     lastButtonStates = result.buttonStates ?? [];
 
     if (!result.clicked) {
@@ -778,11 +776,23 @@ async function captureSnapshotPreviewScreenshotSample(page) {
   };
 }
 
+async function evaluateSnapshotPreviewCanvas(page, evaluator) {
+  const canvas = await page.$('[data-testid="snapshot-preview-canvas"] canvas');
+  if (!canvas) {
+    throw new Error('Snapshot preview canvas was not found.');
+  }
+  try {
+    return await canvas.evaluate(evaluator);
+  } finally {
+    await canvas.dispose();
+  }
+}
+
 async function measureSnapshotPreviewDrag(page) {
   const before = await readSnapshotPreviewOrbitState(page);
   const renderBefore = await installSnapshotPreviewRenderProbe(page);
-  const drag = await page.$eval(
-    '[data-testid="snapshot-preview-canvas"] canvas',
+  const drag = await evaluateSnapshotPreviewCanvas(
+    page,
     (canvas) => {
       const rect = canvas.getBoundingClientRect();
       const visibleLeft = Math.max(0, rect.left);
@@ -872,7 +882,7 @@ async function measureSnapshotPreviewDrag(page) {
 
 async function measureSnapshotPreviewPan(page) {
   const before = await readSnapshotPreviewOrbitState(page);
-  const drag = await page.$eval('[data-testid="snapshot-preview-canvas"] canvas', (canvas) => {
+  const drag = await evaluateSnapshotPreviewCanvas(page, (canvas) => {
     const rect = canvas.getBoundingClientRect();
     const visibleLeft = Math.max(0, rect.left);
     const visibleTop = Math.max(0, rect.top);
@@ -913,7 +923,7 @@ async function measureSnapshotPreviewPan(page) {
 
 async function measureSnapshotPreviewZoom(page) {
   const before = await readSnapshotPreviewOrbitState(page);
-  const point = await page.$eval('[data-testid="snapshot-preview-canvas"] canvas', (canvas) => {
+  const point = await evaluateSnapshotPreviewCanvas(page, (canvas) => {
     const rect = canvas.getBoundingClientRect();
     return {
       x: Math.min(window.innerWidth - 8, Math.max(8, rect.left + rect.width * 0.5)),
@@ -1096,9 +1106,9 @@ async function readSnapshotPreviewLookState(page) {
   });
 }
 
-async function waitForSnapshotPreviewLook(page, predicateSource, args = {}) {
+async function waitForSnapshotPreviewLook(page, condition, args = {}) {
   await page.waitForFunction(
-    ({ predicate, predicateArgs }) => {
+    ({ conditionName, conditionArgs }) => {
       const canvas = document.querySelector('[data-testid="snapshot-preview-canvas"] canvas');
       const sceneRoot = window.scene?.__r3f?.root ?? null;
       const state = sceneRoot?.getState?.() ?? null;
@@ -1124,11 +1134,26 @@ async function waitForSnapshotPreviewLook(page, predicateSource, args = {}) {
         hasSnapshotReflectiveFloor: Boolean(scene?.getObjectByName?.('SnapshotReflectiveFloor')),
         hasReferenceGrid: Boolean(scene?.getObjectByName?.('ReferenceGrid')),
       };
-      const predicateFn = new Function('snapshot', 'args', `return (${predicate})(snapshot, args)`);
-      return Boolean(predicateFn(snapshot, predicateArgs));
+      switch (conditionName) {
+        case 'dark-background':
+          return snapshot.rootCanvasIsPreview && snapshot.backgroundHex === '#111827';
+        case 'exposure-changed':
+          return Math.abs(snapshot.toneMappingExposure - conditionArgs.initialExposure) > 0.001;
+        case 'shadow-profile-changed':
+          return snapshot.shadowEnabled && snapshot.shadowType !== conditionArgs.initialShadowType;
+        case 'reflective-floor':
+          return snapshot.hasSnapshotReflectiveFloor === true;
+        case 'contact-shadows':
+          return snapshot.hasSnapshotContactShadows === true &&
+            snapshot.hasSnapshotReflectiveFloor === false;
+        case 'grid-hidden':
+          return snapshot.hasReferenceGrid === false;
+        default:
+          return false;
+      }
     },
     { timeout: 10_000 },
-    { predicate: predicateSource, predicateArgs: args },
+    { conditionName: condition, conditionArgs: args },
   );
 }
 
@@ -1137,17 +1162,14 @@ async function measureSnapshotPreviewSceneSettings(page) {
   const initialScreenshotSample = await captureSnapshotPreviewScreenshotSample(page);
 
   await setSnapshotSelectValue(page, 'dark', ['viewport', 'studio', 'sky', 'dark']);
-  await waitForSnapshotPreviewLook(
-    page,
-    '(snapshot) => snapshot.rootCanvasIsPreview && snapshot.backgroundHex === "#111827"',
-  );
+  await waitForSnapshotPreviewLook(page, 'dark-background');
   const darkLook = await readSnapshotPreviewLookState(page);
   const darkScreenshotSample = await captureSnapshotPreviewScreenshotSample(page);
 
   await setSnapshotSelectValue(page, 'contrast', ['viewport', 'studio', 'city', 'contrast']);
   await waitForSnapshotPreviewLook(
     page,
-    '(snapshot, args) => Math.abs(snapshot.toneMappingExposure - args.initialExposure) > 0.001',
+    'exposure-changed',
     { initialExposure: initialLook.toneMappingExposure },
   );
   const contrastLook = await readSnapshotPreviewLookState(page);
@@ -1155,27 +1177,21 @@ async function measureSnapshotPreviewSceneSettings(page) {
   await setSnapshotSelectValue(page, 'crisp', ['soft', 'balanced', 'crisp']);
   await waitForSnapshotPreviewLook(
     page,
-    '(snapshot, args) => snapshot.shadowEnabled && snapshot.shadowType !== args.initialShadowType',
+    'shadow-profile-changed',
     { initialShadowType: initialLook.shadowType },
   );
   const crispShadowLook = await readSnapshotPreviewLookState(page);
 
   await setSnapshotSelectValue(page, 'reflective', ['shadow', 'contact', 'reflective']);
-  await waitForSnapshotPreviewLook(
-    page,
-    '(snapshot) => snapshot.hasSnapshotReflectiveFloor === true',
-  );
+  await waitForSnapshotPreviewLook(page, 'reflective-floor');
   const reflectiveLook = await readSnapshotPreviewLookState(page);
 
   await setSnapshotSelectValue(page, 'contact', ['shadow', 'contact', 'reflective']);
-  await waitForSnapshotPreviewLook(
-    page,
-    '(snapshot) => snapshot.hasSnapshotContactShadows === true && snapshot.hasSnapshotReflectiveFloor === false',
-  );
+  await waitForSnapshotPreviewLook(page, 'contact-shadows');
   const contactLook = await readSnapshotPreviewLookState(page);
 
   await setSnapshotGridVisible(page, false);
-  await waitForSnapshotPreviewLook(page, '(snapshot) => snapshot.hasReferenceGrid === false');
+  await waitForSnapshotPreviewLook(page, 'grid-hidden');
   const gridHiddenLook = await readSnapshotPreviewLookState(page);
 
   const postSettingsDragMetrics = await measureSnapshotPreviewDrag(page);

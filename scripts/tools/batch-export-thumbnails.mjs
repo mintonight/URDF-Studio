@@ -43,7 +43,7 @@
 //   node scripts/tools/batch-export-thumbnails.mjs -i ~/Desktop/asset -o ~/Desktop/thumbnail --theme light --aspect-ratio 16:9 --long-edge 1920
 import { createServer } from "vite";
 import puppeteer from "puppeteer";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join, basename, extname, resolve } from "node:path";
 
@@ -54,11 +54,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- File classification -------------------------------------------------
 
-// Primary-definition extensions, in priority order. Mirrors the spirit of
-// app/utils/import-preparation/fastPreferredFile.ts (URDF > MJCF > SDF > USD),
-// kept deliberately simple — most asset directories contain exactly one
-// definition file, so the heuristic penalty tables are not needed here.
-const PRIMARY_EXTS = [".urdf", ".xacro", ".mjcf", ".xml", ".sdf"];
 const USD_EXTS = [".usd", ".usda", ".usp"];
 // Binary/blob assets registered into assetsStore as fetchable URLs.
 const BLOB_EXTS = [
@@ -496,7 +491,7 @@ async function seedAssetFiles(page, asset) {
   }
 }
 
-async function processAsset(page, asset, captureOpts, loadTimeoutMs, navUrl, theme, outDir) {
+async function processAsset(page, asset, captureOpts, loadTimeoutMs, navUrl, theme) {
   // Re-navigate per asset. resetFixtureFiles clears assetsStore but NOT the
   // robot-import worker's context cache, so a second load in the same page
   // session can stall in 'loading' forever. A fresh page load resets React,
@@ -762,7 +757,6 @@ async function main() {
           args.timeout * 1000,
           `${url}/?regressionDebug=1`,
           args.theme,
-          outDir,
         );
         if (!result.ok) {
           console.log(`[batch]   FAILED ${asset.dirName}: ${result.reason} (${((Date.now() - a0) / 1000).toFixed(1)}s)`);

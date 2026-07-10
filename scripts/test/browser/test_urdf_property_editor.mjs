@@ -154,7 +154,10 @@ async function assertGlobalUpdateDoesNotBlankCanvas(suite, page, label, action) 
 
 async function getEditableVisualLinks(page) {
   return page.evaluate(() => {
-    const links = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.links ?? {};
+    const links = window.__URDF_STUDIO_DEBUG__?.__workspaceStore__
+      ?.getState?.()
+      ?.getSceneProjection?.()
+      ?.robotData?.links ?? {};
     return Object.values(links)
       .filter((link) => link?.id !== 'base' && link?.visual?.type && link.visual.type !== 'none')
       .slice(0, 2);
@@ -196,19 +199,15 @@ async function main() {
       }),
     );
 
-    await assertNoRuntimeReloadDuring(suite, page, 'multi-link visual color edit', () =>
-      page.evaluate((links) => {
-        const state = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-        if (!state) return { ok: false, error: 'no store' };
-        state.updateLink(links[0].id, {
-          visual: { ...links[0].visual, color: '#22c55e' },
-        });
-        state.updateLink(links[1].id, {
-          visual: { ...links[1].visual, color: '#3b82f6' },
-        });
-        return { ok: true };
-      }, visualLinks),
-    );
+    await assertNoRuntimeReloadDuring(suite, page, 'multi-link visual color edit', async () => {
+      const first = await store.updateLink(page, visualLinks[0].id, {
+        visual: { ...visualLinks[0].visual, color: '#22c55e' },
+      });
+      const second = await store.updateLink(page, visualLinks[1].id, {
+        visual: { ...visualLinks[1].visual, color: '#3b82f6' },
+      });
+      return { ok: first.ok && second.ok };
+    });
 
     // Restore the first link color so later undo checks do not depend on these
     // visual-only edits.
@@ -228,11 +227,11 @@ async function main() {
 
     // ── 2. Joint axis editing ──
     await assertNoRuntimeReloadDuring(suite, page, 'joint axis edit', () =>
-      store.updateJoint(page, hipJoint.id, { axis: { x: 1, y: 0, z: 0 } }),
+      store.updateJoint(page, hipJoint.id, { axis: { x: 0, y: 1, z: 0 } }),
     );
     const t2 = await getTopology(page);
     const j2 = t2.joints.find((j) => j.id === hipJoint.id);
-    assertEqual(suite, j2.axis?.[0], 1, 'joint axis updated');
+    assertEqual(suite, j2.axis?.[1], 1, 'joint axis updated');
 
     // Restore
     await store.updateJoint(page, hipJoint.id, {
