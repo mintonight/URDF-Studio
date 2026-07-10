@@ -1,27 +1,24 @@
 import { useCallback } from 'react';
-import { resolveLinkKey, updateCollisionGeometryByObjectIndex } from '@/core/robot';
-import type { UrdfLink } from '@/types';
-import { useRobotStore } from '@/store';
+
+import { updateCollisionGeometryByObjectIndex } from '@/core/robot';
 import type { PendingCollisionTransform } from '@/store/collisionTransformStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import type { WorkspaceLinkPropertyPatch } from '@/store/workspaceStore';
+import type { LinkEntityRef } from '@/types';
 import type { UpdateCommitMode, UpdateCommitOptions } from '@/types/viewer';
 
 interface CollisionTransformParams {
-  robotLinks: Record<string, UrdfLink>;
-  shouldRenderAssembly: boolean;
   setPendingCollisionTransform: (transform: PendingCollisionTransform) => void;
   clearPendingCollisionTransform: () => void;
   handleTransformPendingChange: (pending: boolean) => void;
   applyUpdate: (
-    type: 'link',
-    id: string,
-    data: UrdfLink,
+    ref: LinkEntityRef,
+    data: WorkspaceLinkPropertyPatch,
     options?: UpdateCommitOptions,
   ) => void;
 }
 
 export function useCollisionTransformHandlers({
-  robotLinks,
-  shouldRenderAssembly,
   setPendingCollisionTransform,
   clearPendingCollisionTransform,
   handleTransformPendingChange,
@@ -29,87 +26,58 @@ export function useCollisionTransformHandlers({
 }: CollisionTransformParams) {
   const applyCollisionTransformUpdate = useCallback(
     (
-      linkId: string,
+      ref: LinkEntityRef,
       position: { x: number; y: number; z: number },
       rotation: { r: number; p: number; y: number },
       commitMode: UpdateCommitMode,
-      objectIndex?: number,
+      objectIndex = 0,
     ) => {
-      const latestAssemblyState = useRobotStore.getState().assemblyState;
-
-      if (shouldRenderAssembly && latestAssemblyState) {
-        for (const comp of Object.values(latestAssemblyState.components)) {
-          const resolvedLinkId = resolveLinkKey(comp.robot.links, linkId);
-          if (!resolvedLinkId) continue;
-          const link = comp.robot.links[resolvedLinkId];
-          if (!link) {
-            return;
-          }
-          const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
-            origin: {
-              xyz: position,
-              rpy: rotation,
-            },
-          });
-          applyUpdate('link', resolvedLinkId, updatedLink, {
-            historyKey: `collision-transform:${comp.id}:${resolvedLinkId}:${objectIndex ?? 0}`,
-            historyLabel: 'Transform collision body',
-            commitMode,
-          });
-          return;
-        }
+      const link = useWorkspaceStore.getState().workspace.components[
+        ref.componentId
+      ]?.robot.links[ref.entityId];
+      if (!link) {
+        return;
       }
 
-      const latestLinks = useRobotStore.getState().links;
-      const resolvedLinkId = resolveLinkKey(latestLinks, linkId);
-      if (!resolvedLinkId) return;
-
-      const link = latestLinks[resolvedLinkId];
-      if (!link) return;
-
-      const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
-        origin: {
-          xyz: position,
-          rpy: rotation,
-        },
+      const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex, {
+        origin: { xyz: position, rpy: rotation },
       });
-
-      applyUpdate('link', resolvedLinkId, updatedLink, {
-        historyKey: `collision-transform:${resolvedLinkId}:${objectIndex ?? 0}`,
+      applyUpdate(ref, updatedLink, {
+        historyKey: `collision-transform:${ref.componentId}:${ref.entityId}:${objectIndex}`,
         historyLabel: 'Transform collision body',
         commitMode,
       });
     },
-    [applyUpdate, shouldRenderAssembly],
+    [applyUpdate],
   );
 
   const handleCollisionTransformPreview = useCallback(
     (
-      linkId: string,
+      ref: LinkEntityRef,
       position: { x: number; y: number; z: number },
       rotation: { r: number; p: number; y: number },
-      objectIndex?: number,
+      objectIndex = 0,
     ) => {
-      const resolvedLinkId = resolveLinkKey(robotLinks, linkId) ?? linkId;
       setPendingCollisionTransform({
-        linkId: resolvedLinkId,
-        objectIndex: objectIndex ?? 0,
+        componentId: ref.componentId,
+        linkId: ref.entityId,
+        objectIndex,
         position,
         rotation,
       });
     },
-    [robotLinks, setPendingCollisionTransform],
+    [setPendingCollisionTransform],
   );
 
   const handleCollisionTransform = useCallback(
     (
-      linkId: string,
+      ref: LinkEntityRef,
       position: { x: number; y: number; z: number },
       rotation: { r: number; p: number; y: number },
-      objectIndex?: number,
+      objectIndex = 0,
     ) => {
       clearPendingCollisionTransform();
-      applyCollisionTransformUpdate(linkId, position, rotation, 'immediate', objectIndex);
+      applyCollisionTransformUpdate(ref, position, rotation, 'immediate', objectIndex);
     },
     [applyCollisionTransformUpdate, clearPendingCollisionTransform],
   );

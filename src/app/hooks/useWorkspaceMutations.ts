@@ -1,474 +1,445 @@
 import { useCallback } from 'react';
+
 import {
-  addChildToRobot,
   appendCollisionBody,
-  applyDeletionPlan,
-  buildDeletionPlan,
+  createSourceSemanticRobotHash,
   getCollisionGeometryEntries,
+  isComponentSourceDraftMatchingComponent,
   normalizeJointLimitOrder,
-  resolveClosedLoopDrivenJointMotion,
   resolveClosedLoopJointOriginCompensationDetailed,
-  resolveJointKey,
-  resolveLinkKey,
 } from '@/core/robot';
-import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
-import { useRobotStore } from '@/store';
-import type { ViewerJointChangeContext } from '@/features/editor';
+import { cloneAssemblyTransform } from '@/core/robot/assemblyTransformUtils';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { applyWorkspaceJointPropertyPatch } from '@/store/workspace/propertyPatches';
+import type {
+  WorkspaceAssemblyPropertyPatch,
+  WorkspaceBridgePatch,
+  WorkspaceComponentPropertyPatch,
+  WorkspaceJointPropertyPatch,
+  WorkspaceLinkPropertyPatch,
+  WorkspacePropertyPatch,
+} from '@/store/workspaceStore';
+import { useAssetsStore } from '@/store/assetsStore';
+import {
+  repairWorkspaceSelection,
+  useSelectionStore,
+} from '@/store/selectionStore';
+import { entityRefKey } from '@/types';
 import type {
   AssemblyTransform,
+  BridgeEntityRef,
+  JointEntityRef,
+  LinkEntityRef,
   RobotMjcfInspectionTendonSummary,
-  UrdfJoint,
-  UrdfLink,
+  TendonEntityRef,
   UrdfOrigin,
 } from '@/types';
 import type { UpdateCommitOptions } from '@/types/viewer';
+
 import { usePendingHistoryCoordinator } from './usePendingHistoryCoordinator';
-import type { UseWorkspaceMutationsParams } from './useWorkspaceMutationsTypes';
+import type {
+  UseWorkspaceMutationsParams,
+  WorkspaceMutationHandlers,
+  WorkspacePropertyRef,
+} from './useWorkspaceMutationsTypes';
 import { persistWorkspaceViewerShowVisualPreference } from './workspaceViewerDetailPreferences';
 import { areAssemblyTransformsEqual } from './workspace-mutations/assemblyTransforms';
-import { applyAssemblyUpdate } from './workspace-mutations/assemblyUpdate';
 import {
   findAddedCollisionGeometryPatch,
   findRemovedCollisionGeometryObjectIndex,
   findUpdatedCollisionGeometryPatch,
 } from './workspace-mutations/collisionGeometryDiff';
-import {
-  applyJointMotionToJoints,
-  resolveViewerJointChangeContext,
-  syncAssemblyComponentJointMotion,
-} from './workspace-mutations/jointMotion';
-import { renameComponentRobotRoot } from './workspace-mutations/renameComponentRobotRoot';
+import { resolveViewerJointChangeContext } from './workspace-mutations/jointMotion';
+import { hasLinkInertialChanged } from './workspace-mutations/linkInertialDiff';
+import { applyLinkPatch } from './workspace-mutations/linkPatch';
 import { useCollisionTransformHandlers } from './workspace-mutations/useCollisionTransformHandlers';
 
+type TransactionMutation = (operationId: string) => boolean;
+
+function invalidateComponentDraftUnlessCurrent(componentId: string): void {
+  const component = useWorkspaceStore.getState().workspace.components[componentId];
+  const assets = useAssetsStore.getState();
+  const draft = assets.componentSourceDrafts[componentId];
+  if (!draft) return;
+  if (!component || !isComponentSourceDraftMatchingComponent(draft, component)) {
+    assets.removeComponentSourceDraft(componentId);
+  }
+}
+
+function originsEqual(left: UrdfOrigin, right: UrdfOrigin): boolean {
+  return (
+    left.xyz.x === right.xyz.x
+    && left.xyz.y === right.xyz.y
+    && left.xyz.z === right.xyz.z
+    && left.rpy.r === right.rpy.r
+    && left.rpy.p === right.rpy.p
+    && left.rpy.y === right.rpy.y
+    && (left.quatXyzw?.x ?? 0) === (right.quatXyzw?.x ?? 0)
+    && (left.quatXyzw?.y ?? 0) === (right.quatXyzw?.y ?? 0)
+    && (left.quatXyzw?.z ?? 0) === (right.quatXyzw?.z ?? 0)
+    && (left.quatXyzw?.w ?? 1) === (right.quatXyzw?.w ?? 1)
+  );
+}
+
 export function useWorkspaceMutations({
-  assemblyState,
-  shouldRenderAssembly,
-  robotLinks,
-  rootLinkId,
-  setName,
-  addChild,
-  deleteSubtree,
-  updateLink,
-  updateJoint,
-  updateMjcfTendon,
-  setAllLinksVisibility,
-  setJointAngle,
-  applyJointKinematicOverrides,
-  updateComponentName,
-  updateComponentTransform,
-  updateComponentRobot,
-  updateAssemblyTransform,
-  removeComponent,
-  removeBridge,
   focusOn,
+  setSelection,
+  setPendingCollisionTransform,
+  clearPendingCollisionTransform,
+  handleTransformPendingChange,
   patchEditableSourceAddChild,
   patchEditableSourceDeleteSubtree,
   patchEditableSourceAddCollisionBody,
   patchEditableSourceDeleteCollisionBody,
   patchEditableSourceUpdateCollisionBody,
   patchEditableSourceUpdateJointLimit,
+  patchEditableSourceUpdateLinkInertial,
   patchEditableSourceRobotName,
   patchEditableSourceRenameEntities,
-  setSelection,
-  setPendingCollisionTransform,
-  clearPendingCollisionTransform,
-  handleTransformPendingChange,
-}: UseWorkspaceMutationsParams) {
-  const createRobotSnapshot = useCallback(() => {
-    const state = useRobotStore.getState();
-    return structuredClone({
-      name: state.name,
-      links: state.links,
-      joints: state.joints,
-      rootLinkId: state.rootLinkId,
-      materials: state.materials,
-      closedLoopConstraints: state.closedLoopConstraints,
-    });
-  }, []);
-
-  const createAssemblySnapshot = useCallback(() => {
-    return structuredClone(useRobotStore.getState().assemblyState ?? null);
-  }, []);
-  const historyScopeKey = assemblyState ? 'assembly' : 'robot';
-
+}: UseWorkspaceMutationsParams): WorkspaceMutationHandlers {
   const {
-    commitPendingRobotHistory,
-    commitPendingAssemblyHistory,
-    ensurePendingRobotHistory,
-    ensurePendingAssemblyHistory,
-    schedulePendingRobotHistoryCommit,
-    schedulePendingAssemblyHistoryCommit,
-  } = usePendingHistoryCoordinator({
-    scopeKey: historyScopeKey,
-    createRobotSnapshot,
-    createAssemblySnapshot,
-  });
+    cancelPendingHistory,
+    commitPendingHistory,
+    ensurePendingHistory,
+    schedulePendingHistoryCommit,
+  } = usePendingHistoryCoordinator();
 
-  const handleNameChange = useCallback(
-    (name: string) => {
-      if (shouldRenderAssembly && assemblyState) {
-        useRobotStore.getState().setAssembly({ ...assemblyState, name });
-        // Single-component workspace: also update the top-level robot name so
-        // the property panel and source editor reflect the rename.
-        if (Object.keys(assemblyState.components).length <= 1) {
-          setName(name);
-          patchEditableSourceRobotName?.({ name });
-        }
-      } else {
-        setName(name);
-        patchEditableSourceRobotName?.({ name });
-      }
-    },
-    [assemblyState, patchEditableSourceRobotName, setName, shouldRenderAssembly],
-  );
-
-  const scheduleAssemblyComponentJointSync = useCallback(
-    syncAssemblyComponentJointMotion,
-    [],
-  );
-
-  const renameComponentRootWithDefaults = useCallback(
+  const runPropertyMutation = useCallback(
     (
-      componentId: string,
-      nextRootNameRaw: string,
-      options?: { skipHistory?: boolean; label?: string },
-    ) => {
-      const latestAssembly = useRobotStore.getState().assemblyState;
-      if (!latestAssembly) return;
-      const component = latestAssembly.components[componentId];
-      if (!component) return;
-
-      const renamedRoot = renameComponentRobotRoot(component.robot, nextRootNameRaw);
-      if (!renamedRoot) return;
-
-      updateComponentRobot(
-        componentId,
-        { links: renamedRoot.nextLinks, joints: renamedRoot.nextJoints },
-        options,
-      );
-      updateComponentName(componentId, renamedRoot.nextRootName, options);
-      if (renamedRoot.renameOperations.length) {
-        patchEditableSourceRenameEntities?.({
-          sourceFileName: component.sourceFile,
-          operations: renamedRoot.renameOperations,
-        });
+      key: string,
+      label: string,
+      options: UpdateCommitOptions,
+      mutate: TransactionMutation,
+    ): boolean => {
+      if (options.skipHistory) {
+        commitPendingHistory();
+        return mutate('');
       }
-    },
-    [patchEditableSourceRenameEntities, updateComponentName, updateComponentRobot],
-  );
 
-  const applyUpdate = useCallback(
-    (
-      type: 'link' | 'joint' | 'tendon',
-      id: string,
-      data: UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary,
-      options: UpdateCommitOptions = {},
-    ) => {
+      const operationId = ensurePendingHistory(key, label);
+      if (!operationId) {
+        return false;
+      }
+      let changed: boolean;
+      try {
+        changed = mutate(operationId);
+      } catch (error) {
+        cancelPendingHistory(key);
+        throw error;
+      }
       const commitMode = options.commitMode ?? 'debounced';
-      if (type === 'tendon') {
-        const tendonUpdates = data as RobotMjcfInspectionTendonSummary;
-        const historyKey = options.historyKey ?? `robot:tendon:${id}`;
-        const historyLabel = options.historyLabel ?? 'Update tendon';
-
-        ensurePendingRobotHistory(historyKey, historyLabel);
-        updateMjcfTendon(
-          id,
-          {
-            rgba: tendonUpdates.rgba,
-            width: tendonUpdates.width,
-          },
-          {
-            skipHistory: true,
-            label: historyLabel,
-          },
-        );
-
-        if (commitMode === 'immediate') {
-          commitPendingRobotHistory(historyKey);
-        } else if (commitMode !== 'manual') {
-          schedulePendingRobotHistoryCommit(historyKey, options.debounceMs);
-        }
-        return;
+      if (commitMode === 'immediate') {
+        commitPendingHistory(key);
+      } else if (commitMode !== 'manual') {
+        schedulePendingHistoryCommit(key, options.debounceMs);
       }
-
-      const latestAssemblyState = useRobotStore.getState().assemblyState;
-      const robotEntityData = data as UrdfLink | UrdfJoint;
-
-      // Only route through the assembly data flow when the workspace is
-      // actually rendering the assembly. A single-robot import leaves
-      // assemblyState populated but shouldRenderAssembly=false; in that case
-      // property-panel edits must hit the top-level robot store (which the
-      // property editor reads), not the assembly component copy.
-      if (shouldRenderAssembly && latestAssemblyState) {
-        const handled = applyAssemblyUpdate({
-          type,
-          id,
-          data: robotEntityData,
-          options,
-          latestAssemblyState,
-          commitPendingAssemblyHistory,
-          ensurePendingAssemblyHistory,
-          schedulePendingAssemblyHistoryCommit,
-          updateComponentRobot,
-          updateComponentName,
-          patchEditableSourceAddCollisionBody,
-          patchEditableSourceDeleteCollisionBody,
-          patchEditableSourceUpdateCollisionBody,
-          patchEditableSourceUpdateJointLimit,
-          patchEditableSourceRenameEntities,
-        });
-        if (handled) {
-          // For a single-component workspace (one imported robot rendered
-          // through the assembly path), the property panel still reads the
-          // top-level robot store. Mirror the edit there too so the panel
-          // reflects it immediately instead of reverting on the next
-          // selection change. True multi-robot assemblies are unaffected
-          // because their links do not exist in the top-level store.
-          const componentCount = Object.keys(latestAssemblyState.components).length;
-          if (componentCount <= 1) {
-            if (type === 'link' && robotLinks[id]) {
-              updateLink(id, data as Partial<UrdfLink>, {
-                skipHistory: true,
-                label: 'Mirror edit to top-level store',
-              });
-            } else if (type === 'joint') {
-              const resolvedJointId = resolveJointKey(useRobotStore.getState().joints, id);
-              if (resolvedJointId) {
-                updateJoint(resolvedJointId, data as Partial<UrdfJoint>, {
-                  skipHistory: true,
-                  label: 'Mirror edit to top-level store',
-                });
-              }
-            }
-          }
-          return;
-        }
-
-        const bridge =
-          type === 'joint'
-            ? (latestAssemblyState.bridges[id] ??
-              Object.values(latestAssemblyState.bridges).find(
-                (candidate) =>
-                  candidate.joint.id === id ||
-                  candidate.name === id ||
-                  candidate.joint.name === id,
-              ))
-            : null;
-        if (type === 'joint' && bridge) {
-          const jointPatch = data as Partial<UrdfJoint>;
-          const mergedLimit = jointPatch.limit
-            ? normalizeJointLimitOrder({
-                ...(bridge.joint.limit ?? jointPatch.limit),
-                ...jointPatch.limit,
-              })
-            : bridge.joint.limit;
-          const nextJoint: UrdfJoint = {
-            ...bridge.joint,
-            ...jointPatch,
-            limit: mergedLimit,
-          };
-          const historyKey = options.historyKey ?? `assembly:bridge:${bridge.id}`;
-          const historyLabel = options.historyLabel ?? 'Update bridge joint';
-
-          ensurePendingAssemblyHistory(historyKey, historyLabel);
-          useRobotStore.getState().updateBridge(
-            bridge.id,
-            { joint: nextJoint },
-            {
-              skipHistory: true,
-              label: historyLabel,
-            },
-          );
-
-          if (commitMode === 'immediate') {
-            commitPendingAssemblyHistory(historyKey);
-          } else if (commitMode !== 'manual') {
-            schedulePendingAssemblyHistoryCommit(historyKey, options.debounceMs);
-          }
-          return;
-        }
-      }
-
-      if (type === 'link') {
-        const resolvedLinkId = resolveLinkKey(useRobotStore.getState().links, id);
-        if (resolvedLinkId) {
-          const currentLink = useRobotStore.getState().links[resolvedLinkId];
-          const nextLink = data as UrdfLink;
-          const addedCollisionPatch = currentLink
-            ? findAddedCollisionGeometryPatch(currentLink, nextLink)
-            : null;
-          const removedCollisionObjectIndex = currentLink
-            ? findRemovedCollisionGeometryObjectIndex(currentLink, nextLink)
-            : null;
-          const updatedCollisionPatch =
-            currentLink && addedCollisionPatch === null && removedCollisionObjectIndex === null
-              ? findUpdatedCollisionGeometryPatch(currentLink, nextLink)
-              : null;
-          const historyKey = options.historyKey ?? `robot:link:${resolvedLinkId}`;
-          const historyLabel = options.historyLabel ?? 'Update link';
-
-          ensurePendingRobotHistory(historyKey, historyLabel);
-          updateLink(resolvedLinkId, data as Partial<UrdfLink>, {
-            skipHistory: true,
-            label: historyLabel,
-          });
-          if (currentLink && currentLink.name !== nextLink.name) {
-            patchEditableSourceRenameEntities?.({
-              operations: [
-                {
-                  kind: 'link',
-                  currentName: currentLink.name,
-                  nextName: nextLink.name,
-                },
-              ],
-            });
-          }
-          if (currentLink && addedCollisionPatch) {
-            patchEditableSourceAddCollisionBody?.({
-              linkName: currentLink.name,
-              geometry: addedCollisionPatch.geometry,
-            });
-          }
-          if (currentLink && removedCollisionObjectIndex !== null) {
-            patchEditableSourceDeleteCollisionBody?.({
-              linkName: currentLink.name,
-              objectIndex: removedCollisionObjectIndex,
-            });
-          }
-          if (currentLink && updatedCollisionPatch) {
-            patchEditableSourceUpdateCollisionBody?.({
-              linkName: currentLink.name,
-              objectIndex: updatedCollisionPatch.objectIndex,
-              geometry: updatedCollisionPatch.geometry,
-            });
-          }
-
-          if (commitMode === 'immediate') {
-            commitPendingRobotHistory(historyKey);
-          } else if (commitMode !== 'manual') {
-            schedulePendingRobotHistoryCommit(historyKey, options.debounceMs);
-          }
-        }
-      } else {
-        const resolvedJointId = resolveJointKey(useRobotStore.getState().joints, id);
-        if (resolvedJointId) {
-          const historyKey = options.historyKey ?? `robot:joint:${resolvedJointId}`;
-          const historyLabel = options.historyLabel ?? 'Update joint';
-          const currentRobotState = useRobotStore.getState();
-          const currentJoint = currentRobotState.joints[resolvedJointId];
-          const rawJointUpdates = data as Partial<UrdfJoint>;
-          const jointUpdates =
-            currentJoint && rawJointUpdates.limit
-              ? {
-                  ...rawJointUpdates,
-                  limit: normalizeJointLimitOrder({
-                    ...(currentJoint.limit ?? rawJointUpdates.limit),
-                    ...rawJointUpdates.limit,
-                  }),
-                }
-              : rawJointUpdates;
-
-          ensurePendingRobotHistory(historyKey, historyLabel);
-          updateJoint(resolvedJointId, jointUpdates, {
-            skipHistory: true,
-            label: historyLabel,
-          });
-          if (currentJoint && jointUpdates.limit) {
-            patchEditableSourceUpdateJointLimit?.({
-              jointName: currentJoint.name,
-              jointType: jointUpdates.type ?? currentJoint.type,
-              limit: jointUpdates.limit,
-            });
-          }
-          if (
-            currentJoint &&
-            typeof jointUpdates.name === 'string' &&
-            currentJoint.name !== jointUpdates.name
-          ) {
-            patchEditableSourceRenameEntities?.({
-              operations: [
-                {
-                  kind: 'joint',
-                  currentName: currentJoint.name,
-                  nextName: jointUpdates.name,
-                },
-              ],
-            });
-          }
-
-          if (currentJoint && jointUpdates.origin) {
-            const compensation = resolveClosedLoopJointOriginCompensationDetailed(
-              currentRobotState,
-              resolvedJointId,
-              jointUpdates.origin ?? currentJoint.origin,
-            );
-
-            Object.entries(compensation.origins).forEach(([jointId, origin]) => {
-              updateJoint(
-                jointId,
-                { origin },
-                {
-                  skipHistory: true,
-                  label: historyLabel,
-                },
-              );
-            });
-
-            Object.entries(compensation.quaternions).forEach(([jointId, quaternion]) => {
-              updateJoint(
-                jointId,
-                { quaternion },
-                {
-                  skipHistory: true,
-                  label: historyLabel,
-                },
-              );
-            });
-          }
-
-          if (commitMode === 'immediate') {
-            commitPendingRobotHistory(historyKey);
-          } else if (commitMode !== 'manual') {
-            schedulePendingRobotHistoryCommit(historyKey, options.debounceMs);
-          }
-        }
-      }
+      return changed;
     },
     [
-      commitPendingAssemblyHistory,
-      commitPendingRobotHistory,
-      ensurePendingAssemblyHistory,
-      ensurePendingRobotHistory,
-      findAddedCollisionGeometryPatch,
-      renameComponentRootWithDefaults,
-      schedulePendingAssemblyHistoryCommit,
-      schedulePendingRobotHistoryCommit,
-      findRemovedCollisionGeometryObjectIndex,
-      findUpdatedCollisionGeometryPatch,
-      patchEditableSourceAddCollisionBody,
-      patchEditableSourceDeleteCollisionBody,
-      patchEditableSourceUpdateCollisionBody,
-      patchEditableSourceUpdateJointLimit,
-      patchEditableSourceRenameEntities,
-      updateComponentRobot,
-      updateJoint,
-      updateLink,
-      updateMjcfTendon,
-      shouldRenderAssembly,
+      cancelPendingHistory,
+      commitPendingHistory,
+      ensurePendingHistory,
+      schedulePendingHistoryCommit,
     ],
   );
 
-  const handleUpdate = useCallback(
-    (
-      type: 'link' | 'joint' | 'tendon',
-      id: string,
-      data: unknown,
-    ) => {
-      applyUpdate(type, id, data as UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary, {
-        commitMode: 'debounced',
-      });
+  const mutationOptions = useCallback(
+    (operationId: string, label: string, skipHistory = false) =>
+      operationId
+        ? { operationId, label }
+        : { skipHistory, label },
+    [],
+  );
+
+  const handleWorkspaceNameChange = useCallback(
+    (name: string) => {
+      commitPendingHistory();
+      useWorkspaceStore.getState().renameWorkspace(name, { label: 'Rename workspace' });
     },
-    [applyUpdate],
+    [commitPendingHistory],
+  );
+
+  const handleComponentNameChange = useCallback(
+    (ref: { type: 'component'; componentId: string }, name: string) => {
+      commitPendingHistory();
+      useWorkspaceStore
+        .getState()
+        .renameComponent(ref.componentId, name, { label: 'Rename component' });
+    },
+    [commitPendingHistory],
+  );
+
+  const handleRobotNameChange = useCallback(
+    (ref: { type: 'component'; componentId: string }, name: string) => {
+      commitPendingHistory();
+      const store = useWorkspaceStore.getState();
+      const component = store.workspace.components[ref.componentId];
+      if (!component || component.robot.name === name) {
+        return;
+      }
+      const changed = store.replaceComponentRobot(
+        ref.componentId,
+        { ...component.robot, name },
+        { label: 'Rename source robot' },
+      );
+      if (changed) {
+        patchEditableSourceRobotName?.({
+          componentId: ref.componentId,
+          expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+          name,
+        });
+        invalidateComponentDraftUnlessCurrent(ref.componentId);
+      }
+    },
+    [commitPendingHistory, patchEditableSourceRobotName],
+  );
+
+  const updateLinkProperty = useCallback(
+    (
+      ref: LinkEntityRef,
+      rawPatch: WorkspaceLinkPropertyPatch,
+      options: UpdateCommitOptions = {},
+    ) => {
+      const store = useWorkspaceStore.getState();
+      const component = store.workspace.components[ref.componentId];
+      const currentLink = component?.robot.links[ref.entityId];
+      if (!component || !currentLink) {
+        return;
+      }
+
+      const nextLink = applyLinkPatch(currentLink, rawPatch);
+      const key = options.historyKey ?? `property:${entityRefKey(ref)}`;
+      const label = options.historyLabel ?? 'Update link';
+      const changed = runPropertyMutation(key, label, options, (operationId) =>
+        useWorkspaceStore.getState().updateLink(
+          ref,
+          rawPatch,
+          mutationOptions(operationId, label, Boolean(options.skipHistory)),
+        ),
+      );
+      if (!changed) {
+        return;
+      }
+
+      const sourceTarget = {
+        componentId: ref.componentId,
+        expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+      };
+      if (currentLink.name !== nextLink.name) {
+        patchEditableSourceRenameEntities?.({
+          ...sourceTarget,
+          operations: [{
+            kind: 'link',
+            currentName: currentLink.name,
+            nextName: nextLink.name,
+          }],
+        });
+      }
+
+      const addedCollision = findAddedCollisionGeometryPatch(currentLink, nextLink);
+      const removedCollisionIndex = findRemovedCollisionGeometryObjectIndex(
+        currentLink,
+        nextLink,
+      );
+      const updatedCollision =
+        addedCollision === null && removedCollisionIndex === null
+          ? findUpdatedCollisionGeometryPatch(currentLink, nextLink)
+          : null;
+      if (addedCollision) {
+        patchEditableSourceAddCollisionBody?.({
+          ...sourceTarget,
+          linkName: currentLink.name,
+          geometry: addedCollision.geometry,
+        });
+      }
+      if (removedCollisionIndex !== null) {
+        patchEditableSourceDeleteCollisionBody?.({
+          ...sourceTarget,
+          linkName: currentLink.name,
+          objectIndex: removedCollisionIndex,
+        });
+      }
+      if (updatedCollision) {
+        patchEditableSourceUpdateCollisionBody?.({
+          ...sourceTarget,
+          linkName: currentLink.name,
+          objectIndex: updatedCollision.objectIndex,
+          geometry: updatedCollision.geometry,
+        });
+      }
+      if (
+        nextLink.inertial
+        && (
+          Object.prototype.hasOwnProperty.call(rawPatch, 'inertial')
+          || hasLinkInertialChanged(currentLink.inertial, nextLink.inertial)
+        )
+      ) {
+        patchEditableSourceUpdateLinkInertial?.({
+          ...sourceTarget,
+          linkName: currentLink.name,
+          inertial: nextLink.inertial,
+        });
+      }
+      invalidateComponentDraftUnlessCurrent(ref.componentId);
+    },
+    [
+      mutationOptions,
+      patchEditableSourceAddCollisionBody,
+      patchEditableSourceDeleteCollisionBody,
+      patchEditableSourceRenameEntities,
+      patchEditableSourceUpdateCollisionBody,
+      patchEditableSourceUpdateLinkInertial,
+      runPropertyMutation,
+    ],
+  );
+
+  const updateJointProperty = useCallback(
+    (
+      ref: JointEntityRef,
+      rawPatch: WorkspaceJointPropertyPatch,
+      options: UpdateCommitOptions,
+    ) => {
+      const store = useWorkspaceStore.getState();
+      const component = store.workspace.components[ref.componentId];
+      const currentJoint = component?.robot.joints[ref.entityId];
+      if (!component || !currentJoint) {
+        return;
+      }
+
+      const patch = rawPatch.limit
+        ? {
+            ...rawPatch,
+            limit: normalizeJointLimitOrder({
+              ...(currentJoint.limit ?? rawPatch.limit),
+              ...rawPatch.limit,
+            }),
+          }
+        : rawPatch;
+      const nextJoint = applyWorkspaceJointPropertyPatch(currentJoint, patch);
+      const key = options.historyKey ?? `property:${entityRefKey(ref)}`;
+      const label = options.historyLabel ?? 'Update joint';
+      const compensation = patch.origin
+        ? resolveClosedLoopJointOriginCompensationDetailed(
+            component.robot,
+            ref.entityId,
+            nextJoint.origin,
+          )
+        : null;
+      const changed = runPropertyMutation(key, label, options, (operationId) => {
+        const actionOptions = mutationOptions(
+          operationId,
+          label,
+          Boolean(options.skipHistory),
+        );
+        let didChange = useWorkspaceStore.getState().updateJoint(ref, patch, actionOptions);
+        Object.entries(compensation?.origins ?? {}).forEach(([jointId, origin]) => {
+          didChange = useWorkspaceStore.getState().updateJoint(
+            { type: 'joint', componentId: ref.componentId, entityId: jointId },
+            { origin },
+            actionOptions,
+          ) || didChange;
+        });
+        Object.entries(compensation?.quaternions ?? {}).forEach(
+          ([jointId, quaternion]) => {
+            didChange = useWorkspaceStore.getState().updateJoint(
+              { type: 'joint', componentId: ref.componentId, entityId: jointId },
+              { quaternion },
+              actionOptions,
+            ) || didChange;
+          },
+        );
+        return didChange;
+      });
+      if (!changed) {
+        return;
+      }
+
+      const sourceTarget = {
+        componentId: ref.componentId,
+        expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+      };
+      if (patch.limit && nextJoint.limit) {
+        patchEditableSourceUpdateJointLimit?.({
+          ...sourceTarget,
+          jointName: currentJoint.name,
+          jointType: nextJoint.type,
+          limit: nextJoint.limit,
+        });
+      }
+      if (typeof patch.name === 'string' && currentJoint.name !== patch.name) {
+        patchEditableSourceRenameEntities?.({
+          ...sourceTarget,
+          operations: [{
+            kind: 'joint',
+            currentName: currentJoint.name,
+            nextName: patch.name,
+          }],
+        });
+      }
+      invalidateComponentDraftUnlessCurrent(ref.componentId);
+    },
+    [
+      mutationOptions,
+      patchEditableSourceRenameEntities,
+      patchEditableSourceUpdateJointLimit,
+      runPropertyMutation,
+    ],
+  );
+
+  const updateTendonProperty = useCallback(
+    (
+      ref: TendonEntityRef,
+      data: RobotMjcfInspectionTendonSummary,
+      options: UpdateCommitOptions,
+    ) => {
+      const key = options.historyKey ?? `property:${entityRefKey(ref)}`;
+      const label = options.historyLabel ?? 'Update tendon';
+      const changed = runPropertyMutation(key, label, options, (operationId) =>
+        useWorkspaceStore.getState().updateTendon(
+          ref,
+          { rgba: data.rgba, width: data.width },
+          mutationOptions(operationId, label, Boolean(options.skipHistory)),
+        ),
+      );
+      if (changed) invalidateComponentDraftUnlessCurrent(ref.componentId);
+    },
+    [mutationOptions, runPropertyMutation],
+  );
+
+  const updateBridgeProperty = useCallback(
+    (
+      ref: BridgeEntityRef,
+      rawPatch: WorkspaceBridgePatch,
+      options: UpdateCommitOptions,
+    ) => {
+      const bridge = useWorkspaceStore.getState().workspace.bridges[ref.bridgeId];
+      if (!bridge) {
+        return;
+      }
+      const jointPatch = rawPatch.joint;
+      const patch = jointPatch?.limit
+        ? {
+            ...rawPatch,
+            joint: {
+              ...jointPatch,
+              limit: normalizeJointLimitOrder({
+                ...(bridge.joint.limit ?? jointPatch.limit),
+                ...jointPatch.limit,
+              }),
+            },
+          }
+        : rawPatch;
+      const key = options.historyKey ?? `property:${entityRefKey(ref)}`;
+      const label = options.historyLabel ?? 'Update bridge';
+      runPropertyMutation(key, label, options, (operationId) =>
+        useWorkspaceStore.getState().updateBridge(
+          ref.bridgeId,
+          patch,
+          mutationOptions(operationId, label, Boolean(options.skipHistory)),
+        ),
+      );
+    },
+    [mutationOptions, runPropertyMutation],
   );
 
   const {
@@ -476,506 +447,351 @@ export function useWorkspaceMutations({
     handleCollisionTransform,
     handleCollisionTransformPendingChange,
   } = useCollisionTransformHandlers({
-    robotLinks,
-    shouldRenderAssembly,
     setPendingCollisionTransform,
     clearPendingCollisionTransform,
     handleTransformPendingChange,
-    applyUpdate,
+    applyUpdate: updateLinkProperty,
   });
 
   const handleAssemblyTransform = useCallback(
-    (transform: AssemblyTransform, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState)) {
+    (
+      _ref: { type: 'assembly' },
+      transform: AssemblyTransform,
+      options: UpdateCommitOptions = {},
+    ) => {
+      const next = cloneAssemblyTransform(transform);
+      if (areAssemblyTransformsEqual(useWorkspaceStore.getState().workspace.transform, next)) {
         return;
       }
-
-      const nextTransform = cloneAssemblyTransform(transform);
-      const latestAssembly = useRobotStore.getState().assemblyState;
-      if (!latestAssembly || areAssemblyTransformsEqual(latestAssembly.transform, nextTransform)) {
-        return;
-      }
-
-      const historyKey = options.historyKey ?? 'assembly:transform';
-      const historyLabel = options.historyLabel ?? 'Transform assembly';
-      const commitMode = options.commitMode ?? 'immediate';
-
-      ensurePendingAssemblyHistory(historyKey, historyLabel);
-      updateAssemblyTransform(nextTransform, {
-        skipHistory: true,
-        label: historyLabel,
-      });
-
-      if (commitMode === 'immediate') {
-        commitPendingAssemblyHistory(historyKey);
-      } else if (commitMode !== 'manual') {
-        schedulePendingAssemblyHistoryCommit(historyKey, options.debounceMs);
-      }
+      const key = options.historyKey ?? 'transform:assembly';
+      const label = options.historyLabel ?? 'Transform assembly';
+      runPropertyMutation(
+        key,
+        label,
+        { ...options, commitMode: options.commitMode ?? 'immediate' },
+        (operationId) => useWorkspaceStore.getState().updateAssemblyTransform(
+          next,
+          mutationOptions(operationId, label, Boolean(options.skipHistory)),
+        ),
+      );
     },
-    [
-      areAssemblyTransformsEqual,
-      assemblyState,
-      commitPendingAssemblyHistory,
-      ensurePendingAssemblyHistory,
-      schedulePendingAssemblyHistoryCommit,
-      updateAssemblyTransform,
-    ],
+    [mutationOptions, runPropertyMutation],
   );
 
   const handleComponentTransform = useCallback(
-    (componentId: string, transform: AssemblyTransform, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState)) {
+    (
+      ref: { type: 'component'; componentId: string },
+      transform: AssemblyTransform,
+      options: UpdateCommitOptions = {},
+    ) => {
+      const next = cloneAssemblyTransform(transform);
+      const workspace = useWorkspaceStore.getState().workspace;
+      // A bridged child is placed by its unique incoming bridge. Callers must
+      // mutate that bridge explicitly; silently writing component.transform
+      // would create history for state that placement and export do not use.
+      if (Object.values(workspace.bridges).some(
+        (bridge) => bridge.childComponentId === ref.componentId,
+      )) {
         return;
       }
-
-      const latestAssembly = useRobotStore.getState().assemblyState;
-      const latestComponent = latestAssembly?.components[componentId];
-      if (!latestComponent) {
+      const current = workspace.components[ref.componentId]?.transform;
+      if (!current || areAssemblyTransformsEqual(current, next)) {
         return;
       }
-
-      const nextTransform = cloneAssemblyTransform(transform);
-      if (areAssemblyTransformsEqual(latestComponent.transform, nextTransform)) {
-        return;
-      }
-
-      const historyKey = options.historyKey ?? `assembly:component:${componentId}:transform`;
-      const historyLabel = options.historyLabel ?? 'Transform assembly component';
-      const commitMode = options.commitMode ?? 'immediate';
-
-      if (options.skipHistory) {
-        updateComponentTransform(componentId, nextTransform, {
-          skipHistory: true,
-          label: historyLabel,
-        });
-        return;
-      }
-
-      ensurePendingAssemblyHistory(historyKey, historyLabel);
-      updateComponentTransform(componentId, nextTransform, {
-        skipHistory: true,
-        label: historyLabel,
-      });
-
-      if (commitMode === 'immediate') {
-        commitPendingAssemblyHistory(historyKey);
-      } else if (commitMode !== 'manual') {
-        schedulePendingAssemblyHistoryCommit(historyKey, options.debounceMs);
-      }
+      const key = options.historyKey ?? `transform:${entityRefKey(ref)}`;
+      const label = options.historyLabel ?? 'Transform component';
+      runPropertyMutation(
+        key,
+        label,
+        { ...options, commitMode: options.commitMode ?? 'immediate' },
+        (operationId) => useWorkspaceStore.getState().updateComponentTransform(
+          ref.componentId,
+          next,
+          mutationOptions(operationId, label, Boolean(options.skipHistory)),
+        ),
+      );
     },
-    [
-      areAssemblyTransformsEqual,
-      assemblyState,
-      commitPendingAssemblyHistory,
-      ensurePendingAssemblyHistory,
-      schedulePendingAssemblyHistoryCommit,
-      updateComponentTransform,
-    ],
+    [mutationOptions, runPropertyMutation],
   );
 
   const handleBridgeTransform = useCallback(
-    (bridgeId: string, origin: UrdfOrigin, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState)) {
+    (
+      ref: BridgeEntityRef,
+      origin: UrdfOrigin,
+      options: UpdateCommitOptions = {},
+    ) => {
+      const bridge = useWorkspaceStore.getState().workspace.bridges[ref.bridgeId];
+      if (!bridge || originsEqual(bridge.joint.origin, origin)) {
         return;
       }
-
-      const latestAssembly = useRobotStore.getState().assemblyState;
-      const latestBridge = latestAssembly?.bridges[bridgeId];
-      if (!latestBridge) {
-        return;
-      }
-
-      const currentOrigin = latestBridge.joint.origin;
-      const sameOrigin =
-        currentOrigin.xyz.x === origin.xyz.x &&
-        currentOrigin.xyz.y === origin.xyz.y &&
-        currentOrigin.xyz.z === origin.xyz.z &&
-        currentOrigin.rpy.r === origin.rpy.r &&
-        currentOrigin.rpy.p === origin.rpy.p &&
-        currentOrigin.rpy.y === origin.rpy.y &&
-        (currentOrigin.quatXyzw?.x ?? 0) === (origin.quatXyzw?.x ?? 0) &&
-        (currentOrigin.quatXyzw?.y ?? 0) === (origin.quatXyzw?.y ?? 0) &&
-        (currentOrigin.quatXyzw?.z ?? 0) === (origin.quatXyzw?.z ?? 0) &&
-        (currentOrigin.quatXyzw?.w ?? 1) === (origin.quatXyzw?.w ?? 1);
-      if (sameOrigin) {
-        return;
-      }
-
-      const historyKey = options.historyKey ?? `assembly:bridge:${bridgeId}:transform`;
-      const historyLabel = options.historyLabel ?? 'Transform bridge joint';
-      const commitMode = options.commitMode ?? 'immediate';
-
-      ensurePendingAssemblyHistory(historyKey, historyLabel);
-      useRobotStore.getState().updateBridge(
-        bridgeId,
-        {
-          joint: {
-            ...latestBridge.joint,
-            origin,
-          },
-        },
-        {
-          skipHistory: true,
-          label: historyLabel,
-        },
+      updateBridgeProperty(
+        ref,
+        { joint: { origin } },
+        { ...options, commitMode: options.commitMode ?? 'immediate' },
       );
+    },
+    [updateBridgeProperty],
+  );
 
-      if (commitMode === 'immediate') {
-        commitPendingAssemblyHistory(historyKey);
-      } else if (commitMode !== 'manual') {
-        schedulePendingAssemblyHistoryCommit(historyKey, options.debounceMs);
+  const handleSetComponentVisibility = useCallback(
+    (ref: { type: 'component'; componentId: string }, visible: boolean) => {
+      commitPendingHistory();
+      useWorkspaceStore.getState().setComponentVisibility(
+        ref.componentId,
+        visible,
+        { label: 'Set component visibility' },
+      );
+    },
+    [commitPendingHistory],
+  );
+
+  const handleUpdate = useCallback(
+    (
+      ref: WorkspacePropertyRef,
+      data: WorkspacePropertyPatch,
+      options: UpdateCommitOptions = {},
+    ) => {
+      switch (ref.type) {
+        case 'assembly': {
+          const patch = data as WorkspaceAssemblyPropertyPatch;
+          if (typeof patch.name === 'string') handleWorkspaceNameChange(patch.name);
+          if (patch.transform) handleAssemblyTransform(ref, patch.transform, options);
+          return;
+        }
+        case 'component': {
+          const patch = data as WorkspaceComponentPropertyPatch;
+          if (typeof patch.name === 'string') handleComponentNameChange(ref, patch.name);
+          if (typeof patch.visible === 'boolean') {
+            handleSetComponentVisibility(ref, patch.visible);
+          }
+          if (patch.transform) handleComponentTransform(ref, patch.transform, options);
+          return;
+        }
+        case 'link':
+          updateLinkProperty(ref, data as WorkspaceLinkPropertyPatch, options);
+          return;
+        case 'joint':
+          updateJointProperty(ref, data as WorkspaceJointPropertyPatch, options);
+          return;
+        case 'tendon':
+          updateTendonProperty(
+            ref,
+            data as RobotMjcfInspectionTendonSummary,
+            options,
+          );
+          return;
+        case 'bridge':
+          updateBridgeProperty(ref, data as WorkspaceBridgePatch, options);
       }
     },
     [
-      assemblyState,
-      commitPendingAssemblyHistory,
-      ensurePendingAssemblyHistory,
-      schedulePendingAssemblyHistoryCommit,
+      handleAssemblyTransform,
+      handleComponentNameChange,
+      handleComponentTransform,
+      handleSetComponentVisibility,
+      handleWorkspaceNameChange,
+      updateBridgeProperty,
+      updateJointProperty,
+      updateLinkProperty,
+      updateTendonProperty,
     ],
   );
 
   const handleAddChild = useCallback(
-    (parentId: string) => {
-      if (shouldRenderAssembly && assemblyState) {
-        commitPendingAssemblyHistory();
-
-        for (const component of Object.values(assemblyState.components)) {
-          const resolvedParentId = resolveLinkKey(component.robot.links, parentId);
-          if (!resolvedParentId) continue;
-          const parentLinkName = component.robot.links[resolvedParentId]?.name;
-
-          const nextRobotState = addChildToRobot(
-            {
-              ...component.robot,
-              selection: { type: null, id: null },
-            },
-            resolvedParentId,
-          );
-          const jointId = nextRobotState.selection.id;
-          const linkId = jointId ? (nextRobotState.joints[jointId]?.childLinkId ?? null) : null;
-          const newLink = linkId ? nextRobotState.links[linkId] : null;
-          const newJoint = jointId ? nextRobotState.joints[jointId] : null;
-
-          updateComponentRobot(
-            component.id,
-            {
-              links: nextRobotState.links,
-              joints: nextRobotState.joints,
-            },
-            {
-              label: 'Add child link',
-            },
-          );
-
-          if (parentLinkName && newLink && newJoint) {
-            patchEditableSourceAddChild?.({
-              sourceFileName: component.sourceFile,
-              parentLinkName,
-              linkName: newLink.name,
-              joint: newJoint,
-            });
-          }
-
-          if (linkId) {
-            setSelection({ type: 'link', id: linkId });
-            focusOn(linkId);
-          } else if (jointId) {
-            setSelection({ type: 'joint', id: jointId });
-          }
-          // Single-component workspace: mirror the new child into the
-          // top-level robot store so the tree editor and property panel
-          // (which read the top-level store) reflect the addition.
-          if (Object.keys(assemblyState.components).length <= 1) {
-            useRobotStore.setState({
-              links: nextRobotState.links,
-              joints: nextRobotState.joints,
-            });
-          }
-          return;
-        }
-      }
-
-      commitPendingRobotHistory();
-      const parentLinkName = useRobotStore.getState().links[parentId]?.name;
-      const { linkId, jointId } = addChild(parentId);
-      const nextState = useRobotStore.getState();
-      const newLink = nextState.links[linkId];
-      const newJoint = nextState.joints[jointId];
-      if (parentLinkName && newLink && newJoint) {
-        patchEditableSourceAddChild?.({
-          parentLinkName,
-          linkName: newLink.name,
-          joint: newJoint,
-        });
-      }
-      if (linkId) {
-        setSelection({ type: 'link', id: linkId });
-        focusOn(linkId);
+    (ref: LinkEntityRef) => {
+      commitPendingHistory();
+      const store = useWorkspaceStore.getState();
+      const component = store.workspace.components[ref.componentId];
+      const parent = component?.robot.links[ref.entityId];
+      if (!component || !parent) {
         return;
       }
-
-      setSelection({ type: 'joint', id: jointId });
+      const result = store.addChild(
+        { componentId: ref.componentId, parentLinkId: ref.entityId },
+        { label: 'Add child link' },
+      );
+      if (!result) {
+        return;
+      }
+      const nextComponent = useWorkspaceStore.getState().workspace.components[ref.componentId];
+      const link = nextComponent?.robot.links[result.linkId];
+      const joint = nextComponent?.robot.joints[result.jointId];
+      if (link && joint) {
+        patchEditableSourceAddChild?.({
+          componentId: ref.componentId,
+          expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+          parentLinkName: parent.name,
+          linkName: link.name,
+          joint,
+        });
+      }
+      invalidateComponentDraftUnlessCurrent(ref.componentId);
+      const linkRef: LinkEntityRef = {
+        type: 'link',
+        componentId: ref.componentId,
+        entityId: result.linkId,
+      };
+      setSelection({ entity: linkRef });
+      focusOn(linkRef);
     },
-    [
-      addChild,
-      assemblyState,
-      commitPendingAssemblyHistory,
-      commitPendingRobotHistory,
-      focusOn,
-      patchEditableSourceAddChild,
-      setSelection,
-      shouldRenderAssembly,
-      updateComponentRobot,
-    ],
+    [commitPendingHistory, focusOn, patchEditableSourceAddChild, setSelection],
   );
 
   const handleAddCollisionBody = useCallback(
-    (parentId: string) => {
-      if (shouldRenderAssembly && assemblyState) {
-        commitPendingAssemblyHistory();
-
-        for (const component of Object.values(assemblyState.components)) {
-          const resolvedParentId = resolveLinkKey(component.robot.links, parentId);
-          if (!resolvedParentId) continue;
-
-          const parentLink = component.robot.links[resolvedParentId];
-          if (!parentLink) continue;
-
-          const updatedParentLink = appendCollisionBody(parentLink);
-          const nextCollisionEntries = getCollisionGeometryEntries(updatedParentLink);
-          const nextObjectIndex = Math.max(0, nextCollisionEntries.length - 1);
-          const newCollisionGeometry = nextCollisionEntries[nextObjectIndex]?.geometry ?? null;
-
-          updateComponentRobot(
-            component.id,
-            {
-              links: {
-                ...component.robot.links,
-                [resolvedParentId]: updatedParentLink,
-              },
-            },
-            {
-              label: 'Add collision body',
-            },
-          );
-          if (newCollisionGeometry) {
-            patchEditableSourceAddCollisionBody?.({
-              sourceFileName: component.sourceFile,
-              linkName: parentLink.name,
-              geometry: newCollisionGeometry,
-            });
-          }
-
-          setSelection({
-            type: 'link',
-            id: resolvedParentId,
-            subType: 'collision',
-            objectIndex: nextObjectIndex,
-          });
-          focusOn(resolvedParentId);
-          // Single-component workspace: mirror the collision-body change into
-          // the top-level robot store so the property panel (which reads the
-          // top-level store) reflects it immediately.
-          if (Object.keys(assemblyState.components).length <= 1 && robotLinks[resolvedParentId]) {
-            updateLink(resolvedParentId, updatedParentLink, {
-              skipHistory: true,
-              label: 'Mirror collision body edit to top-level store',
-            });
-          }
-          return;
-        }
+    (ref: LinkEntityRef) => {
+      commitPendingHistory();
+      const store = useWorkspaceStore.getState();
+      const component = store.workspace.components[ref.componentId];
+      const link = component?.robot.links[ref.entityId];
+      if (!component || !link) {
         return;
       }
-
-      const parentLink = robotLinks[parentId];
-      if (!parentLink) return;
-      const updatedParentLink = appendCollisionBody(parentLink);
-      const nextCollisionEntries = getCollisionGeometryEntries(updatedParentLink);
-      const nextObjectIndex = Math.max(0, nextCollisionEntries.length - 1);
-      const newCollisionGeometry = nextCollisionEntries[nextObjectIndex]?.geometry ?? null;
-      updateLink(parentId, updatedParentLink);
-      if (newCollisionGeometry) {
+      const updatedLink = appendCollisionBody(link);
+      if (!store.updateLink(ref, updatedLink, { label: 'Add collision body' })) {
+        return;
+      }
+      const entries = getCollisionGeometryEntries(updatedLink);
+      const objectIndex = Math.max(0, entries.length - 1);
+      const geometry = entries[objectIndex]?.geometry;
+      if (geometry) {
         patchEditableSourceAddCollisionBody?.({
-          linkName: parentLink.name,
-          geometry: newCollisionGeometry,
+          componentId: ref.componentId,
+          expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+          linkName: link.name,
+          geometry,
         });
       }
-      setSelection({
-        type: 'link',
-        id: parentId,
-        subType: 'collision',
-        objectIndex: nextObjectIndex,
-      });
-      focusOn(parentId);
+      invalidateComponentDraftUnlessCurrent(ref.componentId);
+      setSelection({ entity: ref, subType: 'collision', objectIndex });
+      focusOn(ref);
     },
     [
-      assemblyState,
-      commitPendingAssemblyHistory,
+      commitPendingHistory,
       focusOn,
       patchEditableSourceAddCollisionBody,
-      robotLinks,
       setSelection,
-      shouldRenderAssembly,
-      updateComponentRobot,
-      updateLink,
     ],
   );
 
   const handleDelete = useCallback(
-    (linkId: string) => {
-      if (shouldRenderAssembly && assemblyState) {
-        for (const component of Object.values(assemblyState.components)) {
-          if (!component.robot.links[linkId]) continue;
-          const targetLinkName = component.robot.links[linkId]?.name;
-
-          const plan = buildDeletionPlan(
-            linkId,
-            component.robot.links,
-            component.robot.joints,
-            component.robot.rootLinkId,
-          );
-          if (!plan) {
-            removeComponent(component.id);
-            setSelection({ type: null, id: null });
-            return;
-          }
-
-          const { links: nextLinks, joints: nextJoints } = applyDeletionPlan(
-            component.robot.links,
-            component.robot.joints,
-            plan,
-          );
-
-          updateComponentRobot(component.id, {
-            links: nextLinks,
-            joints: nextJoints,
-          });
-
-          if (targetLinkName) {
-            patchEditableSourceDeleteSubtree?.({
-              sourceFileName: component.sourceFile,
-              linkName: targetLinkName,
-            });
-          }
-
-          Object.values(assemblyState.bridges).forEach((bridge) => {
-            const isAffectedParent =
-              bridge.parentComponentId === component.id && plan.toDeleteLinks.has(bridge.parentLinkId);
-            const isAffectedChild =
-              bridge.childComponentId === component.id && plan.toDeleteLinks.has(bridge.childLinkId);
-            if (isAffectedParent || isAffectedChild) {
-              removeBridge(bridge.id);
-            }
-          });
-
-          setSelection({ type: null, id: null });
-          // Single-component workspace: mirror the deletion into the top-level
-          // robot store so the tree editor and property panel reflect it.
-          if (Object.keys(assemblyState.components).length <= 1) {
-            useRobotStore.setState({
-              links: nextLinks,
-              joints: nextJoints,
-            });
-          }
-          return;
-        }
+    (ref: Parameters<WorkspaceMutationHandlers['handleDelete']>[0]) => {
+      commitPendingHistory();
+      const store = useWorkspaceStore.getState();
+      const selectionBefore = useSelectionStore.getState().selection;
+      if (ref.type === 'assembly' || ref.type === 'tendon') {
         return;
       }
 
-      if (linkId === rootLinkId) return;
-      const targetLinkName = robotLinks[linkId]?.name;
-      deleteSubtree(linkId);
-      if (targetLinkName) {
-        patchEditableSourceDeleteSubtree?.({ linkName: targetLinkName });
+      let changed = false;
+      let removedComponentId: string | null = null;
+      let deletedLink: {
+        componentId: string;
+        expectedRobotSnapshotHash: string;
+        name: string;
+      } | null = null;
+      if (ref.type === 'component') {
+        changed = store.removeComponent(ref.componentId, { label: 'Remove component' });
+        if (changed) removedComponentId = ref.componentId;
+      } else if (ref.type === 'bridge') {
+        changed = store.removeBridge(ref.bridgeId, { label: 'Remove bridge' });
+      } else if (ref.type === 'joint') {
+        changed = store.deleteJoint(ref, { label: 'Delete joint' });
+      } else {
+        const component = store.workspace.components[ref.componentId];
+        const link = component?.robot.links[ref.entityId];
+        if (!component || !link) {
+          return;
+        }
+        deletedLink = {
+          componentId: ref.componentId,
+          expectedRobotSnapshotHash: createSourceSemanticRobotHash(component.robot),
+          name: link.name,
+        };
+        changed = ref.entityId === component.robot.rootLinkId
+          ? store.removeComponent(ref.componentId, { label: 'Remove component' })
+          : store.deleteSubtree(ref, { label: 'Delete subtree' });
+        if (changed && ref.entityId === component.robot.rootLinkId) {
+          removedComponentId = ref.componentId;
+        }
       }
-      setSelection({ type: null, id: null });
+      if (!changed) {
+        return;
+      }
+      if (deletedLink && !removedComponentId) {
+        patchEditableSourceDeleteSubtree?.({
+          componentId: deletedLink.componentId,
+          expectedRobotSnapshotHash: deletedLink.expectedRobotSnapshotHash,
+          linkName: deletedLink.name,
+        });
+      }
+      if (removedComponentId) {
+        useAssetsStore.getState().removeComponentSourceDraft(removedComponentId);
+      } else if ('componentId' in ref) {
+        invalidateComponentDraftUnlessCurrent(ref.componentId);
+      }
+      const nextState = useWorkspaceStore.getState();
+      setSelection(repairWorkspaceSelection(
+        nextState.workspace,
+        selectionBefore,
+        nextState.activeComponentId,
+      ));
     },
-    [
-      assemblyState,
-      deleteSubtree,
-      patchEditableSourceDeleteSubtree,
-      removeBridge,
-      removeComponent,
-      rootLinkId,
-      setSelection,
-      shouldRenderAssembly,
-      updateComponentRobot,
-    ],
-  );
-
-  const handleRenameComponent = useCallback(
-    (componentId: string, name: string) => {
-      if (!(assemblyState)) return;
-      renameComponentRootWithDefaults(componentId, name);
-    },
-    [assemblyState, renameComponentRootWithDefaults],
+    [commitPendingHistory, patchEditableSourceDeleteSubtree, setSelection],
   );
 
   const handleSetShowVisual = useCallback(
-    (target: boolean) => {
-      persistWorkspaceViewerShowVisualPreference(target);
-      setAllLinksVisibility(target);
+    (visible: boolean) => {
+      commitPendingHistory();
+      persistWorkspaceViewerShowVisualPreference(visible);
+      useWorkspaceStore.getState().setAllWorkspaceLinksVisibility(
+        visible,
+        { label: 'Toggle workspace link visibility' },
+      );
     },
-    [setAllLinksVisibility],
+    [commitPendingHistory],
   );
 
   const handleJointChange = useCallback(
-    (jointName: string, angle: number, context?: ViewerJointChangeContext) => {
-      const latestAssemblyState = useRobotStore.getState().assemblyState;
-      if (latestAssemblyState) {
-        for (const component of Object.values(latestAssemblyState.components)) {
-          const jointId = resolveJointKey(component.robot.joints, jointName);
-          if (!jointId) {
-            continue;
-          }
-
-          const contextMotion = resolveViewerJointChangeContext(
-            component.robot.joints,
-            jointName,
-            angle,
-            context,
-          );
-          if (contextMotion) {
-            scheduleAssemblyComponentJointSync(
-              component.id,
-              applyJointMotionToJoints(component.robot.joints, contextMotion),
-            );
-            return;
-          }
-
-          const solution = resolveClosedLoopDrivenJointMotion(component.robot, jointId, angle);
-          scheduleAssemblyComponentJointSync(
-            component.id,
-            applyJointMotionToJoints(component.robot.joints, solution),
-          );
-          return;
-        }
+    (
+      ref: JointEntityRef,
+      angle: number,
+      context?: Parameters<WorkspaceMutationHandlers['handleJointChange']>[2],
+    ) => {
+      const store = useWorkspaceStore.getState();
+      const joints = store.workspace.components[ref.componentId]?.robot.joints;
+      if (!joints?.[ref.entityId]) {
+        return;
       }
-
       const contextMotion = resolveViewerJointChangeContext(
-        useRobotStore.getState().joints,
-        jointName,
+        joints,
+        ref.entityId,
         angle,
         context,
       );
       if (contextMotion) {
-        applyJointKinematicOverrides(
-          {
-            angles: contextMotion.angles,
-            quaternions: contextMotion.quaternions,
-          },
-          { skipHistory: true, historyLabel: 'Update joint angle' },
+        store.setComponentJointMotion(
+          ref.componentId,
+          contextMotion.angles,
+          contextMotion.quaternions,
         );
         return;
       }
-
-      setJointAngle(jointName, angle);
+      store.setJointMotion(ref, angle);
     },
-    [applyJointKinematicOverrides, scheduleAssemblyComponentJointSync, setJointAngle],
+    [],
   );
 
+  const flushJointMotion = useCallback(() => {
+    commitPendingHistory();
+    useWorkspaceStore
+      .getState()
+      .flushPendingJointMotion({ label: 'Update joint motion' });
+  }, [commitPendingHistory]);
+
   return {
-    handleNameChange,
+    handleWorkspaceNameChange,
+    handleComponentNameChange,
+    handleRobotNameChange,
     handleUpdate,
     handleCollisionTransformPreview,
     handleCollisionTransform,
@@ -986,8 +802,9 @@ export function useWorkspaceMutations({
     handleAddChild,
     handleAddCollisionBody,
     handleDelete,
-    handleRenameComponent,
+    handleSetComponentVisibility,
     handleSetShowVisual,
     handleJointChange,
+    flushJointMotion,
   };
 }

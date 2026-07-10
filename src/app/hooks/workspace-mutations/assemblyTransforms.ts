@@ -1,4 +1,4 @@
-import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
+import { cloneAssemblyTransform } from '@/core/robot/assemblyTransformUtils';
 import type { AssemblyTransform } from '@/types';
 
 export function areAssemblyTransformsEqual(
