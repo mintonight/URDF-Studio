@@ -307,8 +307,13 @@ export function useRendererBackend(
       return;
     }
 
+    // If the load-scope key changed (e.g. because a property edit altered the
+    // memoized key), but the robot model is already mounted, still attempt the
+    // geometry patch. The load-scope guard is mainly needed while a load is in
+    // flight (robotRef.current is null then, caught above). For an already-
+    // mounted model, skipping the patch leaves the viewer stale.
     if (activeLoadScopeKeyRef.current !== loadScopeKey) {
-      return;
+      activeLoadScopeKeyRef.current = loadScopeKey;
     }
 
     const patches = detectGeometryPatches(previousLinks, nextLinks);

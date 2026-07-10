@@ -73,6 +73,16 @@ interface PatchCategoryOptions {
   targetGroup?: THREE.Object3D;
 }
 
+function applyMeshScaleToGroup(group: THREE.Object3D, geometry: LinkGeometry): void {
+  const scale = geometry.dimensions;
+  group.scale.set(
+    Number.isFinite(scale?.x) ? scale.x : 1,
+    Number.isFinite(scale?.y) ? scale.y : 1,
+    Number.isFinite(scale?.z) ? scale.z : 1,
+  );
+  group.userData.geometryDimensions = { ...geometry.dimensions };
+}
+
 function patchGeometryCategory({
   robotModel,
   linkObject,
@@ -320,6 +330,7 @@ function patchGeometryCategory({
 
       clearGroupChildren(targetGroup!);
       applyOriginToGroup(targetGroup!, geometry.origin);
+      applyMeshScaleToGroup(targetGroup!, geometry);
       targetGroup!.visible = isCollision ? showCollision : true;
       targetGroup!.add(obj);
       rebuildLinkMeshMapForLink(linkMeshMapRef, linkObject, linkName);
@@ -663,7 +674,6 @@ function canPatchGeometryInPlace(
   if (!sameGeometryStructure(previousGeometry, geometry)) return false;
   if (geometry.type === GeometryType.NONE) return false;
 
-  const dimensionsChanged = !sameVec3(previousGeometry.dimensions, geometry.dimensions);
   const colorChanged = (previousGeometry.color || '') !== (geometry.color || '');
   const authoredMaterialsChanged =
     category === 'visual' &&
@@ -682,7 +692,9 @@ function canPatchGeometryInPlace(
         (hasGeometryMeshMaterialGroups(previousGeometry) ||
           hasGeometryMeshMaterialGroups(geometry))));
 
-  if (dimensionsChanged && geometry.type === GeometryType.MESH) return false;
+  // Mesh dimension (scale) changes are patchable in place now that
+  // patchPrimitiveDimensionsInPlace handles GeometryType.MESH.
+  // (Previously this returned false to force a full reload.)
   if (colorChanged && category === 'collision') return false;
   if (authoredMaterialSlotsChanged && !canPatchVisualMaterialGroups) return false;
   if (authoredMaterialsChanged && !canPatchVisualMaterialGroups) return false;
@@ -713,6 +725,16 @@ function patchPrimitiveDimensionsInPlace(
   const dims = geometry.dimensions || DEFAULT_VEC3;
 
   switch (geometry.type) {
+    case GeometryType.MESH:
+      // Mesh dimensions encode per-axis scale factors; apply them to the
+      // mesh's parent group so runtime scale edits reflect immediately.
+      if (mesh.parent) {
+        mesh.parent.scale.set(dims.x || 1, dims.y || 1, dims.z || 1);
+        mesh.parent.userData.geometryDimensions = { ...dims };
+      } else {
+        mesh.scale.set(dims.x || 1, dims.y || 1, dims.z || 1);
+      }
+      return true;
     case GeometryType.BOX:
       if (!(mesh.geometry instanceof THREE.BoxGeometry) && mesh.geometry.type !== 'BoxGeometry') {
         const previousMeshGeometry = mesh.geometry;
