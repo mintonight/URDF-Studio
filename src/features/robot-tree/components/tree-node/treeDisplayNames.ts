@@ -1,13 +1,13 @@
 export function stripTreeDisplayNamePrefix(value: string, prefix?: string): string {
-  const normalizedPrefix = prefix?.trim();
-  if (!normalizedPrefix) {
-    return value;
-  }
+  const trimmedValue = value.trim();
+  const trimmedPrefix = prefix?.trim();
+  if (!trimmedPrefix) return trimmedValue;
 
-  const prefixedMarker = `${normalizedPrefix}_`;
-  if (!value.toLowerCase().startsWith(prefixedMarker.toLowerCase())) {
-    return value;
-  }
-
-  return value.slice(prefixedMarker.length) || value;
+  const separators = ['_', '-', ' ', ':'];
+  const matchingSeparator = separators.find((separator) =>
+    trimmedValue.startsWith(`${trimmedPrefix}${separator}`),
+  );
+  return matchingSeparator
+    ? trimmedValue.slice(trimmedPrefix.length + matchingSeparator.length)
+    : trimmedValue;
 }

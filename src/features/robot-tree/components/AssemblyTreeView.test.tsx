@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import React, { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
+import { createSingleComponentWorkspace } from '@/core/robot';
 import { translations } from '@/shared/i18n';
-import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
 import { useSelectionStore } from '@/store/selectionStore';
 import {
   DEFAULT_JOINT,
@@ -14,1023 +15,529 @@ import {
   GeometryType,
   JointType,
   type AssemblyState,
+  type EntityRef,
   type RobotData,
-  type UrdfJoint,
+  type WorkspaceSelection,
 } from '@/types';
-import { AssemblyTreeView } from './AssemblyTreeView.tsx';
+import { AssemblyTreeView, type AssemblyTreeViewProps } from './AssemblyTreeView.tsx';
+
+function createRobot(owner: string): RobotData {
+  return {
+    name: `${owner}_source_name`,
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base_link',
+        name: `${owner} base display`,
+        visualBodies: [{
+          ...structuredClone(DEFAULT_LINK.visual),
+          type: GeometryType.BOX,
+        }],
+        collisionBodies: [{
+          ...structuredClone(DEFAULT_LINK.collision),
+          type: GeometryType.SPHERE,
+        }],
+      },
+      tip_link: { ...DEFAULT_LINK, id: 'tip_link', name: `${owner} tip display` },
+    },
+    joints: {
+      hinge: {
+        ...DEFAULT_JOINT,
+        id: 'hinge',
+        name: `${owner} hinge display`,
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'tip_link',
+      },
+    },
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 0,
+        tendonCount: 1,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [],
+        tendons: [{
+          name: 'shared_tendon',
+          type: 'fixed',
+          className: owner,
+          width: 0.01,
+          rgba: [1, 1, 1, 1],
+          attachmentRefs: ['hinge'],
+          attachments: [{ type: 'joint', ref: 'hinge', coef: 1 }],
+          actuatorNames: [],
+        }],
+      },
+    },
+  };
+}
+
+function createWorkspace(multi = false): AssemblyState {
+  const workspace = createSingleComponentWorkspace(createRobot('left'), {
+    workspaceName: 'Assembly display',
+    componentId: 'left',
+    componentName: 'Left instance',
+    sourceFile: null,
+  });
+  if (!multi) return workspace;
+
+  workspace.components.right = createSingleComponentWorkspace(createRobot('right'), {
+    componentId: 'right',
+    componentName: 'Right instance',
+    sourceFile: null,
+  }).components.right;
+  workspace.bridges.mount = {
+    id: 'mount',
+    name: 'Mount bridge',
+    parentComponentId: 'left',
+    parentLinkId: 'base_link',
+    childComponentId: 'right',
+    childLinkId: 'base_link',
+    joint: {
+      ...DEFAULT_JOINT,
+      id: 'mount',
+      name: 'mount_joint',
+      type: JointType.FIXED,
+      parentLinkId: 'base_link',
+      childLinkId: 'base_link',
+    },
+  };
+  return workspace;
+}
+
+function baseProps(
+  workspace: AssemblyState,
+  overrides: Partial<AssemblyTreeViewProps> = {},
+): AssemblyTreeViewProps {
+  return {
+    workspace,
+    onAddChild: () => {},
+    onAddCollisionBody: () => {},
+    onDelete: () => {},
+    onUpdate: () => {},
+    mode: 'editor',
+    t: translations.en,
+    ...overrides,
+  };
+}
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
     pretendToBeVisual: true,
   });
-
-  (globalThis as { window?: Window }).window = dom.window as unknown as Window;
-  (globalThis as { document?: Document }).document = dom.window.document;
-  Object.defineProperty(globalThis, 'navigator', {
-    value: dom.window.navigator,
-    configurable: true,
+  Object.defineProperties(globalThis, {
+    window: { configurable: true, value: dom.window },
+    document: { configurable: true, value: dom.window.document },
+    navigator: { configurable: true, value: dom.window.navigator },
+    HTMLElement: { configurable: true, value: dom.window.HTMLElement },
+    Node: { configurable: true, value: dom.window.Node },
+    Event: { configurable: true, value: dom.window.Event },
+    MouseEvent: { configurable: true, value: dom.window.MouseEvent },
+    IS_REACT_ACT_ENVIRONMENT: { configurable: true, value: true },
   });
-
-  (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement = dom.window.HTMLElement;
-  (globalThis as { HTMLInputElement?: typeof HTMLInputElement }).HTMLInputElement =
-    dom.window.HTMLInputElement;
-  (globalThis as { Node?: typeof Node }).Node = dom.window.Node;
-  (globalThis as { Event?: typeof Event }).Event = dom.window.Event;
-  (globalThis as { KeyboardEvent?: typeof KeyboardEvent }).KeyboardEvent = dom.window.KeyboardEvent;
-  (globalThis as { MouseEvent?: typeof MouseEvent }).MouseEvent = dom.window.MouseEvent;
-  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent =
-    dom.window.PointerEvent ?? dom.window.MouseEvent;
-  (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle =
-    dom.window.getComputedStyle.bind(dom.window);
-  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
-    dom.window.requestAnimationFrame.bind(dom.window);
-  (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame =
-    dom.window.cancelAnimationFrame.bind(dom.window);
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  Object.defineProperty(dom.window.HTMLElement.prototype, 'attachEvent', {
-    value: () => {},
-    configurable: true,
-  });
-  Object.defineProperty(dom.window.HTMLElement.prototype, 'detachEvent', {
-    value: () => {},
-    configurable: true,
-  });
-
+  const htmlPrototype = dom.window.HTMLElement.prototype as typeof dom.window.HTMLElement.prototype & {
+    attachEvent?: () => void;
+    detachEvent?: () => void;
+  };
+  htmlPrototype.attachEvent = () => {};
+  htmlPrototype.detachEvent = () => {};
   return dom;
 }
 
-function createComponentRoot() {
-  const dom = installDom();
-  const container = dom.window.document.getElementById('root');
-  assert.ok(container, 'root container should exist');
-
-  const root = createRoot(container);
-  return { dom, container, root };
-}
-
-async function destroyComponentRoot(dom: JSDOM, root: Root) {
+async function click(dom: JSDOM, element: Element | null, message: string) {
+  assert.ok(element, message);
   await act(async () => {
-    root.unmount();
+    element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
   });
+}
+
+async function activateWithKey(
+  dom: JSDOM,
+  element: Element | null,
+  key: 'Enter' | ' ',
+  message: string,
+) {
+  assert.ok(element, message);
+  await act(async () => {
+    element.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key,
+    }));
+  });
+}
+
+test('single component renders the legacy robot root without exposing a component layer', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(AssemblyTreeView, baseProps(createWorkspace())),
+  );
+
+  assert.match(markup, /data-simplified="true"/);
+  assert.doesNotMatch(markup, /data-testid="assembly-tree-root"/);
+  assert.doesNotMatch(markup, /data-testid="assembly-tree-bridges"/);
+  assert.doesNotMatch(markup, /data-testid="tree-component-left"/);
+  assert.match(markup, /data-testid="tree-robot-root-left"/);
+  assert.match(markup, /rounded-md bg-element-bg px-2 py-1/);
+  assert.match(markup, /Left instance/);
+  assert.match(markup, /data-testid="tree-link-left-base_link"/);
+  assert.match(markup, /data-testid="tree-tendon-left-shared_tendon"/);
+});
+
+test('multi-component tree keeps full assembly, component and bridge hierarchy', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(AssemblyTreeView, baseProps(createWorkspace(true))),
+  );
+
+  assert.match(markup, /data-simplified="false"/);
+  assert.match(markup, /data-testid="assembly-tree-root"/);
+  assert.match(markup, /data-testid="tree-component-left"/);
+  assert.match(markup, /data-testid="tree-component-right"/);
+  assert.match(markup, /data-testid="assembly-tree-bridges"/);
+  assert.match(markup, /data-testid="tree-bridge-mount"/);
+});
+
+test('multi-component and bridge rows retain the legacy polished presentation', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(AssemblyTreeView, baseProps(createWorkspace(true), {
+      onCreateBridge: () => {},
+    })),
+  );
+  const dom = new JSDOM(markup);
+  const document = dom.window.document;
+  const componentRow = document.querySelector('[data-testid="tree-component-left"] > div');
+  const bridgeSection = document.querySelector('[data-testid="assembly-tree-bridges"] > div');
+
+  assert.ok(componentRow, 'component row');
+  assert.match(componentRow.className, /\brounded-md\b/);
+  assert.match(componentRow.className, /\btransition-all\b/);
+  assert.ok(
+    componentRow.querySelector(`[title="${translations.en.bridgedComponentLockedHint}"]`),
+    'bridged component should keep its connected-lock status icon',
+  );
+  assert.ok(bridgeSection, 'bridge section header');
+  assert.match(bridgeSection.className, /\brounded-md\b/);
+  assert.ok(
+    bridgeSection.querySelector(`button[title="${translations.en.createBridge}"]`),
+    'bridge section should keep the responsive create action',
+  );
+
   dom.window.close();
-}
-
-function createRobot(name: string, rootLinkId = 'base_link'): RobotData {
-  return {
-    name,
-    rootLinkId,
-    links: {
-      [rootLinkId]: {
-        ...DEFAULT_LINK,
-        id: rootLinkId,
-        name: rootLinkId,
-      },
-    },
-    joints: {},
-    materials: {},
-    closedLoopConstraints: [],
-  };
-}
-
-function createAssemblyState(): AssemblyState {
-  const leftRootLinkId = 'comp_left_base_link';
-  const rightRootLinkId = 'comp_right_base_link';
-  const bridgeJoint: UrdfJoint = {
-    ...DEFAULT_JOINT,
-    id: 'bridge_1',
-    name: 'bridge_alpha',
-    type: JointType.FIXED,
-    parentLinkId: leftRootLinkId,
-    childLinkId: rightRootLinkId,
-  };
-
-  return {
-    name: 'my_Robot',
-    components: {
-      comp_left: {
-        id: 'comp_left',
-        name: 'arm_module',
-        sourceFile: 'robots/arm.usd',
-        robot: createRobot('arm_module', leftRootLinkId),
-      },
-      comp_right: {
-        id: 'comp_right',
-        name: 'hand_module',
-        sourceFile: 'robots/hand.usd',
-        robot: createRobot('hand_module', rightRootLinkId),
-      },
-    },
-    bridges: {
-      bridge_1: {
-        id: 'bridge_1',
-        name: 'bridge_alpha',
-        parentComponentId: 'comp_left',
-        parentLinkId: 'base_link',
-        childComponentId: 'comp_right',
-        childLinkId: 'base_link',
-        joint: bridgeJoint,
-      },
-    },
-  };
-}
-
-function createSingleComponentAssemblyState(): AssemblyState {
-  const assemblyState = createAssemblyState();
-  return {
-    ...assemblyState,
-    components: {
-      comp_left: assemblyState.components.comp_left,
-    },
-    bridges: {},
-  };
-}
-
-function createNamespacedMjcfComponentAssemblyState(): AssemblyState {
-  return {
-    name: 't1_workspace',
-    components: {
-      comp_t1: {
-        id: 'comp_t1',
-        name: 'T1',
-        sourceFile: 'test/mujoco_menagerie-main/booster_t1/t1.xml',
-        robot: {
-          name: 'T1',
-          rootLinkId: 'comp_t1_world',
-          links: {
-            comp_t1_world: {
-              ...DEFAULT_LINK,
-              id: 'comp_t1_world',
-              name: 'world',
-              visual: {
-                ...DEFAULT_LINK.visual,
-                type: GeometryType.NONE,
-              },
-              collision: {
-                ...DEFAULT_LINK.collision,
-                type: GeometryType.NONE,
-              },
-              inertial: {
-                ...DEFAULT_LINK.inertial,
-                mass: 0,
-              },
-            },
-            comp_t1_Trunk: {
-              ...DEFAULT_LINK,
-              id: 'comp_t1_Trunk',
-              name: 't1_Trunk',
-            },
-          },
-          joints: {
-            comp_t1_joint_0: {
-              ...DEFAULT_JOINT,
-              id: 'comp_t1_joint_0',
-              name: 't1_joint_0',
-              type: JointType.FLOATING,
-              parentLinkId: 'comp_t1_world',
-              childLinkId: 'comp_t1_Trunk',
-            },
-          },
-          materials: {},
-          closedLoopConstraints: [],
-          inspectionContext: {
-            sourceFormat: 'mjcf',
-          },
-        },
-      },
-    },
-    bridges: {},
-  };
-}
-
-function findButtonByText(text: string): HTMLButtonElement | null {
-  return Array.from(document.querySelectorAll('button')).find((button) =>
-    button.textContent?.includes(text),
-  ) as HTMLButtonElement | null;
-}
-
-function findRowByTitle(container: HTMLElement, title: string): HTMLDivElement | null {
-  const node = container.querySelector(`[title="${title}"]`);
-  let current = node?.parentElement ?? null;
-  while (current && current !== container) {
-    if (current.tagName === 'DIV' && current.className.includes('cursor-pointer')) {
-      return current as HTMLDivElement;
-    }
-    current = current.parentElement;
-  }
-  return node?.closest('div') as HTMLDivElement | null;
-}
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  const prototype = input.ownerDocument.defaultView?.HTMLInputElement.prototype;
-  const valueSetter = prototype
-    ? Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-    : undefined;
-
-  assert.ok(valueSetter, 'HTMLInputElement value setter should exist');
-  valueSetter.call(input, value);
-}
-
-function getReactProps(node: Element): Record<string, unknown> {
-  const reactPropsKey = Object.keys(node).find((key) => key.startsWith('__reactProps$'));
-  assert.ok(reactPropsKey, 'React props key should exist on rendered element');
-  return (node as unknown as Record<string, unknown>)[reactPropsKey] as Record<string, unknown>;
-}
-
-function dispatchReactChange(input: HTMLInputElement, value: string) {
-  setInputValue(input, value);
-  const reactProps = getReactProps(input);
-  const onChange = reactProps.onChange;
-  assert.equal(typeof onChange, 'function', 'React onChange handler should exist');
-
-  (onChange as (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => void)({
-    target: input,
-    currentTarget: input,
-  });
-}
-
-function dispatchReactKeyDown(input: HTMLInputElement, key: string) {
-  const reactProps = getReactProps(input);
-  const onKeyDown = reactProps.onKeyDown;
-  assert.equal(typeof onKeyDown, 'function', 'React onKeyDown handler should exist');
-
-  (
-    onKeyDown as (event: {
-      key: string;
-      target: HTMLInputElement;
-      currentTarget: HTMLInputElement;
-      preventDefault: () => void;
-      stopPropagation: () => void;
-    }) => void
-  )({
-    key,
-    target: input,
-    currentTarget: input,
-    preventDefault: () => {},
-    stopPropagation: () => {},
-  });
-}
-
-function dispatchReactMouseHandler(node: Element, handlerName: 'onMouseEnter' | 'onMouseLeave') {
-  const reactProps = getReactProps(node);
-  const handler = reactProps[handlerName];
-  assert.equal(typeof handler, 'function', `React ${handlerName} handler should exist`);
-
-  (
-    handler as (event: {
-      currentTarget: Element;
-      target: Element;
-      preventDefault: () => void;
-      stopPropagation: () => void;
-    }) => void
-  )({
-    currentTarget: node,
-    target: node,
-    preventDefault: () => {},
-    stopPropagation: () => {},
-  });
-}
-
-test('AssemblyTreeView supports assembly rename and bridge context menu actions', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    const removedBridges: string[] = [];
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={(id) => {
-            removedBridges.push(id);
-          }}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    const assemblyLabel = container.querySelector('[title="my_Robot"]') as HTMLSpanElement | null;
-    assert.ok(assemblyLabel, 'assembly label should render');
-    assert.equal(
-      assemblyLabel.className.includes('uppercase'),
-      false,
-      'assembly label should not force uppercase styling',
-    );
-
-    const assemblyRow = findRowByTitle(container, 'my_Robot');
-    assert.ok(assemblyRow, 'assembly row should render');
-
-    await act(async () => {
-      assemblyRow.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', {
-          bubbles: true,
-          cancelable: true,
-          button: 2,
-          clientX: 120,
-          clientY: 72,
-        }),
-      );
-    });
-
-    const renameAssemblyButton = findButtonByText(translations.en.rename);
-    assert.ok(renameAssemblyButton, 'assembly context menu should expose rename');
-
-    await act(async () => {
-      renameAssemblyButton.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    const assemblyInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(assemblyInput, 'assembly rename input should render');
-
-    await act(async () => {
-      dispatchReactKeyDown(assemblyInput, 'Escape');
-    });
-
-    const bridgeRow = findRowByTitle(container, 'bridge_alpha');
-    assert.ok(bridgeRow, 'bridge row should render');
-
-    await act(async () => {
-      bridgeRow.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', {
-          bubbles: true,
-          cancelable: true,
-          button: 2,
-          clientX: 156,
-          clientY: 138,
-        }),
-      );
-    });
-
-    const renameBridgeButton = findButtonByText(translations.en.rename);
-    assert.ok(renameBridgeButton, 'bridge context menu should expose rename');
-
-    const deleteBridgeButton = findButtonByText(translations.en.deleteBranch);
-    assert.ok(deleteBridgeButton, 'bridge context menu should expose delete');
-
-    await act(async () => {
-      deleteBridgeButton.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    assert.deepEqual(removedBridges, ['bridge_1']);
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
 });
 
-test('AssemblyTreeView promotes components to top-level structure rows', async () => {
-  const { dom, container, root } = createComponentRoot();
+test('link, joint, and geometry rows keep legacy icons, connectors, visibility, and i18n', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(AssemblyTreeView, baseProps(createWorkspace(), {
+      showGeometryDetailsByDefault: true,
+      t: translations.zh,
+    })),
+  );
 
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    assert.doesNotMatch(
-      container.textContent ?? '',
-      /Components/,
-      'components should appear directly in the structure tree, not inside a Components folder',
-    );
-    assert.match(container.textContent ?? '', /arm_module/);
-    assert.match(container.textContent ?? '', /hand_module/);
-    assert.match(container.textContent ?? '', /Bridges/);
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
+  assert.match(markup, /data-testid="tree-connector-rail-left-base_link"/);
+  assert.match(markup, /lucide-shapes/);
+  assert.match(markup, /lucide-shield/);
+  assert.match(markup, /lucide-rotate-cw/);
+  assert.match(markup, /可视化几何/);
+  assert.match(markup, /碰撞体/);
+  assert.doesNotMatch(markup, />visual(?: \d+)?</);
+  assert.doesNotMatch(markup, />collision(?: \d+)?</);
+  assert.match(markup, /aria-label="toggle-link-visibility-left-base_link"/);
+  assert.match(markup, /aria-label="toggle-geometry-visibility-left-base_link-visual-0"/);
+  assert.match(markup, /aria-label="toggle-geometry-visibility-left-base_link-collision-0"/);
 });
 
-test('AssemblyTreeView keeps the create-bridge action visible in narrow sidebars', async () => {
-  const { dom, container, root } = createComponentRoot();
+test('legacy visibility controls keep canonical component ownership', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const updates: Array<{ ref: EntityRef; patch: unknown }> = [];
+  useSelectionStore.getState().clearSelection();
 
   try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
     await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          onCreateBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
+      root.render(React.createElement(AssemblyTreeView, baseProps(createWorkspace(), {
+        showGeometryDetailsByDefault: true,
+        onUpdate: (ref, patch) => updates.push({ ref, patch }),
+      })));
     });
 
-    const createBridgeButton = container.querySelector<HTMLButtonElement>(
-      `button[title="${translations.en.createBridge}"]`,
+    await click(
+      dom,
+      container.querySelector('[aria-label="toggle-link-visibility-left-base_link"]'),
+      'link visibility',
     );
-    assert.ok(createBridgeButton, 'create bridge button should render');
-    assert.match(
-      createBridgeButton.className,
-      /\bshrink-0\b/,
-      'create bridge action must not be squeezed out by the bridge label/count',
-    );
-
-    const buttonLabel = createBridgeButton.querySelector('span');
-    assert.ok(buttonLabel, 'create bridge button should keep a text label for wider sidebars');
-    assert.match(
-      buttonLabel.className,
-      /\bhidden\b/,
-      'narrow sidebars should keep the icon visible by hiding the text label first',
-    );
-    assert.match(
-      buttonLabel.className,
-      /@\[260px\]:inline/,
-      'button text should reappear when the sidebar has enough width',
-    );
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('AssemblyTreeView hides bridge controls when the workspace has only one component and no bridges', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createSingleComponentAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          onCreateBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    assert.doesNotMatch(container.textContent ?? '', /Bridges/);
-    assert.equal(container.querySelector(`button[title="${translations.en.createBridge}"]`), null);
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('AssemblyTreeView shows original names inside namespaced MJCF components', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createNamespacedMjcfComponentAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          onCreateBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    const expandComponentButton = container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${translations.en.expand} T1"]`,
-    );
-    assert.ok(expandComponentButton, 'component expand button should render');
-
-    await act(async () => {
-      expandComponentButton.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    assert.ok(
-      container.querySelector('[title="joint_0 · Floating"]'),
-      'component-prefixed MJCF joint names should display as their original source names',
-    );
-    assert.equal(container.querySelector('[title="t1_joint_0 · Floating"]'), null);
-    assert.equal(container.querySelector('[title="world"]'), null);
-    assert.equal(
-      Array.from(container.querySelectorAll('[title]')).some(
-        (element) => element.getAttribute('title') === 't1',
+    await click(
+      dom,
+      container.querySelector(
+        '[aria-label="toggle-geometry-visibility-left-base_link-visual-0"]',
       ),
-      false,
+      'visual visibility',
     );
-    assert.ok(container.querySelector('[title="Trunk"]'));
-    assert.equal(container.querySelector('[title="t1_Trunk"]'), null);
+    await click(
+      dom,
+      container.querySelector(
+        '[aria-label="toggle-geometry-visibility-left-base_link-collision-0"]',
+      ),
+      'collision visibility',
+    );
+
+    assert.deepEqual(
+      updates.map(({ ref }) => ref),
+      Array.from({ length: 3 }, () => ({
+        type: 'link',
+        componentId: 'left',
+        entityId: 'base_link',
+      })),
+    );
+    assert.deepEqual(updates[0]?.patch, { visible: false });
+    assert.deepEqual(updates[1]?.patch, { visual: { visible: false } });
+    assert.deepEqual(updates[2]?.patch, { collision: { visible: false } });
   } finally {
-    await destroyComponentRoot(dom, root);
+    await act(async () => root.unmount());
+    dom.window.close();
   }
 });
 
-test('AssemblyTreeView keeps component selection by default and routes component clicks to root-link picking during bridge selection', async () => {
-  const { dom, container, root } = createComponentRoot();
+test('read-only tree keeps disclosure controls but removes selection and mutation affordances', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(AssemblyTreeView, baseProps(createWorkspace(), {
+      readOnly: true,
+      showGeometryDetailsByDefault: true,
+    })),
+  );
+  const dom = new JSDOM(markup);
+  const document = dom.window.document;
+  const robotRoot = document.querySelector('[data-testid="tree-robot-root-left"]');
+  const linkRow = document.querySelector('[data-testid="tree-link-left-base_link"] > div');
+  const geometryRow = document.querySelector(
+    '[data-testid="tree-geometry-left-base_link-visual"]',
+  );
+
+  assert.ok(robotRoot);
+  assert.ok(linkRow);
+  assert.ok(geometryRow);
+  assert.equal(robotRoot.getAttribute('role'), null);
+  assert.equal(robotRoot.getAttribute('tabindex'), null);
+  assert.equal(linkRow.getAttribute('role'), null);
+  assert.equal(linkRow.getAttribute('tabindex'), null);
+  assert.equal(geometryRow.getAttribute('role'), null);
+  assert.equal(geometryRow.getAttribute('tabindex'), null);
+  assert.equal(document.querySelector('[aria-label^="toggle-link-visibility-"]'), null);
+  assert.equal(document.querySelector('[aria-label^="delete-link-"]'), null);
+
+  dom.window.close();
+});
+
+test('polished rows preserve keyboard selection and bridge disclosure', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const selections: WorkspaceSelection[] = [];
 
   try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
     await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={(type, id, subType) => {
-            useSelectionStore.getState().setSelection({ type, id, subType });
-          }}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
+      root.render(React.createElement(AssemblyTreeView, baseProps(createWorkspace(true), {
+        onSelect: (selection) => selections.push(selection),
+      })));
     });
 
-    const componentRow = findRowByTitle(container, 'arm_module');
-    assert.ok(componentRow, 'component row should render');
+    const componentRow = container.querySelector('[data-testid="tree-component-left"] > div');
+    await activateWithKey(dom, componentRow, 'Enter', 'component row');
+    assert.deepEqual(selections.at(-1), {
+      entity: { type: 'component', componentId: 'left' },
+    });
 
+    await click(
+      dom,
+      container.querySelector('[data-testid="tree-component-left"] button'),
+      'component disclosure',
+    );
+    await activateWithKey(
+      dom,
+      container.querySelector('[data-testid="tree-link-left-base_link"] > div'),
+      ' ',
+      'link row',
+    );
+    assert.deepEqual(selections.at(-1), {
+      entity: { type: 'link', componentId: 'left', entityId: 'base_link' },
+    });
+
+    await activateWithKey(
+      dom,
+      container.querySelector('[data-testid="tree-bridge-mount"]'),
+      'Enter',
+      'bridge row',
+    );
+    assert.deepEqual(selections.at(-1), { entity: { type: 'bridge', bridgeId: 'mount' } });
+
+    await activateWithKey(
+      dom,
+      container.querySelector('[data-testid="assembly-tree-bridges"] > div'),
+      ' ',
+      'bridge disclosure',
+    );
+    assert.equal(container.querySelector('[data-testid="tree-bridge-mount"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+  }
+});
+
+test('geometry bodies and CRUD callbacks keep component ownership and object indexes', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const geometrySelections: Array<{
+    ref: EntityRef;
+    subType: 'visual' | 'collision';
+    objectIndex: number | undefined;
+  }> = [];
+  const addedChildren: EntityRef[] = [];
+  const addedCollisions: EntityRef[] = [];
+  const deleted: EntityRef[] = [];
+  useSelectionStore.getState().clearSelection();
+
+  try {
     await act(async () => {
-      componentRow.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
+      root.render(React.createElement(AssemblyTreeView, baseProps(createWorkspace(), {
+        showGeometryDetailsByDefault: true,
+        onSelectGeometry: (ref, subType, objectIndex) => {
+          geometrySelections.push({ ref, subType, objectIndex });
+        },
+        onAddChild: (ref) => addedChildren.push(ref),
+        onAddCollisionBody: (ref) => addedCollisions.push(ref),
+        onDelete: (ref) => deleted.push(ref),
+      })));
     });
 
-    assert.deepEqual(useAssemblySelectionStore.getState().selection, {
-      type: 'component',
-      id: 'comp_left',
+    assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-visual"]'));
+    assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-visual-1"]'));
+    assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-collision"]'));
+    assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-collision-1"]'));
+    await click(
+      dom,
+      container.querySelector('[data-testid="tree-geometry-left-base_link-visual-1"]'),
+      'second visual',
+    );
+    assert.deepEqual(geometrySelections.at(-1), {
+      ref: { type: 'link', componentId: 'left', entityId: 'base_link' },
+      subType: 'visual',
+      objectIndex: 1,
     });
-    assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
-
-    await act(async () => {
-      useAssemblySelectionStore.getState().clearSelection();
-      useSelectionStore.getState().clearSelection();
-      useSelectionStore.getState().setInteractionGuard(() => true);
-    });
-
-    await act(async () => {
-      componentRow.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    assert.deepEqual(useAssemblySelectionStore.getState().selection, { type: null, id: null });
     assert.deepEqual(useSelectionStore.getState().selection, {
-      type: 'link',
-      id: 'comp_left_base_link',
-      subType: undefined,
+      entity: { type: 'link', componentId: 'left', entityId: 'base_link' },
+      subType: 'visual',
+      objectIndex: 1,
     });
+
+    await click(dom, container.querySelector('[aria-label="add-child-left-base_link"]'), 'add child');
+    await click(
+      dom,
+      container.querySelector('[aria-label="add-collision-left-base_link"]'),
+      'add collision',
+    );
+    await click(dom, container.querySelector('[aria-label="delete-link-left-base_link"]'), 'delete link');
+    const expectedRef = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
+    assert.deepEqual(addedChildren, [expectedRef]);
+    assert.deepEqual(addedCollisions, [expectedRef]);
+    assert.deepEqual(deleted, [expectedRef]);
   } finally {
-    await destroyComponentRoot(dom, root);
+    await act(async () => root.unmount());
+    dom.window.close();
   }
 });
 
-test('AssemblyTreeView marks bridged components with an icon-only connected lock status', async () => {
-  const { dom, container, root } = createComponentRoot();
+test('duplicate local IDs, tendon, bridge, hover, focus and updates keep explicit ownership', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const selections: WorkspaceSelection[] = [];
+  const hovers: WorkspaceSelection[] = [];
+  const focuses: EntityRef[] = [];
+  const updates: Array<{ ref: EntityRef; data: unknown }> = [];
+  useSelectionStore.getState().clearSelection();
+  useSelectionStore.getState().clearHover();
 
   try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
     await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
+      root.render(React.createElement(AssemblyTreeView, baseProps(createWorkspace(true), {
+        onSelect: (selection: WorkspaceSelection) => selections.push(selection),
+        onHover: (selection: WorkspaceSelection) => hovers.push(selection),
+        onFocus: (ref: EntityRef) => focuses.push(ref),
+        onUpdate: (ref: EntityRef, data: unknown) => updates.push({ ref, data }),
+      })));
     });
 
-    const lockedStatus = container.querySelector(
-      `[title="${translations.en.bridgedComponentLockedHint}"]`,
-    );
-    assert.ok(lockedStatus, 'bridged component locked status should render');
+    await click(dom, container.querySelector('[data-testid="tree-component-left"] button'), 'left expander');
+    await click(dom, container.querySelector('[data-testid="tree-component-right"] button'), 'right expander');
+    await click(dom, container.querySelector('[data-testid="tree-link-left-base_link"] > div'), 'left link');
+    await click(dom, container.querySelector('[data-testid="tree-link-right-base_link"] > div'), 'right link');
+    assert.deepEqual(selections.slice(-2), [
+      { entity: { type: 'link', componentId: 'left', entityId: 'base_link' } },
+      { entity: { type: 'link', componentId: 'right', entityId: 'base_link' } },
+    ]);
     assert.equal(
-      lockedStatus.textContent?.trim(),
-      '',
-      'bridged component status should not render a visible text badge',
+      useSelectionStore.getState().selection,
+      null,
+      'parent orchestration callback is authoritative when supplied',
     );
-    assert.ok(
-      lockedStatus.querySelector('.lucide-link-2'),
-      'bridged component status should use a connection icon as the primary cue',
+
+    const rightLink = container.querySelector('[data-testid="tree-link-right-base_link"] > div')!;
+    await act(async () => {
+      rightLink.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+    });
+    assert.deepEqual(hovers.at(-1), {
+      entity: { type: 'link', componentId: 'right', entityId: 'base_link' },
+    });
+
+    await click(
+      dom,
+      container.querySelector('[aria-label="focus-link-right-base_link"]'),
+      'right focus',
     );
-    assert.ok(
-      lockedStatus.querySelector('.lucide-lock-keyhole'),
-      'bridged component status should keep a lock cue for constrained motion',
+    assert.deepEqual(focuses.at(-1), {
+      type: 'link', componentId: 'right', entityId: 'base_link',
+    });
+
+    await click(dom, container.querySelector('[data-testid="tree-tendon-right-shared_tendon"]'), 'right tendon');
+    await click(dom, container.querySelector('[data-testid="tree-bridge-mount"]'), 'bridge');
+    assert.deepEqual(selections.slice(-2), [
+      { entity: { type: 'tendon', componentId: 'right', entityId: 'shared_tendon' } },
+      { entity: { type: 'bridge', bridgeId: 'mount' } },
+    ]);
+
+    await click(dom, container.querySelector('[aria-label="toggle-component-right"]'), 'visibility');
+    assert.deepEqual(updates.at(-1), {
+      ref: { type: 'component', componentId: 'right' },
+      data: { visible: false },
+    });
+
+    const rightComponentRow = container.querySelector('[data-testid="tree-component-right"] > div')!;
+    await act(async () => {
+      rightComponentRow.dispatchEvent(
+        new dom.window.MouseEvent('dblclick', { bubbles: true, cancelable: true }),
+      );
+    });
+    const renameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="rename-component-right"]',
     );
-    assert.equal(container.textContent?.includes(translations.en.bridgedComponent), false);
+    assert.ok(renameInput, 'component rename input');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        dom.window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      setter?.call(renameInput, 'Renamed instance');
+      renameInput.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }));
+    });
+    assert.deepEqual(updates.at(-1), {
+      ref: { type: 'component', componentId: 'right' },
+      data: { name: 'Renamed instance' },
+    });
+    assert.equal(createWorkspace(true).components.right.robot.name, 'right_source_name');
   } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('AssemblyTreeView highlights the owning component row when hover targets one of its links', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    const componentRow = findRowByTitle(container, 'arm_module');
-    assert.ok(componentRow, 'component row should render');
-    const hoveredRowStateClass =
-      'bg-system-blue/10 text-text-primary ring-1 ring-inset ring-system-blue/15';
-    assert.equal(componentRow.className.includes(hoveredRowStateClass), false);
-
-    await act(async () => {
-      useSelectionStore.getState().setHoveredSelection({ type: 'link', id: 'comp_left_base_link' });
-    });
-
-    assert.equal(componentRow.className.includes(hoveredRowStateClass), true);
-
-    await act(async () => {
-      useSelectionStore.getState().clearHover();
-    });
-
-    assert.equal(componentRow.className.includes(hoveredRowStateClass), false);
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('AssemblyTreeView writes an exact component root-link hover target so only the hovered component lights up', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={() => {}}
-          onRenameAssembly={() => {}}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    const leftComponentRow = findRowByTitle(container, 'arm_module');
-    const rightComponentRow = findRowByTitle(container, 'hand_module');
-    assert.ok(leftComponentRow, 'left component row should render');
-    assert.ok(rightComponentRow, 'right component row should render');
-    const hoveredRowStateClass =
-      'bg-system-blue/10 text-text-primary ring-1 ring-inset ring-system-blue/15';
-
-    await act(async () => {
-      dispatchReactMouseHandler(leftComponentRow, 'onMouseEnter');
-    });
-
-    assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
-      type: 'link',
-      id: 'comp_left_base_link',
-    });
-    assert.equal(leftComponentRow.className.includes(hoveredRowStateClass), true);
-    assert.equal(rightComponentRow.className.includes(hoveredRowStateClass), false);
-
-    await act(async () => {
-      dispatchReactMouseHandler(leftComponentRow, 'onMouseLeave');
-    });
-
-    assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('AssemblyTreeView keeps labels non-selectable while supporting component and bridge rename from double click and context menu', async () => {
-  const { dom, container, root } = createComponentRoot();
-
-  try {
-    useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
-      deferredHoveredSelection: { type: null, id: null },
-      hoverFrozen: false,
-      attentionSelection: { type: null, id: null },
-      interactionGuard: null,
-      focusTarget: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
-    });
-
-    const componentRenames: Array<{ id: string; name: string }> = [];
-    const jointUpdates: Array<{ id: string; data: unknown }> = [];
-
-    await act(async () => {
-      root.render(
-        <AssemblyTreeView
-          assemblyState={createAssemblyState()}
-          onSelect={() => {}}
-          onAddChild={() => {}}
-          onAddCollisionBody={() => {}}
-          onDelete={() => {}}
-          onUpdate={(type, id, data) => {
-            if (type === 'joint') {
-              jointUpdates.push({ id, data });
-            }
-          }}
-          onRenameAssembly={() => {}}
-          onRenameComponent={(id, name) => {
-            componentRenames.push({ id, name });
-          }}
-          onRemoveBridge={() => {}}
-          mode="editor"
-          t={translations.en}
-        />,
-      );
-    });
-
-    const treeRoot = container.firstElementChild as HTMLDivElement | null;
-    assert.ok(treeRoot, 'tree root should render');
-    assert.equal(
-      treeRoot.className.includes('select-none'),
-      true,
-      'assembly tree should disable text selection in display mode',
-    );
-
-    const componentLabel = container.querySelector(
-      '[title="arm_module"]',
-    ) as HTMLSpanElement | null;
-    assert.ok(componentLabel, 'component label should render');
-
-    await act(async () => {
-      componentLabel.dispatchEvent(
-        new dom.window.MouseEvent('dblclick', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    let renameInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(renameInput, 'component rename input should render on double click');
-    assert.equal(
-      renameInput.className.includes('select-text'),
-      true,
-      'rename input should remain selectable',
-    );
-
-    await act(async () => {
-      assert.ok(renameInput);
-      dispatchReactChange(renameInput, 'arm_module_v2');
-    });
-
-    renameInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(renameInput, 'component rename input should stay mounted after change');
-
-    await act(async () => {
-      assert.ok(renameInput);
-      dispatchReactKeyDown(renameInput, 'Enter');
-    });
-
-    assert.deepEqual(componentRenames, [{ id: 'comp_left', name: 'arm_module_v2' }]);
-
-    const bridgeLabel = container.querySelector('[title="bridge_alpha"]') as HTMLSpanElement | null;
-    assert.ok(bridgeLabel, 'bridge label should render');
-
-    await act(async () => {
-      bridgeLabel.dispatchEvent(
-        new dom.window.MouseEvent('dblclick', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    renameInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(renameInput, 'bridge rename input should render on double click');
-
-    await act(async () => {
-      assert.ok(renameInput);
-      dispatchReactChange(renameInput, 'bridge_beta');
-    });
-
-    renameInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(renameInput, 'bridge rename input should stay mounted after change');
-
-    await act(async () => {
-      assert.ok(renameInput);
-      dispatchReactKeyDown(renameInput, 'Enter');
-    });
-
-    assert.equal(jointUpdates.length, 1, 'bridge rename should update the bridge joint');
-    assert.equal(jointUpdates[0]?.id, 'bridge_1');
-    assert.equal((jointUpdates[0]?.data as UrdfJoint).name, 'bridge_beta');
-
-    const componentRow = findRowByTitle(container, 'arm_module');
-    assert.ok(componentRow, 'component row should render');
-
-    await act(async () => {
-      componentRow.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', {
-          bubbles: true,
-          cancelable: true,
-          button: 2,
-          clientX: 112,
-          clientY: 94,
-        }),
-      );
-    });
-
-    const renameMenuButton = findButtonByText(translations.en.rename);
-    assert.ok(renameMenuButton, 'component context menu should expose rename');
-
-    await act(async () => {
-      renameMenuButton.dispatchEvent(
-        new dom.window.MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    renameInput = container.querySelector('input') as HTMLInputElement | null;
-    assert.ok(renameInput, 'component rename input should also render from the context menu');
-  } finally {
-    await destroyComponentRoot(dom, root);
+    await act(async () => root.unmount());
+    dom.window.close();
   }
 });

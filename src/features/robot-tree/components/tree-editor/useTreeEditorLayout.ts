@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
-import { useUIStore } from '@/store';
+import { useUIStore } from '@/store/uiStore';
 import { usePointerResize } from '@/shared/hooks/usePointerResize';
 
 const TREE_SIDEBAR_MIN_WIDTH = 220;

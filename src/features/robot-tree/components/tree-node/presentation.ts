@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ArrowRightLeft, Lock, Move3D, Plane, RefreshCw, RotateCw } from 'lucide-react';
+
 import type { TranslationKeys } from '@/shared/i18n';
 import { JointType } from '@/types';
 
@@ -17,7 +18,7 @@ export function getJointTypeLabel(type: JointType, t: TranslationKeys): string {
     case JointType.CONTINUOUS:
       return t.jointTypeContinuous;
     case JointType.BALL:
-      return 'Ball';
+      return type;
     case JointType.PRISMATIC:
       return t.jointTypePrismatic;
     case JointType.PLANAR:
@@ -50,13 +51,6 @@ export function getJointTypeIcon(type: JointType) {
   }
 }
 
-export function scrollElementIntoView(element: HTMLElement | null) {
-  if (!element) return;
-  window.requestAnimationFrame(() => {
-    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
-}
-
 const treeRowHoverClass =
   'hover:bg-system-blue/10 hover:text-text-primary hover:ring-1 hover:ring-inset hover:ring-system-blue/15 dark:hover:bg-system-blue/20 dark:hover:ring-system-blue/25';
 const treeRowHoveredClass =
@@ -74,15 +68,9 @@ export function resolveTreeRowStateClass(
     isAttentionHighlighted: boolean;
   },
 ) {
-  if (state.isAttentionHighlighted) {
-    return `${treeRowAttentionClass} ${baseClassName}`;
-  }
-  if (state.isSelected) {
-    return `${treeRowSelectedClass} ${baseClassName}`;
-  }
-  if (state.isHovered) {
-    return `${treeRowHoveredClass} ${baseClassName}`;
-  }
+  if (state.isAttentionHighlighted) return `${treeRowAttentionClass} ${baseClassName}`;
+  if (state.isSelected) return `${treeRowSelectedClass} ${baseClassName}`;
+  if (state.isHovered) return `${treeRowHoveredClass} ${baseClassName}`;
   return `${treeRowHoverClass} ${baseClassName}`;
 }
 
@@ -111,13 +99,12 @@ export function getGeometryVisibilityButtonClass(
   active: boolean,
   options?: { inheritedHidden?: boolean },
 ): string {
-  const inheritedHidden = options?.inheritedHidden === true;
-
+  if (options?.inheritedHidden) {
+    return 'p-1 rounded transition-colors text-text-tertiary/70 hover:text-text-secondary hover:bg-element-hover ring-1 ring-inset ring-border-black/40';
+  }
   return `p-1 rounded transition-colors ${
-    inheritedHidden
-      ? 'text-text-tertiary/70 hover:text-text-secondary hover:bg-element-hover ring-1 ring-inset ring-border-black/40'
-      : active
-        ? 'text-text-tertiary hover:text-text-primary hover:bg-element-hover'
-        : 'text-text-secondary hover:text-text-primary hover:bg-element-hover'
+    active
+      ? 'text-text-tertiary hover:text-text-primary hover:bg-element-hover'
+      : 'text-text-secondary hover:text-text-primary hover:bg-element-hover'
   }`;
 }

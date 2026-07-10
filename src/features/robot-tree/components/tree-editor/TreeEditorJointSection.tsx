@@ -7,25 +7,51 @@ import { resolveActiveViewerJointKeyFromSelection } from '@/shared/utils/active_
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import { normalizeViewerJointAngleState } from '@/shared/utils/jointPanelState';
 import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
-import type { Language } from '@/store';
-import { hasJointInteractionPreview, useJointInteractionPreviewStore, useUIStore } from '@/store';
+import type { EntityRef, RobotData, WorkspaceSelection } from '@/types';
+import {
+  useJointInteractionPreviewStore,
+  type JointInteractionPreviewSnapshot,
+  type WorkspaceJointInteractionPreview,
+} from '@/store/jointInteractionPreviewStore';
+import { useUIStore, type Language } from '@/store/uiStore';
+import type {
+  WorkspaceJointPropertyPatch,
+  WorkspacePropertyPatch,
+} from '@/store/workspace/types';
 
 const TREE_EDITOR_JOINT_SECTION_KEY = 'tree_editor_joint_panel';
 
+export function resolveComponentViewerJointPreview(
+  preview: JointInteractionPreviewSnapshot,
+  componentId: string,
+): WorkspaceJointInteractionPreview | null {
+  if (preview.source !== 'viewer') {
+    return null;
+  }
+  return preview.workspaceByComponent?.[componentId] ?? null;
+}
+
+export function createTreeJointPanelScopeKey({
+  componentId,
+  sourceFilePath,
+  robot,
+}: {
+  componentId: string;
+  sourceFilePath?: string;
+  robot: Pick<RobotData, 'name' | 'rootLinkId'>;
+}): string {
+  return `${componentId}:${sourceFilePath ?? `${robot.name}:${robot.rootLinkId}`}`;
+}
+
 interface TreeEditorJointSectionProps {
-  robot: {
-    name?: string;
-    rootLinkId?: string | null;
-    selection: { id: string | null; type: string | null };
-    joints: Record<string, any>;
-    links: Record<string, any>;
-    inspectionContext?: { sourceFormat?: string | null };
-  };
+  componentId: string;
+  robot: RobotData;
+  selection: WorkspaceSelection;
   lang: Language;
-  onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  onJointAnglePreview?: (jointName: string, angle: number) => void;
-  onJointAngleChange?: (jointName: string, angle: number) => void;
+  onSelect?: (selection: WorkspaceSelection) => void;
+  onUpdate: (ref: EntityRef, patch: WorkspacePropertyPatch) => void;
+  onJointAnglePreview?: (ref: Extract<EntityRef, { type: 'joint' }>, angle: number) => void;
+  onJointAngleChange?: (ref: Extract<EntityRef, { type: 'joint' }>, angle: number) => void;
   show: boolean;
   sourceFilePath?: string;
   height: number;
@@ -59,7 +85,9 @@ function buildJointAngleSnapshot(joints: Record<string, any>) {
 }
 
 export function TreeEditorJointSection({
+  componentId,
   robot,
+  selection,
   lang,
   onSelect,
   onUpdate,
@@ -71,6 +99,18 @@ export function TreeEditorJointSection({
   isDragging = false,
 }: TreeEditorJointSectionProps) {
   const t = translations[lang];
+  const localSelection = React.useMemo(() => {
+    const ref = selection?.entity;
+    if (
+      !ref
+      || (ref.type !== 'link' && ref.type !== 'joint')
+      || ref.componentId !== componentId
+    ) {
+      return { type: null, id: null } as const;
+    }
+    return { type: ref.type, id: ref.entityId };
+  }, [componentId, selection]);
+  const localRobot = React.useMemo(() => ({ ...robot, selection: localSelection }), [localSelection, robot]);
   const jointEntries = React.useMemo(
     () => getSingleDofJointEntries(robot?.joints),
     [robot?.joints],
@@ -92,7 +132,11 @@ export function TreeEditorJointSection({
     () => buildJointAngleSnapshot(robot.joints),
     [robot.joints],
   );
-  const resetScopeKey = sourceFilePath ?? `${robot.name ?? 'robot'}:${robot.rootLinkId ?? 'root'}`;
+  const resetScopeKey = createTreeJointPanelScopeKey({
+    componentId,
+    sourceFilePath,
+    robot,
+  });
   const effectiveJointAngleSnapshot = React.useMemo(() => {
     const pendingCommittedAngles = pendingCommittedJointAnglesRef.current;
     if (
@@ -175,11 +219,12 @@ export function TreeEditorJointSection({
     const applyViewerJointPreview = (
       preview = useJointInteractionPreviewStore.getState().preview,
     ) => {
-      if (preview.source !== 'viewer' || !hasJointInteractionPreview(preview)) {
+      const componentPreview = resolveComponentViewerJointPreview(preview, componentId);
+      if (!componentPreview || Object.keys(componentPreview.jointAngles).length === 0) {
         return;
       }
 
-      const previewAngles = patchLocalJointAngles(preview.jointAngles);
+      const previewAngles = patchLocalJointAngles(componentPreview.jointAngles);
       if (Object.keys(previewAngles).length === 0) {
         return;
       }
@@ -196,14 +241,14 @@ export function TreeEditorJointSection({
     return useJointInteractionPreviewStore.subscribe((state) => {
       applyViewerJointPreview(state.preview);
     });
-  }, [patchLocalJointAngles, resetScopeKey]);
+  }, [componentId, patchLocalJointAngles, resetScopeKey]);
 
   const handleJointAnglePreview = React.useCallback(
     (jointName: string, angle: number) => {
       const jointId = patchLocalJointAngle(jointName, angle);
-      onJointAnglePreview?.(jointId, angle);
+      onJointAnglePreview?.({ type: 'joint', componentId, entityId: jointId }, angle);
     },
-    [onJointAnglePreview, patchLocalJointAngle],
+    [componentId, onJointAnglePreview, patchLocalJointAngle],
   );
 
   const handleJointAngleCommit = React.useCallback(
@@ -214,21 +259,18 @@ export function TreeEditorJointSection({
         [jointId]: angle,
       };
       pendingCommittedJointAnglesScopeRef.current = resetScopeKey;
-      onJointAngleChange?.(jointId, angle);
+      onJointAngleChange?.({ type: 'joint', componentId, entityId: jointId }, angle);
     },
-    [onJointAngleChange, patchLocalJointAngle, resetScopeKey],
+    [componentId, onJointAngleChange, patchLocalJointAngle, resetScopeKey],
   );
 
   React.useEffect(() => {
-    const nextActiveJoint = resolveActiveViewerJointKeyFromSelection(robot.joints, {
-      type: robot.selection.type as 'link' | 'joint' | 'tendon' | null,
-      id: robot.selection.id,
-    });
+    const nextActiveJoint = resolveActiveViewerJointKeyFromSelection(robot.joints, localSelection);
     const autoScroll = nextActiveJoint !== null && previousActiveJointRef.current !== nextActiveJoint;
 
     jointPanelStoreRef.current.setActiveJoint(nextActiveJoint, { autoScroll });
     previousActiveJointRef.current = nextActiveJoint;
-  }, [robot.joints, robot.selection.id, robot.selection.type]);
+  }, [localSelection, robot.joints]);
 
   const handleResetJoints = React.useCallback(() => {
     const resetAngles: Record<string, number> = {};
@@ -245,9 +287,9 @@ export function TreeEditorJointSection({
     pendingCommittedJointAnglesScopeRef.current = resetScopeKey;
 
     Object.entries(normalizedResetAngles).forEach(([jointId, nextAngle]) => {
-      onJointAngleChange?.(jointId, nextAngle);
+      onJointAngleChange?.({ type: 'joint', componentId, entityId: jointId }, nextAngle);
     });
-  }, [jointEntries, onJointAngleChange, patchLocalJointAngles, resetScopeKey]);
+  }, [componentId, jointEntries, onJointAngleChange, patchLocalJointAngles, resetScopeKey]);
 
   if (!shouldShow) {
     return null;
@@ -300,15 +342,25 @@ export function TreeEditorJointSection({
         <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden border-t border-border-black/40 bg-white py-1 dark:bg-panel-bg custom-scrollbar">
           {hasJointEntries ? (
             <JointPanelList
-              robot={robot}
+              robot={localRobot}
               angleUnit={angleUnit}
               jointPanelStore={jointPanelStoreRef.current}
               setActiveJoint={jointPanelStoreRef.current.setActiveJoint}
               handleJointAngleChange={handleJointAnglePreview}
               handleJointChangeCommit={handleJointAngleCommit}
-              onSelect={onSelect}
+              onSelect={(type: 'link' | 'joint', id: string) => {
+                onSelect?.({
+                  entity: { type, componentId, entityId: id },
+                });
+              }}
               isAdvanced={isAdvanced}
-              onUpdate={onUpdate}
+              onUpdate={(type, id, data) => {
+                if (type !== 'link' && type !== 'joint') return;
+                onUpdate(
+                  { type, componentId, entityId: id },
+                  data as WorkspaceJointPropertyPatch,
+                );
+              }}
               className="space-y-0.5 px-1 py-1"
             />
           ) : (

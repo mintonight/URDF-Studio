@@ -4,8 +4,16 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { getPrimaryTreeRenderRootLinkId, getTreeRenderRootLinkIds } from '@/core/robot';
-import type { AppMode, AssemblyState, RobotFile, RobotState, Theme } from '@/types';
+import { getPrimaryTreeRenderRootLinkId } from '@/core/robot';
+import type {
+  AppMode,
+  AssemblyComponent,
+  AssemblyState,
+  EntityRef,
+  RobotFile,
+  Theme,
+  WorkspaceSelection,
+} from '@/types';
 import { translations } from '@/shared/i18n';
 import { Button, Dialog } from '@/shared/components/ui';
 import {
@@ -14,13 +22,10 @@ import {
   isLibraryRobotExportableFormat,
   isVisibleLibraryEntry,
 } from '@/shared/utils';
-import { useRobotStore, useSelectionStore, useUIStore, type Language } from '@/store';
+import { useSelectionStore } from '@/store/selectionStore';
+import { useUIStore, type Language } from '@/store/uiStore';
+import type { WorkspacePropertyPatch } from '@/store/workspace/types';
 import { buildFileTree } from '../utils';
-import {
-  buildChildJointsByParent,
-  buildParentLinkByChild,
-  resolveTreeSelectionIdentity,
-} from '../utils/treeSelectionScope';
 import { FileTreeContextMenu } from './FileTreeContextMenu';
 import type { LibraryDeleteTarget } from './FileTreeNode';
 import { TreeEditorFileBrowserPanel } from './tree-editor/TreeEditorFileBrowserPanel';
@@ -36,21 +41,22 @@ export type LibraryRobotLoadResult =
   | 'blocked';
 
 export interface TreeEditorProps {
-  robot: RobotState;
-  onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
+  workspace: AssemblyState;
+  activeComponentId?: string | null;
+  onSelect?: (selection: WorkspaceSelection) => void;
+  onHover?: (selection: WorkspaceSelection) => void;
   onSelectGeometry?: (
-    linkId: string,
+    ref: Extract<EntityRef, { type: 'link' }>,
     subType: 'visual' | 'collision',
     objectIndex?: number,
     suppressPulse?: boolean,
     suppressAutoReveal?: boolean,
   ) => void;
-  onFocus?: (id: string) => void;
-  onAddChild: (parentId: string) => void;
-  onAddCollisionBody: (parentId: string) => void;
-  onDelete: (id: string) => void;
-  onNameChange: (name: string) => void;
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onFocus?: (ref: EntityRef) => void;
+  onAddChild: (ref: Extract<EntityRef, { type: 'link' }>) => void;
+  onAddCollisionBody: (ref: Extract<EntityRef, { type: 'link' }>) => void;
+  onDelete: (ref: EntityRef) => void;
+  onUpdate: (ref: EntityRef, patch: WorkspacePropertyPatch) => void;
   showVisual: boolean;
   setShowVisual: (show: boolean) => void;
   mode: AppMode;
@@ -66,7 +72,6 @@ export interface TreeEditorProps {
   ) => Promise<LibraryRobotLoadResult> | LibraryRobotLoadResult;
   currentFileName?: string;
   sourceFilePath?: string;
-  assemblyState?: AssemblyState | null;
   onAddComponent?: (file: RobotFile) => void;
   onDeleteLibraryFile?: (file: RobotFile) => void;
   onDeleteLibraryFolder?: (folderPath: string) => void;
@@ -77,35 +82,50 @@ export interface TreeEditorProps {
   onDeleteAllLibraryFiles?: () => void;
   onExportLibraryFile?: (file: RobotFile) => void | Promise<void>;
   onCreateBridge?: () => void;
-  onRenameAssembly?: (name: string) => void;
-  onRemoveComponent?: (id: string) => void;
-  onRemoveBridge?: (id: string) => void;
-  onRenameComponent?: (id: string, name: string) => void;
-  onSwitchToProMode?: () => void;
-  onRequestSwitchToStructure?: (
-    intent: 'direct' | 'generate' | 'skip-generate',
-  ) =>
-    | Promise<'switched' | 'needs-generate-confirm' | 'blocked'>
-    | 'switched'
-    | 'needs-generate-confirm'
-    | 'blocked';
   isReadOnly?: boolean;
   showJointPanel?: boolean;
   showStructureGraph?: boolean;
   onCloseStructureGraph?: () => void;
-  onJointAnglePreview?: (jointName: string, angle: number) => void;
-  onJointAngleChange?: (jointName: string, angle: number) => void;
+  onJointAnglePreview?: (
+    ref: Extract<EntityRef, { type: 'joint' }>,
+    angle: number,
+  ) => void;
+  onJointAngleChange?: (
+    ref: Extract<EntityRef, { type: 'joint' }>,
+    angle: number,
+  ) => void;
+}
+
+export function resolveTreeActiveComponent(
+  workspace: AssemblyState,
+  activeComponentId: string | null | undefined,
+  selection: WorkspaceSelection,
+): AssemblyComponent {
+  if (activeComponentId && workspace.components[activeComponentId]) {
+    return workspace.components[activeComponentId];
+  }
+  const ref = selection?.entity;
+  const selectedComponentId = ref && 'componentId' in ref ? ref.componentId : null;
+  if (selectedComponentId && workspace.components[selectedComponentId]) {
+    return workspace.components[selectedComponentId];
+  }
+  const component = Object.values(workspace.components)[0];
+  if (!component) {
+    throw new Error('TreeEditor requires a non-empty AssemblyState workspace');
+  }
+  return component;
 }
 
 export const TreeEditor: React.FC<TreeEditorProps> = ({
-  robot,
+  workspace,
+  activeComponentId,
   onSelect,
+  onHover,
   onSelectGeometry,
   onFocus,
   onAddChild,
   onAddCollisionBody,
   onDelete,
-  onNameChange,
   onUpdate,
   showVisual,
   setShowVisual,
@@ -119,7 +139,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   onRequestLoadRobot,
   currentFileName,
   sourceFilePath,
-  assemblyState,
   onAddComponent,
   onDeleteLibraryFile,
   onDeleteLibraryFolder,
@@ -127,10 +146,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   onDeleteAllLibraryFiles,
   onExportLibraryFile,
   onCreateBridge,
-  onRenameAssembly,
-  onRemoveComponent,
-  onRemoveBridge,
-  onRenameComponent,
   isReadOnly = false,
   showJointPanel = false,
   showStructureGraph = false,
@@ -148,12 +163,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       setStructureTreeShowGeometryDetails: state.setStructureTreeShowGeometryDetails,
     })),
   );
-  const { toggleComponentVisibility } = useRobotStore(
-    useShallow((state) => ({
-      toggleComponentVisibility: state.toggleComponentVisibility,
-    })),
-  );
-
   const {
     contentRef,
     sidebarRef,
@@ -170,7 +179,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     handleJointPanelResizeStart,
   } = useTreeEditorLayout({ hasJointPanel: showJointPanel });
 
-  const showAssemblyTools = !isReadOnly && Boolean(assemblyState);
   const showAddAsComponent = !isReadOnly && Boolean(onAddComponent);
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -186,8 +194,12 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   const [pendingLoadRobotFile, setPendingLoadRobotFile] = useState<RobotFile | null>(null);
   const [isLoadRobotDialogOpen, setIsLoadRobotDialogOpen] = useState(false);
   const [isLoadRobotPending, setIsLoadRobotPending] = useState(false);
-  const showStructureFilePath = Boolean(currentFileName);
-  const robotSelection = useSelectionStore((state) => state.selection);
+  const workspaceSelection = useSelectionStore((state) => state.selection);
+  const activeComponent = resolveTreeActiveComponent(
+    workspace,
+    activeComponentId,
+    workspaceSelection,
+  );
 
   const browserAvailableFiles = useMemo(
     () => availableFiles.filter(isVisibleLibraryEntry),
@@ -195,7 +207,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   );
   const hasVisibleJointPanel = showJointPanel;
   const fileTree = useMemo(() => buildFileTree(browserAvailableFiles), [browserAvailableFiles]);
-  const treeRobot = robot;
   const topLevelLibraryFoldersKey = useMemo(() => {
     const firstLevel = new Set<string>();
 
@@ -209,40 +220,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     return Array.from(firstLevel).sort().join('\u0000');
   }, [browserAvailableFiles]);
 
-  const childJointsByParent = useMemo<Record<string, RobotState['joints'][string][]>>(
-    () => buildChildJointsByParent(robot.joints),
-    [robot.joints],
-  );
-  const parentLinkByChild = useMemo(() => buildParentLinkByChild(robot.joints), [robot.joints]);
-  const resolvedRobotSelection = useMemo(
-    () =>
-      resolveTreeSelectionIdentity(robotSelection, {
-        links: robot.links,
-        joints: robot.joints,
-      }),
-    [robot.joints, robot.links, robotSelection],
-  );
-  const selectionBranchLinkIds = useMemo(() => {
-    const branch = new Set<string>();
-    let currentLinkId: string | null = null;
-
-    if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
-      currentLinkId = resolvedRobotSelection.id;
-    } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
-      currentLinkId = robot.joints[resolvedRobotSelection.id]?.parentLinkId ?? null;
-    }
-
-    while (currentLinkId) {
-      branch.add(currentLinkId);
-      currentLinkId = parentLinkByChild[currentLinkId] ?? null;
-    }
-
-    return branch;
-  }, [parentLinkByChild, resolvedRobotSelection.id, resolvedRobotSelection.type, robot.joints]);
-  const treeRootLinkIds = useMemo(
-    () => getTreeRenderRootLinkIds(robot),
-    [robot.joints, robot.links, robot.rootLinkId],
-  );
 
   const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => {
@@ -547,17 +524,27 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     [setShowVisual, showVisual],
   );
   const handleAddChildFromSelection = useCallback(() => {
-    let targetId = getPrimaryTreeRenderRootLinkId(robot) ?? robot.rootLinkId;
-    if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
-      targetId = resolvedRobotSelection.id;
-    } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
-      const selectedJoint = robot.joints[resolvedRobotSelection.id];
+    const ref = workspaceSelection?.entity;
+    if (ref?.type === 'link') {
+      onAddChild(ref);
+      return;
+    }
+    if (ref?.type === 'joint') {
+      const component = workspace.components[ref.componentId];
+      const selectedJoint = component?.robot.joints[ref.entityId];
       if (selectedJoint) {
-        targetId = selectedJoint.childLinkId;
+        onAddChild({
+          type: 'link',
+          componentId: ref.componentId,
+          entityId: selectedJoint.childLinkId,
+        });
+        return;
       }
     }
-    onAddChild(targetId);
-  }, [onAddChild, resolvedRobotSelection.id, resolvedRobotSelection.type, robot]);
+    const localRobot = { ...activeComponent.robot, selection: { type: null, id: null } };
+    const targetId = getPrimaryTreeRenderRootLinkId(localRobot) ?? activeComponent.robot.rootLinkId;
+    onAddChild({ type: 'link', componentId: activeComponent.id, entityId: targetId });
+  }, [activeComponent, onAddChild, workspace.components, workspaceSelection]);
 
   const actualWidth = collapsed ? 0 : width;
   const shouldFileBrowserFillSpace = false;
@@ -627,14 +614,16 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <TreeEditorJointSection
-              robot={robot}
+              componentId={activeComponent.id}
+              robot={activeComponent.robot}
+              selection={workspaceSelection}
               lang={lang}
               onSelect={onSelect}
               onUpdate={onUpdate}
               onJointAnglePreview={onJointAnglePreview}
               onJointAngleChange={onJointAngleChange}
               show={showJointPanel}
-              sourceFilePath={sourceFilePath ?? currentFileName}
+              sourceFilePath={activeComponent.sourceFile ?? sourceFilePath ?? currentFileName}
               height={jointPanelHeight}
               isDragging={isDragging}
             />
@@ -648,39 +637,30 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
               />
             )}
             <TreeEditorStructureSection
+              workspace={workspace}
+              activeComponentId={activeComponent.id}
               isOpen={isStructureOpen}
-              isAssemblyView={showAssemblyTools}
               showStructureGraph={showStructureGraph}
               onCloseStructureGraph={onCloseStructureGraph}
               structureTreeShowGeometryDetails={structureTreeShowGeometryDetails}
               showVisual={showVisual}
-              showStructureFilePath={!showAssemblyTools && showStructureFilePath}
-              currentFileName={currentFileName}
+              showStructureFilePath={Boolean(activeComponent.sourceFile ?? currentFileName)}
+              currentFileName={activeComponent.sourceFile ?? currentFileName}
               mode={mode}
-              assemblyState={assemblyState}
-              robot={treeRobot}
-              treeRootLinkIds={showAssemblyTools ? [] : treeRootLinkIds}
-              childJointsByParent={showAssemblyTools ? {} : childJointsByParent}
-              selectionBranchLinkIds={showAssemblyTools ? new Set<string>() : selectionBranchLinkIds}
               t={t}
               onToggleOpen={handleToggleStructureOpen}
               onToggleGeometryDetails={handleToggleGeometryDetails}
               onAddChildFromSelection={handleAddChildFromSelection}
               onToggleVisuals={handleToggleVisuals}
               onSelect={onSelect}
+              onHover={onHover}
               onSelectGeometry={onSelectGeometry}
               onFocus={onFocus}
               onAddChild={onAddChild}
               onAddCollisionBody={onAddCollisionBody}
               onDelete={onDelete}
               onUpdate={onUpdate}
-              onRenameAssembly={onRenameAssembly ?? onNameChange}
-              onRenameRobot={onNameChange}
-              onRemoveComponent={onRemoveComponent}
-              onRemoveBridge={onRemoveBridge}
-              onRenameComponent={onRenameComponent}
               onCreateBridge={onCreateBridge}
-              onToggleComponentVisibility={toggleComponentVisibility}
               isReadOnly={isReadOnly}
             />
           </div>
