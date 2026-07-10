@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { createDefaultWorkspace } from '@/core/robot';
+import {
+  PROJECT_ALL_FILE_CONTENTS_FILE,
+  PROJECT_ASSET_MANIFEST_FILE,
+  PROJECT_MOTOR_LIBRARY_FILE,
+  PROJECT_WORKSPACE_HISTORY_FILE,
+  PROJECT_WORKSPACE_STATE_FILE,
+} from './projectArchive.ts';
 import type { ProjectImportWorkerResponse } from './projectImportWorker.ts';
 import { createProjectImportWorkerClient } from './projectImportWorkerBridge.ts';
 
@@ -69,62 +77,53 @@ test('project import worker client hydrates blob-backed library files on success
     requestId: postedRequest.requestId,
     result: {
       manifest: {
-        version: '1.0',
-        name: 'demo_project',
-        lastModified: '2026-04-05T00:00:00.000Z',
-        ui: {},
-        workspace: {
-          selectedFile: 'robots/demo.usd',
+        version: '3.0',
+        metadata: {
+          name: 'demo_project',
+          lastModified: '2026-04-05T00:00:00.000Z',
         },
-        assets: {
-          availableFiles: [
-            {
-              name: 'robots/demo.usd',
-              format: 'usd',
-            },
-          ],
-          originalFileFormat: 'usd',
-          assetEntries: [],
+        entries: {
+          workspace: PROJECT_WORKSPACE_STATE_FILE,
+          workspaceHistory: PROJECT_WORKSPACE_HISTORY_FILE,
+          assets: PROJECT_ASSET_MANIFEST_FILE,
+          allFileContents: PROJECT_ALL_FILE_CONTENTS_FILE,
+          motorLibrary: PROJECT_MOTOR_LIBRARY_FILE,
         },
       },
-      assetFiles: [
-        {
-          name: 'robots/demo.usd',
-          blob: new Blob(['USD-BYTES'], { type: 'application/octet-stream' }),
-        },
-      ],
-      availableFiles: [
-        {
-          name: 'robots/demo.usd',
-          format: 'usd',
-          content: '',
-          blobPath: 'robots/demo.usd',
-        },
-      ],
-      allFileContents: {},
-      motorLibrary: {},
-      selectedFileName: 'robots/demo.usd',
-      originalUrdfContent: '',
-      originalFileFormat: 'usd',
-      usdPreparedExportCaches: {},
-      robotState: null,
-      robotHistory: {
+      workspace: createDefaultWorkspace('demo_project'),
+      workspaceHistory: {
         past: [],
         future: [],
+        activity: [],
       },
-      robotActivity: [],
-      assemblyState: null,
-      assemblyHistory: {
-        past: [],
-        future: [],
+      componentSourceDrafts: {},
+      assets: {
+        assetFiles: [
+          {
+            name: 'robots/demo.usd',
+            blob: new Blob(['USD-BYTES'], { type: 'application/octet-stream' }),
+          },
+        ],
+        availableFiles: [
+          {
+            name: 'robots/demo.usd',
+            format: 'usd',
+            content: '',
+            blobPath: 'robots/demo.usd',
+          },
+        ],
+        allFileContents: {},
+        motorLibrary: {},
+        selectedFileName: 'robots/demo.usd',
       },
-      assemblyActivity: [],
+      derivedCaches: { usdPreparedExportCaches: {} },
+      warnings: [],
     },
   });
 
   const result = await resultPromise;
-  assert.match(result.assets['robots/demo.usd'] ?? '', /^blob:/);
-  assert.match(result.availableFiles[0]?.blobUrl ?? '', /^blob:/);
+  assert.match(result.assets.assetUrls['robots/demo.usd'] ?? '', /^blob:/);
+  assert.match(result.assets.availableFiles[0]?.blobUrl ?? '', /^blob:/);
 });
 
 test('project import worker client rejects immediately when Worker is unavailable', async () => {

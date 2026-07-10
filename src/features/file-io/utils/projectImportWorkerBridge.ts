@@ -1,6 +1,9 @@
 import type { Language } from '@/shared/i18n';
 
-import { hydrateImportedProjectResult, type ImportResult } from './projectImport.ts';
+import {
+  hydrateImportedProjectResult,
+  type ProjectImportResult,
+} from './projectImport.ts';
 import type {
   ImportProjectWorkerRequest,
   ProjectImportWorkerResponse,
@@ -14,7 +17,7 @@ interface WorkerLike {
 }
 
 interface PendingWorkerRequest {
-  resolve: (value: ImportResult) => void;
+  resolve: (value: ProjectImportResult) => void;
   reject: (error: unknown) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
 }
@@ -27,7 +30,7 @@ interface CreateProjectImportWorkerClientOptions {
 
 interface ProjectImportWorkerClient {
   dispose: (rejectPendingWith?: unknown) => void;
-  import: (file: File, lang?: Language) => Promise<ImportResult>;
+  import: (file: File, lang?: Language) => Promise<ProjectImportResult>;
 }
 
 function createWorkerError(event: ErrorEvent | { error?: unknown; message?: string }): Error {
@@ -148,7 +151,10 @@ export function createProjectImportWorkerClient({
     return sharedWorker;
   };
 
-  const importProjectArchive = async (file: File, lang: Language = 'en'): Promise<ImportResult> => {
+  const importProjectArchive = async (
+    file: File,
+    lang: Language = 'en',
+  ): Promise<ProjectImportResult> => {
     if (workerUnavailable && sharedWorker) {
       throw new Error('Project import worker is unavailable');
     }
@@ -157,7 +163,7 @@ export function createProjectImportWorkerClient({
       throw new Error('Web Worker is not available in this environment');
     }
 
-    return new Promise<ImportResult>((resolveRequest, rejectRequest) => {
+    return new Promise<ProjectImportResult>((resolveRequest, rejectRequest) => {
       const requestId = ++requestIdCounter;
       let worker: WorkerLike;
 
@@ -202,7 +208,10 @@ export function createProjectImportWorkerClient({
 
 const sharedProjectImportWorkerClient = createProjectImportWorkerClient();
 
-export function importProjectWithWorker(file: File, lang: Language = 'en'): Promise<ImportResult> {
+export function importProjectWithWorker(
+  file: File,
+  lang: Language = 'en',
+): Promise<ProjectImportResult> {
   return sharedProjectImportWorkerClient.import(file, lang);
 }
 

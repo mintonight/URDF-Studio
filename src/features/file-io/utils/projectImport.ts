@@ -1,64 +1,105 @@
 import JSZip from 'jszip';
+
 import type { AssetFile } from '../types';
-import {
+import type {
   AssemblyState,
-  BridgeJoint,
-  JointType,
-  type JointHardwareInterface,
+  ComponentSourceDraft,
   MotorSpec,
   RobotData,
   RobotFile,
-  UsdPreparedExportCache,
-  UrdfJoint,
+  RobotState,
+  WorkspaceHistory,
 } from '@/types';
-import { translations, type Language } from '@/shared/i18n';
+import type { Language } from '@/shared/i18n';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
+import { createSourceSemanticRobotHash, normalizeComponentRobot } from '@/core/robot';
+import { parseMJCF, parseSDF, parseURDF, parseXacro } from '@/core/parsers';
+import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
+import { processMJCFIncludes } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import {
+  assertProjectArchiveEntryPath,
+  assertProjectAssetsManifest,
+  assertProjectComponentSourceDraftManifest,
+  assertProjectManifest,
+  assertProjectWorkspace,
+  assertProjectWorkspaceHistory,
   buildLibraryArchivePath,
-  PROJECT_ALL_FILE_CONTENTS_FILE,
-  PROJECT_ASSEMBLY_HISTORY_FILE,
-  PROJECT_ASSET_MANIFEST_FILE,
-  PROJECT_MOTOR_LIBRARY_FILE,
-  PROJECT_ORIGINAL_URDF_FILE,
-  PROJECT_ROBOT_HISTORY_FILE,
+  PROJECT_MANIFEST_FILE,
 } from './projectArchive';
-import type { ProjectManifest } from './projectExport';
+import type {
+  ProjectAssetsManifest,
+  ProjectDerivedCaches,
+  ProjectManifest,
+} from './projectExportTypes';
 import { readUsdPreparedExportCaches } from './projectUsdPreparedExportCaches';
 
-type ProjectActivityEntry = {
-  id: string;
-  timestamp: string;
-  label: string;
-};
-
-type ProjectHistorySnapshot<T> = {
-  present: T;
-  past: T[];
-  future: T[];
-  activity: ProjectActivityEntry[];
-};
-
-const MAX_HISTORY = 50;
-const MAX_ACTIVITY_LOG = 200;
 const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_PROJECT_ARCHIVE_ENTRIES = 10_000;
 const MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES = 1024 * 1024 * 1024;
 const MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES = 512 * 1024 * 1024;
-const MAX_PROJECT_MANIFEST_PATH_DEPTH = 32;
+
+export interface ImportedProjectLibraryFile extends Omit<RobotFile, 'blobUrl'> {
+  blobPath?: string | null;
+}
+
+export interface ImportedProjectArchiveAssets {
+  assetFiles: AssetFile[];
+  availableFiles: ImportedProjectLibraryFile[];
+  allFileContents: Record<string, string>;
+  motorLibrary: Record<string, MotorSpec[]>;
+  selectedFileName: string | null;
+}
+
+export interface ImportedProjectAssets {
+  assetUrls: Record<string, string>;
+  availableFiles: RobotFile[];
+  allFileContents: Record<string, string>;
+  motorLibrary: Record<string, MotorSpec[]>;
+  selectedFileName: string | null;
+}
+
+export interface ProjectImportWarning {
+  code: string;
+  message: string;
+  path?: string;
+}
+
+/** Worker-safe fully validated project data. Blob URLs are created only after this exists. */
+export interface ImportedProjectArchiveData {
+  manifest: ProjectManifest;
+  workspace: AssemblyState;
+  workspaceHistory: WorkspaceHistory;
+  componentSourceDrafts: Record<string, ComponentSourceDraft>;
+  assets: ImportedProjectArchiveAssets;
+  derivedCaches: ProjectDerivedCaches;
+  warnings: ProjectImportWarning[];
+}
+
+/** Canonical .usp 3.0 import API. No robot/assembly mirrors are returned. */
+export interface ProjectImportResult {
+  manifest: ProjectManifest;
+  workspace: AssemblyState;
+  workspaceHistory: WorkspaceHistory;
+  componentSourceDrafts: Record<string, ComponentSourceDraft>;
+  assets: ImportedProjectAssets;
+  derivedCaches: ProjectDerivedCaches;
+  warnings: ProjectImportWarning[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function resolveInputByteLength(file: File | Blob | ArrayBuffer | Uint8Array): number {
   if (file instanceof Blob) {
     return file.size;
   }
-
   return file.byteLength;
 }
 
 function resolveZipEntrySize(entry: JSZip.JSZipObject): number {
   const metadata = entry as JSZip.JSZipObject & {
-    _data?: {
-      uncompressedSize?: number;
-    };
+    _data?: { uncompressedSize?: number };
   };
   return Number(metadata._data?.uncompressedSize ?? 0);
 }
@@ -70,159 +111,34 @@ function assertProjectArchiveWithinLimits(
   const inputBytes = resolveInputByteLength(file);
   if (inputBytes > MAX_PROJECT_ARCHIVE_BYTES) {
     throw new Error(
-      `Project archive is too large (${inputBytes} bytes). `
-        + `Maximum: ${MAX_PROJECT_ARCHIVE_BYTES} bytes.`,
+      `Project archive is too large (${inputBytes} bytes). Maximum: ${MAX_PROJECT_ARCHIVE_BYTES} bytes.`,
     );
   }
-
-  if (!zip) {
-    return;
-  }
+  if (!zip) return;
 
   const entries = Object.values(zip.files).filter((entry) => !entry.dir);
   if (entries.length > MAX_PROJECT_ARCHIVE_ENTRIES) {
     throw new Error(
-      `Project archive contains too many files (${entries.length}). `
-        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
+      `Project archive contains too many files (${entries.length}). Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
     );
   }
 
   let extractedBytes = 0;
-  for (const entry of entries) {
+  entries.forEach((entry) => {
     const entrySize = resolveZipEntrySize(entry);
     extractedBytes += entrySize;
     if (entrySize > MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES) {
       throw new Error(
-        `Project archive entry "${entry.name}" is too large (${entrySize} bytes). `
-          + `Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
+        `Project archive entry "${entry.name}" is too large (${entrySize} bytes). Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
       );
     }
-  }
-
+  });
   if (extractedBytes > MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES) {
     throw new Error(
-      `Project archive expands to too much data (${extractedBytes} bytes). `
-        + `Maximum: ${MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES} bytes.`,
+      `Project archive expands to too much data (${extractedBytes} bytes). Maximum: ${MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES} bytes.`,
     );
   }
 }
-
-function assertProjectManifestEntryCount(count: number, label: string): void {
-  if (count > MAX_PROJECT_ARCHIVE_ENTRIES) {
-    throw new Error(
-      `Project manifest contains too many ${label} (${count}). `
-        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
-    );
-  }
-}
-
-function assertProjectManifestPathWithinLimits(path: string, label: string): void {
-  const normalizedPath = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  const parts = normalizedPath.split('/');
-  if (
-    !normalizedPath ||
-    parts.some((part) => !part || part === '..' || part.startsWith('.')) ||
-    parts.length > MAX_PROJECT_MANIFEST_PATH_DEPTH
-  ) {
-    throw new Error(
-      `Project manifest ${label} path "${path}" is invalid or nested too deeply. `
-        + `Maximum depth: ${MAX_PROJECT_MANIFEST_PATH_DEPTH}.`,
-    );
-  }
-}
-
-function assertOptionalProjectManifestPath(path: string | null | undefined, label: string): void {
-  if (path == null || path === '') {
-    return;
-  }
-
-  assertProjectManifestPathWithinLimits(path, label);
-}
-
-function assertProjectManifestWithinLimits(manifest: ProjectManifest): void {
-  const availableFiles = manifest.assets?.availableFiles ?? [];
-  const assetEntries = manifest.assets?.assetEntries ?? [];
-  assertProjectManifestEntryCount(availableFiles.length, 'library files');
-  assertProjectManifestEntryCount(assetEntries.length, 'asset entries');
-
-  availableFiles.forEach((fileInfo) =>
-    assertProjectManifestPathWithinLimits(fileInfo.name, 'library file'),
-  );
-  assetEntries.forEach((entry) => {
-    assertProjectManifestPathWithinLimits(entry.logicalPath, 'asset logical');
-    assertProjectManifestPathWithinLimits(entry.archivePath, 'asset archive');
-  });
-
-  assertOptionalProjectManifestPath(manifest.workspace?.selectedFile, 'selected file');
-  assertOptionalProjectManifestPath(manifest.assets?.allFileContentsFile, 'all file contents');
-  assertOptionalProjectManifestPath(manifest.assets?.motorLibraryFile, 'motor library');
-  assertOptionalProjectManifestPath(manifest.assets?.originalUrdfContentFile, 'original source');
-  assertOptionalProjectManifestPath(manifest.history?.robotFile, 'robot history');
-  assertOptionalProjectManifestPath(manifest.history?.assemblyFile, 'assembly history');
-  Object.values(manifest.assembly?.components ?? {}).forEach((component) =>
-    assertProjectManifestPathWithinLimits(component.sourceFile, 'assembly component source'),
-  );
-}
-
-function assertAllFileContentsWithinLimits(allFileContents: Record<string, string>): void {
-  const paths = Object.keys(allFileContents);
-  assertProjectManifestEntryCount(paths.length, 'file content records');
-  paths.forEach((path) => assertProjectManifestPathWithinLimits(path, 'file content'));
-}
-
-const clampHistoryEntries = <T>(entries: T[] | undefined): T[] =>
-  (entries ?? []).slice(-MAX_HISTORY);
-const clampFutureEntries = <T>(entries: T[] | undefined): T[] =>
-  (entries ?? []).slice(0, MAX_HISTORY);
-
-export interface ImportedProjectLibraryFile extends Omit<RobotFile, 'blobUrl'> {
-  blobPath?: string | null;
-}
-
-export interface ImportedProjectArchiveData {
-  manifest: ProjectManifest;
-  assetFiles: AssetFile[];
-  availableFiles: ImportedProjectLibraryFile[];
-  allFileContents: Record<string, string>;
-  motorLibrary: Record<string, MotorSpec[]>;
-  selectedFileName: string | null;
-  originalUrdfContent: string;
-  originalFileFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null;
-  usdPreparedExportCaches: Record<string, UsdPreparedExportCache>;
-  robotState: RobotData | null;
-  robotHistory: { past: RobotData[]; future: RobotData[] };
-  robotActivity: ProjectActivityEntry[];
-  assemblyState: AssemblyState | null;
-  assemblyHistory: { past: Array<AssemblyState | null>; future: Array<AssemblyState | null> };
-  assemblyActivity: ProjectActivityEntry[];
-}
-
-export interface ImportResult {
-  manifest: ProjectManifest;
-  assets: Record<string, string>;
-  availableFiles: RobotFile[];
-  allFileContents: Record<string, string>;
-  motorLibrary: Record<string, MotorSpec[]>;
-  selectedFileName: string | null;
-  originalUrdfContent: string;
-  originalFileFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null;
-  usdPreparedExportCaches: Record<string, UsdPreparedExportCache>;
-  robotState: RobotData | null;
-  robotHistory: { past: RobotData[]; future: RobotData[] };
-  robotActivity: ProjectActivityEntry[];
-  assemblyState: AssemblyState | null;
-  assemblyHistory: { past: Array<AssemblyState | null>; future: Array<AssemblyState | null> };
-  assemblyActivity: ProjectActivityEntry[];
-}
-
-const normalizeActivity = (
-  activity: Array<{ id?: string; timestamp?: string; label?: string }> | undefined,
-): ProjectActivityEntry[] =>
-  (activity ?? []).slice(-MAX_ACTIVITY_LOG).map((entry, index) => ({
-    id: entry.id ?? `activity_${index}`,
-    timestamp: entry.timestamp ?? new Date(0).toISOString(),
-    label: entry.label ?? 'Unknown change',
-  }));
 
 function getRequiredArchiveEntry(zip: JSZip, path: string, label: string): JSZip.JSZipObject {
   const entry = zip.file(path);
@@ -232,39 +148,27 @@ function getRequiredArchiveEntry(zip: JSZip, path: string, label: string): JSZip
   return entry;
 }
 
-function createPackedProjectAssetUrls(assetFiles: readonly AssetFile[]): Record<string, string> {
-  const assets: Record<string, string> = {};
-
-  assetFiles.forEach(({ name, blob }) => {
-    const normalizedPath = name.replace(/\\/g, '/').replace(/^\/+/, '');
-    assets[normalizedPath] = URL.createObjectURL(blob);
-  });
-
-  return assets;
-}
-
-async function readRequiredArchiveText(zip: JSZip, path: string, label: string): Promise<string> {
+async function readRequiredArchiveText(
+  zip: JSZip,
+  path: string,
+  label: string,
+  allowEmpty = false,
+): Promise<string> {
   const content = await getRequiredArchiveEntry(zip, path, label).async('string');
-  if (!content) {
+  if (!allowEmpty && content.length === 0) {
     throw new Error(`Invalid project file: required ${label} at "${path}" is empty`);
   }
   return content;
 }
 
-async function readOptionalArchiveText(zip: JSZip, path: string): Promise<string | null> {
-  const entry = zip.file(path);
-  if (!entry) {
-    return null;
-  }
-
-  return await entry.async('string');
-}
-
-async function loadRequiredJsonRecord<T>(zip: JSZip, path: string, label: string): Promise<T> {
+async function loadRequiredJson(
+  zip: JSZip,
+  path: string,
+  label: string,
+): Promise<unknown> {
   const content = await readRequiredArchiveText(zip, path, label);
-
   try {
-    return JSON.parse(content) as T;
+    return JSON.parse(content) as unknown;
   } catch (error) {
     throw new Error(`Invalid project file: failed to parse ${label} at "${path}"`, {
       cause: error,
@@ -272,120 +176,67 @@ async function loadRequiredJsonRecord<T>(zip: JSZip, path: string, label: string
   }
 }
 
-const parseBridgeXml = (xmlContent: string): Record<string, BridgeJoint> => {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
-  const bridgeNodes = xmlDoc.getElementsByTagName('bridge');
-  const bridges: Record<string, BridgeJoint> = {};
-
-  Array.from(bridgeNodes).forEach((node) => {
-    const id = node.getAttribute('id') || `bridge_${Date.now()}_${Math.random()}`;
-    const name = node.getAttribute('name') || 'unnamed_bridge';
-    const parentComponentId = node.getAttribute('parent_comp') || '';
-    const parentLinkId = node.getAttribute('parent_link') || '';
-    const childComponentId = node.getAttribute('child_comp') || '';
-    const childLinkId = node.getAttribute('child_link') || '';
-
-    const jointNode = node.getElementsByTagName('joint')[0];
-    if (!jointNode) return;
-
-    const jointName = jointNode.getAttribute('name') || 'joint';
-    const jointType = (jointNode.getAttribute('type') as JointType) || JointType.FIXED;
-
-    const originNode = jointNode.getElementsByTagName('origin')[0];
-    const xyz = originNode?.getAttribute('xyz')?.split(' ').map(Number) || [0, 0, 0];
-    const rpy = originNode?.getAttribute('rpy')?.split(' ').map(Number) || [0, 0, 0];
-    const quatXyzw = originNode?.getAttribute('quat_xyzw')?.split(' ').map(Number);
-
-    const axisNode = jointNode.getElementsByTagName('axis')[0];
-    const axisXyz = axisNode?.getAttribute('xyz')?.split(' ').map(Number) || [0, 0, 1];
-
-    const limitNode = jointNode.getElementsByTagName('limit')[0];
-    const limit = {
-      lower: Number(limitNode?.getAttribute('lower') || 0),
-      upper: Number(limitNode?.getAttribute('upper') || 0),
-      effort: Number(limitNode?.getAttribute('effort') || 0),
-      velocity: Number(limitNode?.getAttribute('velocity') || 0),
-    };
-
-    const dynamicsNode = jointNode.getElementsByTagName('dynamics')[0];
-    const dynamics = {
-      damping: Number(dynamicsNode?.getAttribute('damping') || 0),
-      friction: Number(dynamicsNode?.getAttribute('friction') || 0),
-    };
-    const hardwareNode = jointNode.getElementsByTagName('hardware')[0];
-    const hardwareInterface = hardwareNode?.getElementsByTagName('hardwareInterface')[0]
-      ?.textContent as JointHardwareInterface | null;
-
-    const joint: UrdfJoint = {
-      id,
-      name: jointName,
-      type: jointType,
-      parentLinkId,
-      childLinkId,
-      origin: {
-        xyz: { x: xyz[0], y: xyz[1], z: xyz[2] },
-        rpy: { r: rpy[0], p: rpy[1], y: rpy[2] },
-        ...(quatXyzw?.length === 4
-          ? {
-              quatXyzw: {
-                x: quatXyzw[0],
-                y: quatXyzw[1],
-                z: quatXyzw[2],
-                w: quatXyzw[3],
-              },
-            }
-          : {}),
-      },
-      axis: { x: axisXyz[0], y: axisXyz[1], z: axisXyz[2] },
-      limit,
-      dynamics,
-      hardware: {
-        armature: 0,
-        motorType: 'None',
-        motorId: '',
-        motorDirection: 1,
-        ...(hardwareInterface ? { hardwareInterface } : {}),
-      },
-    };
-
-    bridges[id] = {
-      id,
-      name,
-      parentComponentId,
-      parentLinkId,
-      childComponentId,
-      childLinkId,
-      joint,
-    };
+function assertAllFileContents(
+  value: unknown,
+): asserts value is Record<string, string> {
+  if (!isRecord(value)) {
+    throw new Error('Invalid project file: all file contents must be an object');
+  }
+  const entries = Object.entries(value);
+  if (entries.length > MAX_PROJECT_ARCHIVE_ENTRIES) {
+    throw new Error('Invalid project file: all file contents contains too many entries');
+  }
+  entries.forEach(([path, content]) => {
+    assertProjectArchiveEntryPath(path, `all file contents key ${path}`);
+    if (typeof content !== 'string') {
+      throw new Error(`Invalid project file: all file contents entry "${path}" must be text`);
+    }
   });
+}
 
-  return bridges;
-};
+function assertMotorLibrary(
+  value: unknown,
+): asserts value is Record<string, MotorSpec[]> {
+  if (!isRecord(value)) {
+    throw new Error('Invalid project file: motor library must be an object');
+  }
+  if (Object.keys(value).length > MAX_PROJECT_ARCHIVE_ENTRIES) {
+    throw new Error('Invalid project file: motor library contains too many entries');
+  }
+  Object.entries(value).forEach(([brand, motors]) => {
+    if (!Array.isArray(motors)) {
+      throw new Error(`Invalid project file: motor library entry "${brand}" must be an array`);
+    }
+    motors.forEach((motor, index) => {
+      if (!isRecord(motor)) {
+        throw new Error(
+          `Invalid project file: motor library entry "${brand}"[${index}] must be an object`,
+        );
+      }
+    });
+  });
+}
 
-const loadPackedAssetFiles = async (
+async function loadPackedAssetFiles(
   zip: JSZip,
-  manifest: ProjectManifest,
-): Promise<AssetFile[]> => {
-  const assetEntriesFromManifest =
-    manifest.assets.assetEntries ??
-    (await loadRequiredJsonRecord<Array<{ logicalPath: string; archivePath: string }>>(
-      zip,
-      PROJECT_ASSET_MANIFEST_FILE,
-      'asset manifest',
-    ));
-  if (!assetEntriesFromManifest || assetEntriesFromManifest.length === 0) {
-    return [];
-  }
-  if (assetEntriesFromManifest.length > MAX_PROJECT_ARCHIVE_ENTRIES) {
-    throw new Error(
-      `Project archive asset manifest contains too many files (${assetEntriesFromManifest.length}). `
-        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
-    );
-  }
-
+  manifest: ProjectAssetsManifest,
+): Promise<AssetFile[]> {
   const assetFiles: AssetFile[] = [];
-  for (const entry of assetEntriesFromManifest) {
+  const logicalPaths = new Set<string>();
+  const archivePaths = new Set<string>();
+
+  for (const entry of manifest.packedFiles) {
+    if (!entry.archivePath.startsWith('assets/files/')) {
+      throw new Error(
+        `Invalid project file: packed asset "${entry.logicalPath}" must be stored under assets/files/`,
+      );
+    }
+    if (logicalPaths.has(entry.logicalPath) || archivePaths.has(entry.archivePath)) {
+      throw new Error('Invalid project file: packed asset manifest contains duplicate paths');
+    }
+    logicalPaths.add(entry.logicalPath);
+    archivePaths.add(entry.archivePath);
+
     const archiveEntry = getRequiredArchiveEntry(
       zip,
       entry.archivePath,
@@ -394,192 +245,318 @@ const loadPackedAssetFiles = async (
     const entrySize = resolveZipEntrySize(archiveEntry);
     if (entrySize > MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES) {
       throw new Error(
-        `Project archive asset "${entry.logicalPath}" is too large (${entrySize} bytes). `
-          + `Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
+        `Project archive asset "${entry.logicalPath}" is too large (${entrySize} bytes). Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
       );
     }
-
-    const blob = await archiveEntry.async('blob');
-    assetFiles.push({ name: entry.logicalPath, blob });
-  }
-
-  return assetFiles;
-};
-
-const loadHistoryFile = async <T>(
-  zip: JSZip,
-  path: string | undefined,
-): Promise<ProjectHistorySnapshot<T> | null> => {
-  if (!path) return null;
-  return await loadRequiredJsonRecord<ProjectHistorySnapshot<T>>(zip, path, 'history snapshot');
-};
-
-const loadLibraryFiles = async (
-  zip: JSZip,
-  manifest: ProjectManifest,
-  assetPaths: ReadonlySet<string>,
-): Promise<ImportedProjectLibraryFile[]> => {
-  const availableFiles: ImportedProjectLibraryFile[] = [];
-
-  for (const fileInfo of manifest.assets.availableFiles ?? []) {
-    let content = '';
-
-    if (!isAssetLibraryOnlyFormat(fileInfo.format as RobotFile['format'])) {
-      const archivePath = buildLibraryArchivePath(fileInfo.name);
-      content =
-        fileInfo.format === 'usd'
-          ? // Binary USD sources are restored from packed assets, so the library
-            // placeholder may intentionally be empty.
-            await getRequiredArchiveEntry(
-              zip,
-              archivePath,
-              `library source file "${fileInfo.name}"`,
-            ).async('string')
-          : await readRequiredArchiveText(
-              zip,
-              archivePath,
-              `library source file "${fileInfo.name}"`,
-            );
-    }
-
-    availableFiles.push({
-      name: fileInfo.name,
-      content,
-      format: fileInfo.format as RobotFile['format'],
-      blobPath: assetPaths.has(fileInfo.name) ? fileInfo.name : null,
+    assetFiles.push({
+      name: entry.logicalPath,
+      blob: await archiveEntry.async('blob'),
     });
   }
+  return assetFiles;
+}
 
-  return availableFiles;
-};
+async function loadLibraryFiles(
+  zip: JSZip,
+  manifest: ProjectAssetsManifest,
+  packedAssetPaths: ReadonlySet<string>,
+): Promise<ImportedProjectLibraryFile[]> {
+  const availableFiles: ImportedProjectLibraryFile[] = [];
+  const seenNames = new Set<string>();
 
-function revokeImportedAssetUrls(assets: Record<string, string>): void {
-  Array.from(new Set(Object.values(assets))).forEach((url) => {
-    if (url.startsWith('blob:')) {
-      URL.revokeObjectURL(url);
+  for (const fileInfo of manifest.availableFiles) {
+    if (seenNames.has(fileInfo.name)) {
+      throw new Error(`Invalid project file: duplicate library file "${fileInfo.name}"`);
     }
+    seenNames.add(fileInfo.name);
+    let content = '';
+    if (!isAssetLibraryOnlyFormat(fileInfo.format)) {
+      content = await readRequiredArchiveText(
+        zip,
+        buildLibraryArchivePath(fileInfo.name),
+        `library source file "${fileInfo.name}"`,
+        fileInfo.format === 'usd',
+      );
+    }
+    availableFiles.push({
+      name: fileInfo.name,
+      format: fileInfo.format,
+      content,
+      blobPath: packedAssetPaths.has(fileInfo.name) ? fileInfo.name : null,
+    });
+  }
+  return availableFiles;
+}
+
+function toRobotData(robot: RobotState): RobotData {
+  const { selection: _selection, ...robotData } = robot;
+  return robotData;
+}
+
+function buildDraftSourceContext(
+  sourceFile: RobotFile,
+  availableFiles: readonly ImportedProjectLibraryFile[],
+  allFileContents: Record<string, string>,
+): { availableFiles: RobotFile[]; allFileContents: Record<string, string> } {
+  const contextFiles = availableFiles.map((file): RobotFile => ({
+    name: file.name,
+    format: file.format,
+    content: file.name === sourceFile.name ? sourceFile.content : file.content,
+  }));
+  if (!contextFiles.some((file) => file.name === sourceFile.name)) {
+    contextFiles.push(sourceFile);
+  }
+  return {
+    availableFiles: contextFiles,
+    allFileContents: {
+      ...allFileContents,
+      [sourceFile.name]: sourceFile.content,
+    },
+  };
+}
+
+function parseComponentSourceDraft(
+  sourceFile: RobotFile,
+  availableFiles: RobotFile[],
+  allFileContents: Record<string, string>,
+): RobotData | null {
+  const basePath = sourceFile.name.split('/').slice(0, -1).join('/');
+  let parsed: RobotState | null = null;
+  switch (sourceFile.format) {
+    case 'urdf':
+      parsed = parseURDF(sourceFile.content);
+      break;
+    case 'mjcf':
+      parsed = parseMJCF(processMJCFIncludes(sourceFile.content, availableFiles, basePath));
+      break;
+    case 'sdf':
+      parsed = parseSDF(sourceFile.content, {
+        allFileContents,
+        availableFiles,
+        sourcePath: sourceFile.name,
+      });
+      break;
+    case 'xacro': {
+      const fileMap = Object.fromEntries(
+        availableFiles.map((file) => [file.name, file.content]),
+      );
+      parsed = parseXacro(
+        sourceFile.content,
+        {},
+        { ...allFileContents, ...fileMap, [sourceFile.name]: sourceFile.content },
+        basePath,
+      );
+      break;
+    }
+    default:
+      return null;
+  }
+  if (!parsed) return null;
+  return normalizeComponentRobot(
+    toRobotData(rewriteRobotMeshPathsForSource(parsed, sourceFile.name)),
+  );
+}
+
+async function loadComponentSourceDrafts(
+  zip: JSZip,
+  manifestPath: string | undefined,
+  workspace: AssemblyState,
+  availableFiles: readonly ImportedProjectLibraryFile[],
+  allFileContents: Record<string, string>,
+): Promise<Record<string, ComponentSourceDraft>> {
+  if (!manifestPath) return {};
+
+  const manifestValue = await loadRequiredJson(
+    zip,
+    manifestPath,
+    'component source draft manifest',
+  );
+  assertProjectComponentSourceDraftManifest(manifestValue, workspace);
+
+  const drafts: Record<string, ComponentSourceDraft> = {};
+  for (const entry of manifestValue.drafts) {
+    if (entry.format === 'usd') {
+      throw new Error(
+        `Invalid project file: USD component source draft "${entry.componentId}" cannot be validated as editable text`,
+      );
+    }
+    const component = workspace.components[entry.componentId];
+    const content = await readRequiredArchiveText(
+      zip,
+      entry.contentPath,
+      `component source draft "${entry.componentId}" content`,
+    );
+    const sourceFile: RobotFile = {
+      name: component.sourceFile ?? `component.${entry.format === 'mjcf' ? 'xml' : entry.format}`,
+      format: entry.format,
+      content,
+    };
+    const context = buildDraftSourceContext(sourceFile, availableFiles, allFileContents);
+    let parsedRobot: RobotData | null;
+    try {
+      parsedRobot = parseComponentSourceDraft(
+        sourceFile,
+        context.availableFiles,
+        context.allFileContents,
+      );
+    } catch (error) {
+      throw new Error(
+        `Invalid project file: failed to parse component source draft "${entry.componentId}"`,
+        { cause: error },
+      );
+    }
+    if (!parsedRobot) {
+      throw new Error(
+        `Invalid project file: failed to parse component source draft "${entry.componentId}"`,
+      );
+    }
+    if (createSourceSemanticRobotHash(parsedRobot) !== entry.robotSnapshotHash) {
+      throw new Error(
+        `Invalid project file: component source draft content hash mismatch for "${entry.componentId}"`,
+      );
+    }
+    drafts[entry.componentId] = {
+      componentId: entry.componentId,
+      format: entry.format,
+      content,
+      robotSnapshotHash: entry.robotSnapshotHash,
+    };
+  }
+  return drafts;
+}
+
+function createPackedProjectAssetUrls(assetFiles: readonly AssetFile[]): Record<string, string> {
+  return Object.fromEntries(
+    assetFiles.map(({ name, blob }) => [name, URL.createObjectURL(blob)]),
+  );
+}
+
+function revokeImportedAssetUrls(assetUrls: Record<string, string>): void {
+  Array.from(new Set(Object.values(assetUrls))).forEach((url) => {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
   });
 }
 
 export function hydrateImportedProjectResult(
   archiveData: ImportedProjectArchiveData,
-): ImportResult {
-  let assets: Record<string, string> = {};
-
+): ProjectImportResult {
+  let assetUrls: Record<string, string> = {};
   try {
-    assets = createPackedProjectAssetUrls(archiveData.assetFiles);
-
+    assetUrls = createPackedProjectAssetUrls(archiveData.assets.assetFiles);
     return {
       manifest: archiveData.manifest,
-      assets,
-      availableFiles: archiveData.availableFiles.map((file) => {
-        const { blobPath, ...rest } = file;
-        return {
-          ...rest,
-          ...(blobPath ? { blobUrl: assets[blobPath] } : {}),
-        };
-      }),
-      allFileContents: archiveData.allFileContents,
-      motorLibrary: archiveData.motorLibrary,
-      selectedFileName: archiveData.selectedFileName,
-      originalUrdfContent: archiveData.originalUrdfContent,
-      originalFileFormat: archiveData.originalFileFormat,
-      usdPreparedExportCaches: archiveData.usdPreparedExportCaches,
-      robotState: archiveData.robotState,
-      robotHistory: archiveData.robotHistory,
-      robotActivity: archiveData.robotActivity,
-      assemblyState: archiveData.assemblyState,
-      assemblyHistory: archiveData.assemblyHistory,
-      assemblyActivity: archiveData.assemblyActivity,
+      workspace: archiveData.workspace,
+      workspaceHistory: archiveData.workspaceHistory,
+      componentSourceDrafts: archiveData.componentSourceDrafts,
+      assets: {
+        assetUrls,
+        availableFiles: archiveData.assets.availableFiles.map((file) => {
+          const { blobPath, ...rest } = file;
+          return {
+            ...rest,
+            ...(blobPath ? { blobUrl: assetUrls[blobPath] } : {}),
+          };
+        }),
+        allFileContents: archiveData.assets.allFileContents,
+        motorLibrary: archiveData.assets.motorLibrary,
+        selectedFileName: archiveData.assets.selectedFileName,
+      },
+      derivedCaches: archiveData.derivedCaches,
+      warnings: archiveData.warnings,
     };
   } catch (error) {
-    revokeImportedAssetUrls(assets);
+    revokeImportedAssetUrls(assetUrls);
     throw error;
   }
 }
 
 export async function readImportedProjectArchive(
   file: File | Blob | ArrayBuffer | Uint8Array,
-  lang: Language = 'en',
+  _lang: Language = 'en',
 ): Promise<ImportedProjectArchiveData> {
-  const t = translations[lang];
   assertProjectArchiveWithinLimits(file);
   const zip = await JSZip.loadAsync(file);
   assertProjectArchiveWithinLimits(file, zip);
 
-  const manifestContent = await zip.file('project.json')?.async('string');
-  if (!manifestContent) {
-    throw new Error(t.projectImportMissingProjectJson);
-  }
-
-  const manifest = JSON.parse(manifestContent) as ProjectManifest;
-  assertProjectManifestWithinLimits(manifest);
-  const assetFiles = await loadPackedAssetFiles(zip, manifest);
-  const assetPaths = new Set(assetFiles.map((assetFile) => assetFile.name));
-  const availableFiles = await loadLibraryFiles(zip, manifest, assetPaths);
-  const usdPreparedExportCaches = await readUsdPreparedExportCaches(zip);
-
-  const allFileContents = await loadRequiredJsonRecord<Record<string, string>>(
+  const manifestValue = await loadRequiredJson(
     zip,
-    manifest.assets.allFileContentsFile ?? PROJECT_ALL_FILE_CONTENTS_FILE,
+    PROJECT_MANIFEST_FILE,
+    '3.0 project manifest',
+  );
+  assertProjectManifest(manifestValue);
+  const manifest = manifestValue;
+
+  const workspaceValue = await loadRequiredJson(
+    zip,
+    manifest.entries.workspace,
+    'workspace state',
+  );
+  assertProjectWorkspace(workspaceValue);
+
+  const workspaceHistoryValue = await loadRequiredJson(
+    zip,
+    manifest.entries.workspaceHistory,
+    'workspace history',
+  );
+  assertProjectWorkspaceHistory(workspaceHistoryValue);
+
+  const assetManifestValue = await loadRequiredJson(
+    zip,
+    manifest.entries.assets,
+    'asset manifest',
+  );
+  assertProjectAssetsManifest(assetManifestValue);
+  const assetsManifest = assetManifestValue;
+
+  const allFileContentsValue = await loadRequiredJson(
+    zip,
+    manifest.entries.allFileContents,
     'all file contents record',
   );
-  assertAllFileContentsWithinLimits(allFileContents);
+  assertAllFileContents(allFileContentsValue);
 
-  const motorLibrary = await loadRequiredJsonRecord<Record<string, MotorSpec[]>>(
+  const motorLibraryValue = await loadRequiredJson(
     zip,
-    manifest.assets.motorLibraryFile ?? PROJECT_MOTOR_LIBRARY_FILE,
+    manifest.entries.motorLibrary,
     'motor library',
   );
+  assertMotorLibrary(motorLibraryValue);
 
-  const originalUrdfContent = manifest.assets.originalUrdfContentFile
-    ? await readRequiredArchiveText(
-        zip,
-        manifest.assets.originalUrdfContentFile,
-        'original URDF source',
-      )
-    : ((await readOptionalArchiveText(zip, PROJECT_ORIGINAL_URDF_FILE)) ?? '');
-
-  const robotHistoryFile = manifest.history?.robotFile ?? PROJECT_ROBOT_HISTORY_FILE;
-  const robotHistorySnapshot = await loadHistoryFile<RobotData>(zip, robotHistoryFile);
-
-  const assemblyHistoryFile = manifest.history?.assemblyFile ?? PROJECT_ASSEMBLY_HISTORY_FILE;
-  const assemblyHistorySnapshot = await loadHistoryFile<AssemblyState | null>(
+  const assetFiles = await loadPackedAssetFiles(zip, assetsManifest);
+  const packedAssetPaths = new Set(assetFiles.map((assetFile) => assetFile.name));
+  const availableFiles = await loadLibraryFiles(zip, assetsManifest, packedAssetPaths);
+  const componentSourceDrafts = await loadComponentSourceDrafts(
     zip,
-    assemblyHistoryFile,
+    manifest.entries.componentSourceDrafts,
+    workspaceValue,
+    availableFiles,
+    allFileContentsValue,
   );
-
-  const assemblyState = assemblyHistorySnapshot?.present ?? null;
-  const firstAssemblyComponent = assemblyState
-    ? (Object.values(assemblyState.components)[0]?.robot ?? null)
-    : null;
-  const robotState = robotHistorySnapshot?.present ?? firstAssemblyComponent;
+  const usdPreparedExportCaches = await readUsdPreparedExportCaches(
+    zip,
+    manifest.entries.usdPreparedExportCaches ?? null,
+  );
 
   return {
     manifest,
-    assetFiles,
-    availableFiles,
-    allFileContents,
-    motorLibrary,
-    selectedFileName: manifest.workspace?.selectedFile ?? null,
-    originalUrdfContent,
-    originalFileFormat: manifest.assets.originalFileFormat ?? null,
-    usdPreparedExportCaches,
-    robotState,
-    robotHistory: {
-      past: clampHistoryEntries(robotHistorySnapshot?.past),
-      future: clampFutureEntries(robotHistorySnapshot?.future),
+    workspace: workspaceValue,
+    workspaceHistory: workspaceHistoryValue,
+    componentSourceDrafts,
+    assets: {
+      assetFiles,
+      availableFiles,
+      allFileContents: allFileContentsValue,
+      motorLibrary: motorLibraryValue,
+      selectedFileName: assetsManifest.selectedFileName,
     },
-    robotActivity: normalizeActivity(robotHistorySnapshot?.activity),
-    assemblyState,
-    assemblyHistory: {
-      past: clampHistoryEntries(assemblyHistorySnapshot?.past),
-      future: clampFutureEntries(assemblyHistorySnapshot?.future),
-    },
-    assemblyActivity: normalizeActivity(assemblyHistorySnapshot?.activity),
+    derivedCaches: { usdPreparedExportCaches },
+    warnings: [],
   };
 }
 
-export async function importProject(file: File, lang: Language = 'en'): Promise<ImportResult> {
+export async function importProject(
+  file: File | Blob | ArrayBuffer | Uint8Array,
+  lang: Language = 'en',
+): Promise<ProjectImportResult> {
   return hydrateImportedProjectResult(await readImportedProjectArchive(file, lang));
 }

@@ -86,6 +86,22 @@ test('write/read USD prepared export caches roundtrip through project zip', asyn
   );
 });
 
+test('USD prepared cache JSON normalizes typed material arrays for roundtrip', async () => {
+  const zip = new JSZip();
+  const cache = createPreparedCache('/robots/demo/demo.usd');
+  cache.robotData.materials!.blue!.usdMaterial = {
+    color: new Float32Array([0.25, 0.5, 0.75]),
+  };
+
+  await writeUsdPreparedExportCaches(zip, { 'robots/demo/demo.usd': cache });
+  const restored = await readUsdPreparedExportCaches(zip);
+
+  assert.deepEqual(
+    restored['robots/demo/demo.usd']!.robotData.materials!.blue!.usdMaterial!.color,
+    [0.25, 0.5, 0.75],
+  );
+});
+
 test('writeUsdPreparedExportCaches skips manifest creation when no caches exist', async () => {
   const zip = new JSZip();
   await writeUsdPreparedExportCaches(zip, {});
@@ -108,5 +124,59 @@ test('buildUsdPreparedExportCacheEntries preserves mesh blobs for deferred archi
   assert.equal(
     await meshEntry.text(),
     await caches['robots/demo/demo.usd'].meshFiles['base_link_visual_0.obj'].text(),
+  );
+});
+
+test('readUsdPreparedExportCaches fails fast on missing referenced cache data', async () => {
+  const zip = new JSZip();
+  await writeUsdPreparedExportCaches(zip, {
+    'robots/demo/demo.usd': createPreparedCache('/robots/demo/demo.usd'),
+  });
+  const manifest = JSON.parse(
+    await zip.file(PROJECT_USD_PREPARED_EXPORT_CACHES_FILE)!.async('string'),
+  ) as Array<{ cacheFile: string }>;
+  zip.remove(manifest[0].cacheFile);
+
+  await assert.rejects(
+    readUsdPreparedExportCaches(zip, PROJECT_USD_PREPARED_EXPORT_CACHES_FILE),
+    /missing required USD prepared cache/i,
+  );
+});
+
+test('readUsdPreparedExportCaches rejects malformed cache manifests', async () => {
+  const zip = new JSZip();
+  zip.file(PROJECT_USD_PREPARED_EXPORT_CACHES_FILE, JSON.stringify([
+    {
+      stageSourcePath: '/robots/demo/demo.usd',
+      cacheFile: '../cache.json',
+    },
+  ]));
+
+  await assert.rejects(
+    readUsdPreparedExportCaches(zip, PROJECT_USD_PREPARED_EXPORT_CACHES_FILE),
+    /cacheFile path.*invalid/i,
+  );
+});
+
+test('readUsdPreparedExportCaches rejects malformed nested RobotData before restoring a cache', async () => {
+  const zip = new JSZip();
+  await writeUsdPreparedExportCaches(zip, {
+    'robots/demo/demo.usd': createPreparedCache('/robots/demo/demo.usd'),
+  });
+  const manifest = JSON.parse(
+    await zip.file(PROJECT_USD_PREPARED_EXPORT_CACHES_FILE)!.async('string'),
+  ) as Array<{ cacheFile: string }>;
+  const cacheFile = manifest[0]!.cacheFile;
+  const payload = JSON.parse(await zip.file(cacheFile)!.async('string')) as {
+    robotData: {
+      links: Record<string, { visual: { authoredMaterials?: unknown } }>;
+    };
+  };
+  payload.robotData.links.base_link!.visual.authoredMaterials = {};
+  zip.file(cacheFile, JSON.stringify(payload));
+
+  await assert.rejects(
+    readUsdPreparedExportCaches(zip, PROJECT_USD_PREPARED_EXPORT_CACHES_FILE),
+    /robotData\.links\.base_link\.visual\.authoredMaterials/i,
   );
 });

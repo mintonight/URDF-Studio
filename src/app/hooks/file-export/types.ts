@@ -1,7 +1,5 @@
-import type { Patch } from 'immer';
-
 import type { ExportProgressState } from '@/features/file-io';
-import type { RobotFile, RobotState, AssemblyState } from '@/types';
+import type { RobotFile, RobotState } from '@/types';
 
 export type ExportTarget = { type: 'current' } | { type: 'library-file'; file: RobotFile };
 
@@ -63,25 +61,3 @@ export interface UrdfSourceExportPreference {
   useRelativePaths?: boolean;
   preferSourceVisualMeshes?: boolean;
 }
-
-export type AssemblyHistoryPatchEntry = {
-  kind: 'patch';
-  redoPatches: Patch[];
-  undoPatches: Patch[];
-};
-
-export type AssemblyHistorySnapshotEntry = {
-  kind: 'snapshot';
-  snapshot: AssemblyState | null;
-};
-
-export type AssemblyHistoryEntry =
-  | AssemblyState
-  | null
-  | AssemblyHistoryPatchEntry
-  | AssemblyHistorySnapshotEntry;
-
-export type AssemblyHistoryState = {
-  past: AssemblyHistoryEntry[];
-  future: AssemblyHistoryEntry[];
-};

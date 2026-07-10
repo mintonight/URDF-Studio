@@ -8,7 +8,7 @@ import {
 import { convertUsdArchiveFilesToBinaryWithWorker } from '@/app/utils/usdBinaryArchiveWorkerBridge';
 import { isUSDCBinary } from '@/core/parsers/usd';
 import { translations } from '@/shared/i18n';
-import type { RobotFile, RobotState } from '@/types';
+import type { RobotFile } from '@/types';
 
 import type { ExportProgressReporter } from './progress';
 import type {
@@ -73,8 +73,7 @@ interface ExecuteUsdExportParams {
   assets: Record<string, string>;
   requiresResolvedUsdContext: boolean;
   t: ExportTranslations;
-  resolveLibraryRobotForExport: (file: RobotFile) => Promise<RobotState>;
-  getFileBaseName: (path: string) => string;
+  resolveLibraryExportContext: (file: RobotFile) => Promise<ExportContext>;
   resolveExportContext: (target?: ExportTarget) => Promise<ExportContext | null>;
   createProgressReporter: (
     onProgress: HandleExportWithConfigOptions['onProgress'],
@@ -98,8 +97,7 @@ export async function executeUsdExport({
   assets,
   requiresResolvedUsdContext,
   t,
-  resolveLibraryRobotForExport,
-  getFileBaseName,
+  resolveLibraryExportContext,
   resolveExportContext,
   createProgressReporter,
   replaceTemplate,
@@ -108,6 +106,9 @@ export async function executeUsdExport({
   downloadBlob,
   markCurrentTargetSaved,
 }: ExecuteUsdExportParams): Promise<ExportExecutionResult> {
+  if (target.type === 'current' && requiresResolvedUsdContext) {
+    throw new Error(t.usdExportUnavailable);
+  }
   const shouldConvertUsdLayers = config.usd.fileFormat !== 'usda';
   const reportProgress = createProgressReporter(options.onProgress, shouldConvertUsdLayers ? 4 : 3);
   reportProgress(1, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
@@ -117,10 +118,7 @@ export async function executeUsdExport({
 
   const exportContext =
     target.type === 'library-file'
-      ? {
-          robot: await resolveLibraryRobotForExport(target.file),
-          exportName: getFileBaseName(target.file.name),
-        }
+      ? await resolveLibraryExportContext(target.file)
       : await resolveExportContext(target);
 
   if (!exportContext) {

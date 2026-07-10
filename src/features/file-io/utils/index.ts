@@ -45,12 +45,20 @@ export {
   USD_EXPORT_WORKER_SUPPORTED_MESH_EXTENSIONS,
 } from './usdExport';
 export type {
-  ImportResult as ProjectImportResult,
   ImportedProjectArchiveData,
+  ImportedProjectArchiveAssets,
+  ImportedProjectAssets,
   ImportedProjectLibraryFile,
+  ProjectImportResult,
+  ProjectImportWarning,
 } from './projectImport';
 export type {
   ExportProjectParams,
+  ProjectAssetsManifest,
+  ProjectComponentSourceDraftEntry,
+  ProjectComponentSourceDraftManifest,
+  ProjectDerivedCaches,
+  ProjectExportAssets,
   ProjectManifest,
   ProjectExportProgress,
   ProjectExportProgressPhase,

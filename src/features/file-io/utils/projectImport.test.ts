@@ -1,21 +1,117 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
+
 import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
-import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData } from '@/types';
-
-import { buildLibraryArchivePath, PROJECT_ROBOT_HISTORY_FILE } from './projectArchive';
-import { exportProject } from './projectExport';
+import { parseMJCF, parseSDF, parseURDF, parseXacro } from '@/core/parsers';
+import {
+  createComponentSourceDraft,
+  createSingleComponentWorkspace,
+} from '@/core/robot';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  JointType,
+  type AssemblyState,
+  type ComponentSourceDraft,
+  type ComponentSourceFormat,
+  type RobotData,
+  type UsdPreparedExportCache,
+  type WorkspaceHistory,
+} from '@/types';
+import {
+  buildLibraryArchivePath,
+  PROJECT_ASSET_MANIFEST_FILE,
+  PROJECT_COMPONENT_SOURCE_DRAFTS_FILE,
+  PROJECT_MANIFEST_FILE,
+  PROJECT_WORKSPACE_HISTORY_FILE,
+  PROJECT_WORKSPACE_STATE_FILE,
+} from './projectArchive';
+import { exportProject, type ExportProjectParams } from './projectExport';
 import { importProject, readImportedProjectArchive } from './projectImport';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 
-function createDemoRobot(): RobotData {
+function createRobot(name: string): RobotData {
+  const rootLinkId = `${name}_base_link`;
   return {
-    name: 'demo',
+    name,
+    rootLinkId,
+    links: {
+      [rootLinkId]: {
+        ...DEFAULT_LINK,
+        id: rootLinkId,
+        name: rootLinkId,
+        visible: true,
+      },
+    },
+    joints: {},
+  };
+}
+
+function parseRobotData(source: string): RobotData {
+  const parsed = parseURDF(source);
+  assert.ok(parsed);
+  const { selection: _selection, ...robot } = parsed;
+  return robot;
+}
+
+function parseTextDraftRobot(format: ComponentSourceFormat, source: string): RobotData {
+  const parsed = format === 'urdf'
+    ? parseURDF(source)
+    : format === 'mjcf'
+      ? parseMJCF(source)
+      : format === 'sdf'
+        ? parseSDF(source)
+        : format === 'xacro'
+          ? parseXacro(source)
+          : null;
+  assert.ok(parsed);
+  const { selection: _selection, ...robot } = parsed;
+  return robot;
+}
+
+function createWorkspace(): AssemblyState {
+  const workspace = createSingleComponentWorkspace(createRobot('left'), {
+    workspaceName: 'assembly_project',
+    componentId: 'left',
+    componentName: 'Left instance',
+    sourceFile: 'robots/left.urdf',
+  });
+  workspace.components.right = createSingleComponentWorkspace(createRobot('right'), {
+    componentId: 'right',
+    componentName: 'Right instance',
+    sourceFile: 'robots/right.urdf',
+    componentTransform: {
+      position: { x: 1, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
+  }).components.right;
+  workspace.bridges.mount = {
+    id: 'mount',
+    name: 'mount',
+    parentComponentId: 'left',
+    parentLinkId: 'left_base_link',
+    childComponentId: 'right',
+    childLinkId: 'right_base_link',
+    joint: {
+      ...DEFAULT_JOINT,
+      id: 'mount',
+      name: 'mount_joint',
+      type: JointType.FIXED,
+      parentLinkId: 'left_base_link',
+      childLinkId: 'right_base_link',
+    },
+  };
+  return workspace;
+}
+
+function createSameLocalIdWorkspace(): AssemblyState {
+  const createBaseLinkRobot = (name: string): RobotData => ({
+    name,
     rootLinkId: 'base_link',
     links: {
       base_link: {
@@ -26,668 +122,612 @@ function createDemoRobot(): RobotData {
       },
     },
     joints: {},
-  };
-}
-
-function createAssemblyComponentRobot(): RobotData {
-  return {
-    name: 'left_arm',
-    rootLinkId: 'comp_left_base_link',
-    links: {
-      comp_left_base_link: {
-        ...DEFAULT_LINK,
-        id: 'comp_left_base_link',
-        name: 'left_arm',
-        visible: true,
-      },
-    },
-    joints: {},
-  };
-}
-
-function createBridgeAssemblyComponentRobot(componentKey: string): RobotData {
-  const rootLinkId = `${componentKey}_base_link`;
-  return {
-    name: componentKey,
-    rootLinkId,
-    links: {
-      [rootLinkId]: {
-        ...DEFAULT_LINK,
-        id: rootLinkId,
-        name: 'base_link',
-        visible: true,
-      },
-    },
-    joints: {},
-  };
-}
-
-function createNonRootBridgeAssemblyComponentRobot(componentKey: string): RobotData {
-  const rootLinkId = `${componentKey}_base_link`;
-  const toolLinkId = `${componentKey}_tool_link`;
-  return {
-    name: componentKey,
-    rootLinkId,
-    links: {
-      [rootLinkId]: {
-        ...DEFAULT_LINK,
-        id: rootLinkId,
-        name: rootLinkId,
-        visible: true,
-      },
-      [toolLinkId]: {
-        ...DEFAULT_LINK,
-        id: toolLinkId,
-        name: toolLinkId,
-        visible: true,
-      },
-    },
-    joints: {
-      [`${componentKey}_tool_joint`]: {
-        ...DEFAULT_JOINT,
-        id: `${componentKey}_tool_joint`,
-        name: `${componentKey}_tool_joint`,
-        type: JointType.FIXED,
-        parentLinkId: rootLinkId,
-        childLinkId: toolLinkId,
-        origin: {
-          xyz: { x: 1.2, y: -0.35, z: 0.5 },
-          rpy: { r: 0, p: 0, y: 0 },
-        },
-      },
-    },
-  };
-}
-
-async function buildProjectZip(): Promise<JSZip> {
-  const robot = createDemoRobot();
-  const sourcePath = 'robots/demo/demo.urdf';
-  const sourceContent = '<robot name="demo"><link name="base_link" /></robot>';
-
-  const exportResult = await exportProject({
-    name: 'demo_project',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: sourcePath,
-          format: 'urdf',
-          content: sourceContent,
-        },
-      ],
-      assets: {},
-      allFileContents: {
-        [sourcePath]: sourceContent,
-      },
-      motorLibrary: {},
-      selectedFileName: sourcePath,
-      originalUrdfContent: sourceContent,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: robot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: null,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => robot,
   });
+  const workspace = createSingleComponentWorkspace(createBaseLinkRobot('left'), {
+    workspaceName: 'same_local_ids',
+    componentId: 'left',
+    sourceFile: 'robots/left.urdf',
+  });
+  workspace.components.right = createSingleComponentWorkspace(createBaseLinkRobot('right'), {
+    componentId: 'right',
+    sourceFile: 'robots/right.urdf',
+  }).components.right;
+  workspace.bridges.mount = {
+    id: 'mount',
+    name: 'mount',
+    parentComponentId: 'left',
+    parentLinkId: 'base_link',
+    childComponentId: 'right',
+    childLinkId: 'base_link',
+    joint: {
+      ...DEFAULT_JOINT,
+      id: 'mount',
+      name: 'mount_joint',
+      type: JointType.FIXED,
+      parentLinkId: 'base_link',
+      childLinkId: 'base_link',
+    },
+  };
+  return workspace;
+}
 
-  return await JSZip.loadAsync(await exportResult.blob.arrayBuffer());
+function createHistory(workspace: AssemblyState): WorkspaceHistory {
+  const past = structuredClone(workspace);
+  past.name = 'before_rename';
+  return {
+    past: [past],
+    future: [],
+    activity: [{
+      id: 'rename_1',
+      timestamp: '2026-07-09T12:00:00.000Z',
+      label: 'Renamed workspace',
+    }],
+  };
+}
+
+function createParams(
+  workspace: AssemblyState,
+  options: {
+    assetUrls?: Record<string, string>;
+    availableFiles?: ExportProjectParams['assets']['availableFiles'];
+    derivedCaches?: ExportProjectParams['derivedCaches'];
+    componentSourceDrafts?: Record<string, ComponentSourceDraft>;
+    workspaceHistory?: WorkspaceHistory;
+  } = {},
+): ExportProjectParams {
+  const source = '<robot name="robot"><link name="base_link" /></robot>';
+  const availableFiles = options.availableFiles ?? [
+    { name: 'robots/left.urdf', format: 'urdf', content: source },
+    { name: 'robots/right.urdf', format: 'urdf', content: source },
+  ];
+  const allFileContents = Object.fromEntries(
+    availableFiles.filter((file) => file.content).map((file) => [file.name, file.content]),
+  );
+  return {
+    name: workspace.name,
+    lang: 'en',
+    workspace,
+    workspaceHistory: options.workspaceHistory ?? createHistory(workspace),
+    componentSourceDrafts: options.componentSourceDrafts,
+    assets: {
+      availableFiles,
+      assetUrls: options.assetUrls ?? {},
+      allFileContents,
+      motorLibrary: {},
+      selectedFileName: availableFiles[0]?.name ?? null,
+    },
+    derivedCaches: options.derivedCaches ?? { usdPreparedExportCaches: {} },
+  };
+}
+
+async function buildProjectZip(params = createParams(createWorkspace())): Promise<JSZip> {
+  const result = await exportProject(params);
+  return JSZip.loadAsync(await result.blob.arrayBuffer());
 }
 
 async function toProjectFile(zip: JSZip): Promise<File> {
-  const bytes = await zip.generateAsync({ type: 'uint8array' });
-  return bytes as unknown as File;
+  return await zip.generateAsync({ type: 'uint8array' }) as unknown as File;
 }
 
-test('importProject fails fast when a referenced library source file is missing', async () => {
-  const zip = await buildProjectZip();
-  zip.remove(buildLibraryArchivePath('robots/demo/demo.urdf'));
+const DRAFT_SOURCE_PATH = 'robots/draft.urdf';
+const DRAFT_SOURCE_CONTENT = `<?xml version="1.0"?>
+<robot name="draft_robot">
+  <link name="base_link" />
+</robot>`;
 
-  await assert.rejects(
-    importProject(await toProjectFile(zip), 'en'),
-    /missing required library source file "robots\/demo\/demo\.urdf"/i,
+function createDraftProjectParams(): ExportProjectParams {
+  const workspace = createSingleComponentWorkspace(parseRobotData(DRAFT_SOURCE_CONTENT), {
+    workspaceName: 'draft_project',
+    componentId: 'draft-instance',
+    sourceFile: DRAFT_SOURCE_PATH,
+  });
+  return createParams(workspace, {
+    availableFiles: [{
+      name: DRAFT_SOURCE_PATH,
+      format: 'urdf',
+      content: DRAFT_SOURCE_CONTENT,
+    }],
+    componentSourceDrafts: {
+      'draft-instance': createComponentSourceDraft({
+        componentId: 'draft-instance',
+        format: 'urdf',
+        content: DRAFT_SOURCE_CONTENT,
+        robot: workspace.components['draft-instance'].robot,
+      }),
+    },
+  });
+}
+
+const TEXT_DRAFT_CASES = [
+  {
+    format: 'mjcf' as const,
+    extension: 'xml',
+    content: '<mujoco model="draft_mjcf"><worldbody><body name="base" /></worldbody></mujoco>',
+    corrupt: '<mujoco model="other_mjcf"><worldbody><body name="other" /></worldbody></mujoco>',
+  },
+  {
+    format: 'sdf' as const,
+    extension: 'sdf',
+    content: '<sdf version="1.9"><model name="draft_sdf"><link name="base" /></model></sdf>',
+    corrupt: '<sdf version="1.9"><model name="other_sdf"><link name="other" /></model></sdf>',
+  },
+  {
+    format: 'xacro' as const,
+    extension: 'xacro',
+    content: '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="draft_xacro"><link name="base" /></robot>',
+    corrupt: '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="other_xacro"><link name="other" /></robot>',
+  },
+];
+
+function createTextDraftProjectParams(
+  draftCase: (typeof TEXT_DRAFT_CASES)[number],
+): ExportProjectParams {
+  const sourcePath = `robots/draft.${draftCase.extension}`;
+  const componentId = `${draftCase.format}-instance`;
+  const workspace = createSingleComponentWorkspace(
+    parseTextDraftRobot(draftCase.format, draftCase.content),
+    { componentId, sourceFile: sourcePath },
+  );
+  return createParams(workspace, {
+    availableFiles: [{
+      name: sourcePath,
+      format: draftCase.format,
+      content: draftCase.content,
+    }],
+    componentSourceDrafts: {
+      [componentId]: createComponentSourceDraft({
+        componentId,
+        format: draftCase.format,
+        content: draftCase.content,
+        robot: workspace.components[componentId].robot,
+      }),
+    },
+  });
+}
+
+async function readDraftManifest(zip: JSZip) {
+  return JSON.parse(await zip.file(PROJECT_COMPONENT_SOURCE_DRAFTS_FILE)!.async('string')) as {
+    drafts: Array<{
+      componentId: string;
+      format: string;
+      robotSnapshotHash: string;
+      contentPath: string;
+    }>;
+  };
+}
+
+test('importProject roundtrips the canonical workspace, history, and asset metadata', async () => {
+  const workspace = createWorkspace();
+  const workspaceHistory = createHistory(workspace);
+  const imported = await importProject(
+    await toProjectFile(await buildProjectZip(createParams(workspace, { workspaceHistory }))),
+  );
+
+  assert.deepEqual(imported.workspace, workspace);
+  assert.deepEqual(imported.workspaceHistory, workspaceHistory);
+  assert.equal(imported.assets.selectedFileName, 'robots/left.urdf');
+  assert.equal(imported.assets.availableFiles.length, 2);
+  assert.deepEqual(imported.warnings, []);
+  assert.equal('robotState' in imported, false);
+  assert.equal('robotHistory' in imported, false);
+  assert.equal('assemblyState' in imported, false);
+  assert.equal('assemblyHistory' in imported, false);
+});
+
+test('USP3 workspace JSON normalizes typed USD material arrays for roundtrip', async () => {
+  const workspace = createWorkspace();
+  workspace.components.left!.robot.materials = {
+    body: {
+      usdMaterial: {
+        color: new Float32Array([0.125, 0.25, 0.5]),
+      },
+    },
+  };
+
+  const imported = await importProject(
+    await toProjectFile(await buildProjectZip(createParams(workspace))),
+  );
+
+  assert.deepEqual(
+    imported.workspace.components.left!.robot.materials!.body!.usdMaterial!.color,
+    [0.125, 0.25, 0.5],
   );
 });
 
-test('importProject fails fast when robot history is missing', async () => {
-  const zip = await buildProjectZip();
-  zip.remove(PROJECT_ROBOT_HISTORY_FILE);
+test(
+  'export/import roundtrips identical source-local IDs across components',
+  async () => {
+    const workspace = createSameLocalIdWorkspace();
+    const imported = await importProject(
+      await toProjectFile(await buildProjectZip(createParams(workspace))),
+    );
+    assert.deepEqual(imported.workspace, workspace);
+  },
+);
 
-  await assert.rejects(
-    importProject(await toProjectFile(zip), 'en'),
-    /missing required history snapshot/i,
+test('importProject roundtrips fresh component-owned source drafts', async () => {
+  const params = createDraftProjectParams();
+  const imported = await importProject(await toProjectFile(await buildProjectZip(params)));
+  assert.deepEqual(imported.componentSourceDrafts, params.componentSourceDrafts);
+  assert.equal(
+    imported.assets.availableFiles[0]?.content,
+    DRAFT_SOURCE_CONTENT,
   );
 });
 
-test('readImportedProjectArchive rejects project archives with too many entries', async () => {
+for (const sourceFile of [null, DRAFT_SOURCE_PATH] as const) {
+  test(`importProject roundtrips an owned draft with ${sourceFile === null ? 'sourceFile=null' : 'a missing library template'}`, async () => {
+    const workspace = createSingleComponentWorkspace(parseRobotData(DRAFT_SOURCE_CONTENT), {
+      workspaceName: 'owned_draft_project',
+      componentId: 'owned-instance',
+      sourceFile,
+    });
+    const draft = createComponentSourceDraft({
+      componentId: 'owned-instance',
+      format: 'urdf',
+      content: DRAFT_SOURCE_CONTENT,
+      robot: workspace.components['owned-instance'].robot,
+    });
+    const params = createParams(workspace, {
+      availableFiles: [],
+      componentSourceDrafts: { 'owned-instance': draft },
+    });
+
+    const imported = await importProject(await toProjectFile(await buildProjectZip(params)));
+    assert.deepEqual(imported.componentSourceDrafts, { 'owned-instance': draft });
+    assert.equal(imported.workspace.components['owned-instance'].sourceFile, sourceFile);
+    assert.deepEqual(imported.assets.availableFiles, []);
+  });
+}
+
+for (const draftCase of TEXT_DRAFT_CASES) {
+  test(`importProject parses and roundtrips ${draftCase.format.toUpperCase()} component drafts`, async () => {
+    const params = createTextDraftProjectParams(draftCase);
+    const imported = await importProject(await toProjectFile(await buildProjectZip(params)));
+    assert.deepEqual(imported.componentSourceDrafts, params.componentSourceDrafts);
+  });
+
+  test(`importProject rejects semantically corrupt ${draftCase.format.toUpperCase()} draft content`, async () => {
+    const zip = await buildProjectZip(createTextDraftProjectParams(draftCase));
+    const manifest = await readDraftManifest(zip);
+    zip.file(manifest.drafts[0].contentPath, draftCase.corrupt);
+    await assert.rejects(
+      importProject(await toProjectFile(zip)),
+      /component source draft content hash mismatch/i,
+    );
+  });
+}
+
+test('importProject rejects corrupt component source draft hash and content', async () => {
+  const corruptHashZip = await buildProjectZip(createDraftProjectParams());
+  const corruptHashManifest = await readDraftManifest(corruptHashZip);
+  corruptHashManifest.drafts[0].robotSnapshotHash = 'robot-semantic-v1:corrupt';
+  corruptHashZip.file(
+    PROJECT_COMPONENT_SOURCE_DRAFTS_FILE,
+    JSON.stringify(corruptHashManifest),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(corruptHashZip)),
+    /component source draft hash mismatch/i,
+  );
+
+  const corruptContentZip = await buildProjectZip(createDraftProjectParams());
+  const corruptContentManifest = await readDraftManifest(corruptContentZip);
+  corruptContentZip.file(
+    corruptContentManifest.drafts[0].contentPath,
+    '<robot name="different"><link name="other" /></robot>',
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(corruptContentZip)),
+    /component source draft content hash mismatch/i,
+  );
+});
+
+test('importProject rejects foreign, duplicate, and unsafe component source drafts', async () => {
+  const foreignZip = await buildProjectZip(createDraftProjectParams());
+  const foreignManifest = await readDraftManifest(foreignZip);
+  foreignManifest.drafts[0].componentId = 'foreign-component';
+  foreignZip.file(PROJECT_COMPONENT_SOURCE_DRAFTS_FILE, JSON.stringify(foreignManifest));
+  await assert.rejects(
+    importProject(await toProjectFile(foreignZip)),
+    /references foreign component "foreign-component"/i,
+  );
+
+  const duplicateZip = await buildProjectZip(createDraftProjectParams());
+  const duplicateManifest = await readDraftManifest(duplicateZip);
+  duplicateManifest.drafts.push({ ...duplicateManifest.drafts[0] });
+  duplicateZip.file(PROJECT_COMPONENT_SOURCE_DRAFTS_FILE, JSON.stringify(duplicateManifest));
+  await assert.rejects(
+    importProject(await toProjectFile(duplicateZip)),
+    /duplicate component source draft/i,
+  );
+
+  const duplicatePathParams = createDraftProjectParams();
+  duplicatePathParams.workspace.components.second = createSingleComponentWorkspace(
+    parseRobotData(DRAFT_SOURCE_CONTENT),
+    { componentId: 'second', sourceFile: DRAFT_SOURCE_PATH },
+  ).components.second;
+  duplicatePathParams.componentSourceDrafts!.second = createComponentSourceDraft({
+    componentId: 'second',
+    format: 'urdf',
+    content: DRAFT_SOURCE_CONTENT,
+    robot: duplicatePathParams.workspace.components.second.robot,
+  });
+  const duplicatePathZip = await buildProjectZip(duplicatePathParams);
+  const duplicatePathManifest = await readDraftManifest(duplicatePathZip);
+  duplicatePathManifest.drafts[1].contentPath = duplicatePathManifest.drafts[0].contentPath;
+  duplicatePathZip.file(
+    PROJECT_COMPONENT_SOURCE_DRAFTS_FILE,
+    JSON.stringify(duplicatePathManifest),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(duplicatePathZip)),
+    /duplicate component source draft content path/i,
+  );
+
+  const traversalZip = await buildProjectZip(createDraftProjectParams());
+  const traversalManifest = await readDraftManifest(traversalZip);
+  traversalManifest.drafts[0].contentPath = 'workspace/source-drafts/%252e%252e/secret.txt';
+  traversalZip.file(PROJECT_COMPONENT_SOURCE_DRAFTS_FILE, JSON.stringify(traversalManifest));
+  await assert.rejects(
+    importProject(await toProjectFile(traversalZip)),
+    /contentPath path.*invalid/i,
+  );
+});
+
+test('importProject rejects semantically invalid draft formats and unexpected manifest fields', async () => {
+  const formatZip = await buildProjectZip(createDraftProjectParams());
+  const formatManifest = await readDraftManifest(formatZip);
+  formatManifest.drafts[0].format = 'mjcf';
+  formatZip.file(PROJECT_COMPONENT_SOURCE_DRAFTS_FILE, JSON.stringify(formatManifest));
+  await assert.rejects(
+    importProject(await toProjectFile(formatZip)),
+    /failed to parse component source draft/i,
+  );
+
+  const unexpectedFieldZip = await buildProjectZip(createDraftProjectParams());
+  const manifest = JSON.parse(
+    await unexpectedFieldZip.file(PROJECT_MANIFEST_FILE)!.async('string'),
+  );
+  manifest.entries.unexpectedEntry = 'workspace/unexpected.txt';
+  unexpectedFieldZip.file(PROJECT_MANIFEST_FILE, JSON.stringify(manifest));
+  await assert.rejects(
+    importProject(await toProjectFile(unexpectedFieldZip)),
+    /manifest\.entries has invalid fields.*unexpected unexpectedEntry/i,
+  );
+});
+
+test('importProject roundtrips blob-backed USD files and prepared caches as derived data', async () => {
+  const workspace = createSingleComponentWorkspace(createRobot('usd_robot'), {
+    workspaceName: 'usd_project',
+    componentId: 'usd_1',
+    sourceFile: 'robots/demo.usd',
+  });
+  const preparedCache: UsdPreparedExportCache = {
+    stageSourcePath: '/robots/demo.usd',
+    robotData: createRobot('usd_robot'),
+    meshFiles: {
+      'mesh.obj': new Blob(['o mesh\nv 0 0 0\n'], { type: 'text/plain' }),
+    },
+  };
+  const params = createParams(workspace, {
+    availableFiles: [{ name: 'robots/demo.usd', format: 'usd', content: '' }],
+    assetUrls: {
+      'robots/demo.usd': 'data:application/octet-stream;base64,VVNE',
+    },
+    derivedCaches: {
+      usdPreparedExportCaches: { 'robots/demo.usd': preparedCache },
+    },
+  });
+  params.componentSourceDrafts = {
+    usd_1: createComponentSourceDraft({
+      componentId: 'usd_1',
+      format: 'usd',
+      content: '',
+      robot: workspace.components.usd_1.robot,
+    }),
+  };
+
+  const zip = await buildProjectZip(params);
+  const manifest = JSON.parse(await zip.file(PROJECT_MANIFEST_FILE)!.async('string'));
+  assert.equal(manifest.entries.componentSourceDrafts, undefined);
+  const imported = await importProject(await toProjectFile(zip));
+  assert.match(imported.assets.assetUrls['robots/demo.usd'] ?? '', /^blob:/);
+  assert.match(imported.assets.availableFiles[0]?.blobUrl ?? '', /^blob:/);
+  const restoredCache = imported.derivedCaches.usdPreparedExportCaches['robots/demo.usd'];
+  assert.ok(restoredCache);
+  assert.equal(await restoredCache.meshFiles['mesh.obj'].text(), 'o mesh\nv 0 0 0\n');
+});
+
+test('importProject rejects unsupported project versions', async () => {
   const zip = await buildProjectZip();
-  for (let index = 0; index < 10_001; index += 1) {
-    zip.file(`extra/${index}.txt`, '');
+  const manifest = JSON.parse(await zip.file(PROJECT_MANIFEST_FILE)!.async('string'));
+  manifest.version = '99.0';
+  zip.file(PROJECT_MANIFEST_FILE, JSON.stringify(manifest));
+
+  await assert.rejects(
+    importProject(await toProjectFile(zip)),
+    /Unsupported project version: expected 3\.0, received 99\.0/,
+  );
+});
+
+test('importProject rejects missing library sources and workspace history', async () => {
+  const missingSource = await buildProjectZip();
+  missingSource.remove(buildLibraryArchivePath('robots/left.urdf'));
+  await assert.rejects(
+    importProject(await toProjectFile(missingSource)),
+    /missing required library source file "robots\/left\.urdf"/i,
+  );
+
+  const missingHistory = await buildProjectZip();
+  missingHistory.remove(PROJECT_WORKSPACE_HISTORY_FILE);
+  await assert.rejects(
+    importProject(await toProjectFile(missingHistory)),
+    /missing required workspace history/i,
+  );
+});
+
+test('importProject rejects corrupt canonical state and nullable history snapshots', async () => {
+  const emptyWorkspaceZip = await buildProjectZip();
+  const workspace = JSON.parse(
+    await emptyWorkspaceZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  workspace.components = {};
+  emptyWorkspaceZip.file(PROJECT_WORKSPACE_STATE_FILE, JSON.stringify(workspace));
+  await assert.rejects(
+    importProject(await toProjectFile(emptyWorkspaceZip)),
+    /workspace.*components.*at least one component/i,
+  );
+
+  const nullHistoryZip = await buildProjectZip();
+  const history = JSON.parse(
+    await nullHistoryZip.file(PROJECT_WORKSPACE_HISTORY_FILE)!.async('string'),
+  );
+  history.future = [null];
+  nullHistoryZip.file(PROJECT_WORKSPACE_HISTORY_FILE, JSON.stringify(history));
+  await assert.rejects(
+    importProject(await toProjectFile(nullHistoryZip)),
+    /workspace history future\[0\].*canonical workspace/i,
+  );
+});
+
+test('importProject fails fast on incomplete component geometry and bridge joints', async () => {
+  const missingGeometryZip = await buildProjectZip(createDraftProjectParams());
+  const missingGeometryWorkspace = JSON.parse(
+    await missingGeometryZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  delete missingGeometryWorkspace.components['draft-instance'].robot.links.base_link.visual;
+  missingGeometryZip.file(
+    PROJECT_WORKSPACE_STATE_FILE,
+    JSON.stringify(missingGeometryWorkspace),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(missingGeometryZip)),
+    /links\.base_link\.visual.*visual geometry object/i,
+  );
+
+  const missingJointOriginZip = await buildProjectZip();
+  const missingJointOriginWorkspace = JSON.parse(
+    await missingJointOriginZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  delete missingJointOriginWorkspace.bridges.mount.joint.origin;
+  missingJointOriginZip.file(
+    PROJECT_WORKSPACE_STATE_FILE,
+    JSON.stringify(missingJointOriginWorkspace),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(missingJointOriginZip)),
+    /bridges\.mount\.joint\.origin.*complete origin/i,
+  );
+});
+
+test('importProject rejects damaged nested runtime collections before committing USP3', async () => {
+  const invalidMaterialsZip = await buildProjectZip();
+  const invalidMaterialsWorkspace = JSON.parse(
+    await invalidMaterialsZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  invalidMaterialsWorkspace.components.left.robot.links.left_base_link.visual.authoredMaterials = {};
+  invalidMaterialsZip.file(
+    PROJECT_WORKSPACE_STATE_FILE,
+    JSON.stringify(invalidMaterialsWorkspace),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(invalidMaterialsZip)),
+    /links\.left_base_link\.visual\.authoredMaterials.*array/i,
+  );
+
+  const invalidInspectionZip = await buildProjectZip();
+  const invalidInspectionWorkspace = JSON.parse(
+    await invalidInspectionZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  invalidInspectionWorkspace.components.left.robot.inspectionContext = {
+    sourceFormat: 'urdf',
+    urdf: {
+      diagnostics: {},
+      diagnosticCounts: { info: 0, warning: 0, error: 0 },
+      facts: {
+        linkCount: 1,
+        jointCount: 0,
+        visualCount: 0,
+        collisionCount: 0,
+        inertialCount: 0,
+        materialCount: 0,
+        meshCount: 0,
+        syntheticParentLinkCount: 0,
+        disconnectedRootCount: 0,
+      },
+    },
+  };
+  invalidInspectionZip.file(
+    PROJECT_WORKSPACE_STATE_FILE,
+    JSON.stringify(invalidInspectionWorkspace),
+  );
+  await assert.rejects(
+    importProject(await toProjectFile(invalidInspectionZip)),
+    /inspectionContext\.urdf\.diagnostics.*array/i,
+  );
+});
+
+test('readImportedProjectArchive rejects session fields and unsafe manifest paths', async () => {
+  const sessionZip = await buildProjectZip();
+  const workspace = JSON.parse(
+    await sessionZip.file(PROJECT_WORKSPACE_STATE_FILE)!.async('string'),
+  );
+  workspace.activeComponentId = 'left';
+  sessionZip.file(PROJECT_WORKSPACE_STATE_FILE, JSON.stringify(workspace));
+  await assert.rejects(
+    readImportedProjectArchive(await toProjectFile(sessionZip)),
+    /activeComponentId.*(?:session state|canonical workspace field)/i,
+  );
+
+  const traversalZip = await buildProjectZip();
+  const manifest = JSON.parse(await traversalZip.file(PROJECT_MANIFEST_FILE)!.async('string'));
+  manifest.entries.workspace = 'workspace/%252e%252e/secret.json';
+  traversalZip.file(PROJECT_MANIFEST_FILE, JSON.stringify(manifest));
+  await assert.rejects(
+    readImportedProjectArchive(await toProjectFile(traversalZip)),
+    /manifest\.entries\.workspace path.*invalid/i,
+  );
+});
+
+test('importProject performs all validation before creating asset URLs', async () => {
+  const zip = await buildProjectZip(createParams(createWorkspace(), {
+    assetUrls: { 'textures/packed.png': 'data:text/plain;base64,cGFja2Vk' },
+  }));
+  const history = JSON.parse(await zip.file(PROJECT_WORKSPACE_HISTORY_FILE)!.async('string'));
+  history.present = createWorkspace();
+  zip.file(PROJECT_WORKSPACE_HISTORY_FILE, JSON.stringify(history));
+
+  const originalCreateObjectUrl = URL.createObjectURL;
+  let createObjectUrlCalls = 0;
+  URL.createObjectURL = ((blob: Blob) => {
+    createObjectUrlCalls += 1;
+    return originalCreateObjectUrl(blob);
+  }) as typeof URL.createObjectURL;
+  try {
+    await assert.rejects(
+      importProject(await toProjectFile(zip)),
+      /workspace history has invalid fields.*unexpected present/i,
+    );
+    assert.equal(createObjectUrlCalls, 0);
+  } finally {
+    URL.createObjectURL = originalCreateObjectUrl;
   }
-
-  await assert.rejects(
-    readImportedProjectArchive(await toProjectFile(zip), 'en'),
-    /Project archive contains too many files \(\d+\)\. Maximum: 10000\./i,
-  );
 });
 
-test('readImportedProjectArchive rejects manifests with too many library files', async () => {
+test('readImportedProjectArchive rejects oversized asset manifests', async () => {
   const zip = await buildProjectZip();
-  const manifest = JSON.parse((await zip.file('project.json')!.async('string')) ?? '{}');
-  manifest.assets.availableFiles = Array.from({ length: 10_001 }, (_, index) => ({
+  const assetManifest = JSON.parse(
+    await zip.file(PROJECT_ASSET_MANIFEST_FILE)!.async('string'),
+  );
+  assetManifest.availableFiles = Array.from({ length: 10_001 }, (_, index) => ({
     name: `robots/demo-${index}.urdf`,
     format: 'urdf',
   }));
-  zip.file('project.json', JSON.stringify(manifest));
+  zip.file(PROJECT_ASSET_MANIFEST_FILE, JSON.stringify(assetManifest));
 
   await assert.rejects(
-    readImportedProjectArchive(await toProjectFile(zip), 'en'),
-    /Project manifest contains too many library files \(10001\)\. Maximum: 10000\./i,
+    readImportedProjectArchive(await toProjectFile(zip)),
+    /asset manifest contains too many entries/i,
   );
-});
-
-test('readImportedProjectArchive rejects deeply nested manifest paths', async () => {
-  const zip = await buildProjectZip();
-  const manifest = JSON.parse((await zip.file('project.json')!.async('string')) ?? '{}');
-  manifest.assets.availableFiles[0].name = `${Array.from({ length: 33 }, () => 'deep').join('/')}.urdf`;
-  zip.file('project.json', JSON.stringify(manifest));
-
-  await assert.rejects(
-    readImportedProjectArchive(await toProjectFile(zip), 'en'),
-    /Project manifest library file path ".+" is invalid or nested too deeply/i,
-  );
-});
-
-test('importProject preserves blob-backed USD library files even when their inline source is empty', async () => {
-  const robot = createDemoRobot();
-  const sourcePath = 'robots/demo/demo.urdf';
-  const sourceContent = '<robot name="demo"><link name="base_link" /></robot>';
-  const usdPath = 'unitree_model/Go2/usd/configuration/go2_description_sensor.usd';
-
-  const exportResult = await exportProject({
-    name: 'demo_project_with_usd_dependency',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: sourcePath,
-          format: 'urdf',
-          content: sourceContent,
-        },
-        {
-          name: usdPath,
-          format: 'usd',
-          content: '',
-        },
-      ],
-      assets: {
-        [usdPath]: 'data:application/octet-stream;base64,U0VOU09S',
-      },
-      allFileContents: {
-        [sourcePath]: sourceContent,
-      },
-      motorLibrary: {},
-      selectedFileName: sourcePath,
-      originalUrdfContent: sourceContent,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: robot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: null,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => robot,
-  });
-
-  assert.equal(exportResult.partial, false);
-
-  const imported = await importProject(
-    new Uint8Array(await exportResult.blob.arrayBuffer()) as unknown as File,
-    'en',
-  );
-
-  const importedUsdFile = imported.availableFiles.find((file) => file.name === usdPath);
-  assert.ok(
-    importedUsdFile,
-    'expected blob-backed USD dependency to roundtrip through project import',
-  );
-  assert.equal(importedUsdFile.content, '');
-  assert.match(importedUsdFile.blobUrl ?? '', /^blob:/);
-});
-
-test('importProject preserves assembly and component transforms from exported project history', async () => {
-  const sourcePath = 'robots/left_arm.urdf';
-  const sourceContent = '<robot name="left_arm"><link name="base_link" /></robot>';
-  const componentRobot = createAssemblyComponentRobot();
-  const assemblyState = {
-    name: 'demo_workspace',
-    transform: {
-      position: { x: 4, y: -1, z: 2 },
-      rotation: { r: 0.2, p: -0.1, y: 0.4 },
-    },
-    components: {
-      comp_left: {
-        id: 'comp_left',
-        name: 'left_arm',
-        sourceFile: sourcePath,
-        visible: true,
-        transform: {
-          position: { x: -0.5, y: 0.75, z: 1.25 },
-          rotation: { r: -0.3, p: 0.15, y: -0.25 },
-        },
-        robot: componentRobot,
-      },
-    },
-    bridges: {},
-  };
-
-  const exportResult = await exportProject({
-    name: 'demo_project_with_transforms',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: sourcePath,
-          format: 'urdf',
-          content: sourceContent,
-        },
-      ],
-      assets: {},
-      allFileContents: {
-        [sourcePath]: sourceContent,
-      },
-      motorLibrary: {},
-      selectedFileName: sourcePath,
-      originalUrdfContent: sourceContent,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: componentRobot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: assemblyState,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => componentRobot,
-  });
-
-  const imported = await importProject(
-    new Uint8Array(await exportResult.blob.arrayBuffer()) as unknown as File,
-    'en',
-  );
-
-  assert.deepEqual(imported.assemblyState?.transform, assemblyState.transform);
-  assert.deepEqual(
-    imported.assemblyState?.components.comp_left.transform,
-    assemblyState.components.comp_left.transform,
-  );
-});
-
-test('importProject roundtrips non-root child-link bridge transforms from assembly history', async () => {
-  const sourceContent = '<robot name="bridge_component"><link name="base_link" /></robot>';
-  const leftRobot = createNonRootBridgeAssemblyComponentRobot('comp_left');
-  const rightRobot = createNonRootBridgeAssemblyComponentRobot('comp_right');
-
-  const assemblyState = {
-    name: 'bridge_alignment_workspace',
-    transform: {
-      position: { x: 0, y: 0, z: 0 },
-      rotation: { r: 0, p: 0, y: 0 },
-    },
-    components: {
-      comp_left: {
-        id: 'comp_left',
-        name: 'left_arm',
-        sourceFile: 'robots/left_arm.urdf',
-        visible: true,
-        transform: {
-          position: { x: 0, y: 0, z: 0 },
-          rotation: { r: 0, p: 0, y: 0 },
-        },
-        robot: leftRobot,
-      },
-      comp_right: {
-        id: 'comp_right',
-        name: 'right_arm',
-        sourceFile: 'robots/right_arm.urdf',
-        visible: true,
-        transform: {
-          position: { x: -1.2, y: 0.35, z: -0.5 },
-          rotation: { r: 0, p: 0, y: 0 },
-        },
-        robot: rightRobot,
-      },
-    },
-    bridges: {
-      bridge_main: {
-        id: 'bridge_main',
-        name: 'bridge_main',
-        parentComponentId: 'comp_left',
-        parentLinkId: 'comp_left_base_link',
-        childComponentId: 'comp_right',
-        childLinkId: 'comp_right_tool_link',
-        joint: {
-          ...DEFAULT_JOINT,
-          id: 'bridge_main',
-          name: 'bridge_main',
-          type: JointType.FIXED,
-          parentLinkId: 'comp_left_base_link',
-          childLinkId: 'comp_right_tool_link',
-          origin: {
-            xyz: { x: 0, y: 0, z: 0 },
-            rpy: { r: 0, p: 0, y: 0 },
-          },
-        },
-      },
-    },
-  };
-
-  const exportResult = await exportProject({
-    name: 'bridge_alignment_project',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: 'robots/left_arm.urdf',
-          format: 'urdf',
-          content: sourceContent,
-        },
-        {
-          name: 'robots/right_arm.urdf',
-          format: 'urdf',
-          content: sourceContent,
-        },
-      ],
-      assets: {},
-      allFileContents: {
-        'robots/left_arm.urdf': sourceContent,
-        'robots/right_arm.urdf': sourceContent,
-      },
-      motorLibrary: {},
-      selectedFileName: 'robots/left_arm.urdf',
-      originalUrdfContent: sourceContent,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: leftRobot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: assemblyState,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => leftRobot,
-  });
-
-  const imported = await importProject(
-    new Uint8Array(await exportResult.blob.arrayBuffer()) as unknown as File,
-    'en',
-  );
-
-  assert.deepEqual(
-    imported.assemblyState?.components.comp_right.transform,
-    assemblyState.components.comp_right.transform,
-  );
-  assert.equal(imported.assemblyState?.bridges.bridge_main.parentLinkId, 'comp_left_base_link');
-  assert.equal(imported.assemblyState?.bridges.bridge_main.childLinkId, 'comp_right_tool_link');
-});
-
-test('importProject preserves bridge joint hardware interface from exported projects', async () => {
-  const sourcePathA = 'robots/left_arm.urdf';
-  const sourcePathB = 'robots/right_arm.urdf';
-  const sourceContentA = '<robot name="left_arm"><link name="base_link" /></robot>';
-  const sourceContentB = '<robot name="right_arm"><link name="base_link" /></robot>';
-  const leftRobot = createBridgeAssemblyComponentRobot('comp_left');
-  const rightRobot = createBridgeAssemblyComponentRobot('comp_right');
-
-  const assemblyState = {
-    name: 'hardware_interface_workspace',
-    components: {
-      comp_left: {
-        id: 'comp_left',
-        name: 'left_arm',
-        sourceFile: sourcePathA,
-        visible: true,
-        robot: leftRobot,
-      },
-      comp_right: {
-        id: 'comp_right',
-        name: 'right_arm',
-        sourceFile: sourcePathB,
-        visible: true,
-        robot: rightRobot,
-      },
-    },
-    bridges: {
-      bridge_effort_joint: {
-        id: 'bridge_effort_joint',
-        name: 'bridge_effort_joint',
-        parentComponentId: 'comp_left',
-        parentLinkId: leftRobot.rootLinkId,
-        childComponentId: 'comp_right',
-        childLinkId: rightRobot.rootLinkId,
-        joint: {
-          ...DEFAULT_JOINT,
-          id: 'bridge_effort_joint',
-          name: 'bridge_effort_joint',
-          type: JointType.REVOLUTE,
-          parentLinkId: leftRobot.rootLinkId,
-          childLinkId: rightRobot.rootLinkId,
-          origin: {
-            xyz: { x: 0, y: 0, z: 0 },
-            rpy: { r: 0, p: 0, y: 0 },
-          },
-          hardware: {
-            armature: 0,
-            brand: '',
-            motorType: 'None',
-            motorId: '',
-            motorDirection: 1 as const,
-            hardwareInterface: 'effort' as const,
-          },
-        },
-      },
-    },
-  };
-
-  const exportResult = await exportProject({
-    name: 'demo_project_with_bridge_interface',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: sourcePathA,
-          format: 'urdf',
-          content: sourceContentA,
-        },
-        {
-          name: sourcePathB,
-          format: 'urdf',
-          content: sourceContentB,
-        },
-      ],
-      assets: {},
-      allFileContents: {
-        [sourcePathA]: sourceContentA,
-        [sourcePathB]: sourceContentB,
-      },
-      motorLibrary: {},
-      selectedFileName: sourcePathA,
-      originalUrdfContent: sourceContentA,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: leftRobot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: assemblyState,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => leftRobot,
-  });
-
-  const imported = await importProject(
-    new Uint8Array(await exportResult.blob.arrayBuffer()) as unknown as File,
-    'en',
-  );
-
-  assert.equal(
-    imported.assemblyState?.bridges.bridge_effort_joint.joint.hardware.hardwareInterface,
-    'effort',
-  );
-});
-
-test('importProject roundtrips multi-component assembly sources, bridges, and selected file metadata', async () => {
-  const sourcePathA = 'robots/left_arm.urdf';
-  const sourcePathB = 'robots/right_arm.urdf';
-  const sourceContentA = '<robot name="left_arm"><link name="base_link" /></robot>';
-  const sourceContentB = '<robot name="right_arm"><link name="base_link" /></robot>';
-  const leftRobot = createBridgeAssemblyComponentRobot('comp_left');
-  const rightRobot = createBridgeAssemblyComponentRobot('comp_right');
-
-  const assemblyState = {
-    name: 'source_roundtrip_workspace',
-    components: {
-      comp_left: {
-        id: 'comp_left',
-        name: 'left_arm',
-        sourceFile: sourcePathA,
-        visible: true,
-        robot: leftRobot,
-      },
-      comp_right: {
-        id: 'comp_right',
-        name: 'right_arm',
-        sourceFile: sourcePathB,
-        visible: true,
-        robot: rightRobot,
-      },
-    },
-    bridges: {
-      bridge_main: {
-        id: 'bridge_main',
-        name: 'bridge_main',
-        parentComponentId: 'comp_left',
-        parentLinkId: leftRobot.rootLinkId,
-        childComponentId: 'comp_right',
-        childLinkId: rightRobot.rootLinkId,
-        joint: {
-          ...DEFAULT_JOINT,
-          id: 'bridge_main',
-          name: 'bridge_main',
-          type: JointType.FIXED,
-          parentLinkId: leftRobot.rootLinkId,
-          childLinkId: rightRobot.rootLinkId,
-          origin: {
-            xyz: { x: 0, y: 0, z: 0 },
-            rpy: { r: 0, p: 0, y: 0 },
-          },
-        },
-      },
-    },
-  };
-
-  const exportResult = await exportProject({
-    name: 'source_roundtrip_project',
-    uiState: {
-      appMode: 'editor',
-      lang: 'en',
-    },
-    assetsState: {
-      availableFiles: [
-        {
-          name: sourcePathA,
-          format: 'urdf',
-          content: sourceContentA,
-        },
-        {
-          name: sourcePathB,
-          format: 'urdf',
-          content: sourceContentB,
-        },
-      ],
-      assets: {},
-      allFileContents: {
-        [sourcePathA]: sourceContentA,
-        [sourcePathB]: sourceContentB,
-      },
-      motorLibrary: {},
-      selectedFileName: sourcePathB,
-      originalUrdfContent: sourceContentA,
-      originalFileFormat: 'urdf',
-      usdPreparedExportCaches: {},
-    },
-    robotState: {
-      present: leftRobot,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    assemblyState: {
-      present: assemblyState,
-      history: { past: [], future: [] },
-      activity: [],
-    },
-    getMergedRobotData: () => leftRobot,
-  });
-
-  const zip = await JSZip.loadAsync(await exportResult.blob.arrayBuffer());
-  assert.ok(zip.file('components/comp_left/state.json'));
-  assert.ok(zip.file('components/comp_left/left_arm.urdf'));
-  assert.ok(zip.file('components/comp_right/state.json'));
-  assert.ok(zip.file('components/comp_right/right_arm.urdf'));
-  assert.ok(zip.file('bridges/bridge.xml'));
-  assert.ok(zip.file('history/assembly.json'));
-  assert.ok(zip.file(buildLibraryArchivePath(sourcePathA)));
-  assert.ok(zip.file(buildLibraryArchivePath(sourcePathB)));
-
-  const imported = await importProject(
-    new Uint8Array(await exportResult.blob.arrayBuffer()) as unknown as File,
-    'en',
-  );
-
-  assert.equal(imported.selectedFileName, sourcePathB);
-  assert.equal(Object.keys(imported.assemblyState?.components ?? {}).length, 2);
-  assert.equal(imported.assemblyState?.components.comp_left.sourceFile, sourcePathA);
-  assert.equal(imported.assemblyState?.components.comp_right.sourceFile, sourcePathB);
-  assert.ok(imported.availableFiles.some((file) => file.name === sourcePathA));
-  assert.ok(imported.availableFiles.some((file) => file.name === sourcePathB));
 });

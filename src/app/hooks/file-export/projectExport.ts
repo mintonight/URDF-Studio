@@ -1,15 +1,8 @@
 import { exportProjectWithWorker } from '@/features/file-io';
 import type { ExportProjectParams } from '@/features/file-io';
 import { translations } from '@/shared/i18n';
-import type { RobotMaterialState, UrdfJoint, UrdfLink } from '@/types';
-import {
-  buildCurrentRobotExportData,
-  type RobotActivityEntryLike,
-  type RobotHistoryLike,
-} from '../projectRobotStateUtils';
-import { materializeAssemblyHistorySnapshots } from './assemblyHistory';
+
 import type {
-  AssemblyHistoryState,
   HandleProjectExportOptions,
   ProjectExportExecutionResult,
 } from './types';
@@ -19,28 +12,13 @@ type ExportTranslations = typeof translations.en;
 
 interface ExecuteProjectExportParams {
   options?: HandleProjectExportOptions;
-  robotName: string;
-  robotLinks: Record<string, UrdfLink>;
-  robotJoints: Record<string, UrdfJoint>;
-  rootLinkId: string;
-  robotMaterials?: Record<string, RobotMaterialState>;
-  closedLoopConstraints?: import('@/types').RobotClosedLoopConstraint[];
-  robotHistory: RobotHistoryLike;
-  robotActivity: RobotActivityEntryLike[];
-  assemblyState: import('@/types').AssemblyState | null;
-  assemblyHistory: AssemblyHistoryState;
-  assemblyActivity: ExportProjectParams['assemblyState']['activity'];
-  mergedAppMode: ExportProjectParams['uiState']['appMode'];
-  lang: ExportProjectParams['uiState']['lang'];
-  availableFiles: ExportProjectParams['assetsState']['availableFiles'];
-  assets: ExportProjectParams['assetsState']['assets'];
-  allFileContents: ExportProjectParams['assetsState']['allFileContents'];
-  motorLibrary: ExportProjectParams['assetsState']['motorLibrary'];
-  selectedFileName: ExportProjectParams['assetsState']['selectedFileName'];
-  originalUrdfContent: ExportProjectParams['assetsState']['originalUrdfContent'];
-  originalFileFormat: ExportProjectParams['assetsState']['originalFileFormat'];
-  usdPreparedExportCaches: ExportProjectParams['assetsState']['usdPreparedExportCaches'];
-  getMergedRobotData: () => import('@/types').RobotData | null;
+  name: string;
+  lang: ExportProjectParams['lang'];
+  workspace: ExportProjectParams['workspace'];
+  workspaceHistory: ExportProjectParams['workspaceHistory'];
+  componentSourceDrafts: NonNullable<ExportProjectParams['componentSourceDrafts']>;
+  assets: ExportProjectParams['assets'];
+  derivedCaches?: ExportProjectParams['derivedCaches'];
   createProgressReporter: (
     onProgress: HandleProjectExportOptions['onProgress'],
     totalSteps: number,
@@ -49,37 +27,26 @@ interface ExecuteProjectExportParams {
   replaceTemplate: (template: string, replacements: Record<string, string | number>) => string;
   t: ExportTranslations;
   markAllSaved: () => void;
+  isPersistenceSnapshotCurrent: () => boolean;
+  archiveProject?: typeof exportProjectWithWorker;
 }
 
 export async function executeProjectExport({
   options = {},
-  robotName,
-  robotLinks,
-  robotJoints,
-  rootLinkId,
-  robotMaterials,
-  closedLoopConstraints,
-  robotHistory,
-  robotActivity,
-  assemblyState,
-  assemblyHistory,
-  assemblyActivity,
-  mergedAppMode,
+  name,
   lang,
-  availableFiles,
+  workspace,
+  workspaceHistory,
+  componentSourceDrafts,
   assets,
-  allFileContents,
-  motorLibrary,
-  selectedFileName,
-  originalUrdfContent,
-  originalFileFormat,
-  usdPreparedExportCaches,
-  getMergedRobotData,
+  derivedCaches,
   createProgressReporter,
   downloadBlob,
   replaceTemplate,
   t,
   markAllSaved,
+  isPersistenceSnapshotCurrent,
+  archiveProject = exportProjectWithWorker,
 }: ExecuteProjectExportParams): Promise<ProjectExportExecutionResult> {
   const reportProgress = createProgressReporter(options.onProgress, 6);
   reportProgress(1, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
@@ -96,45 +63,15 @@ export async function executeProjectExport({
     },
   );
 
-  const exportableAssemblyHistory = materializeAssemblyHistorySnapshots(
-    assemblyHistory,
-    assemblyState,
-  );
-
-  const result = await exportProjectWithWorker({
-    name: robotName || assemblyState?.name || 'my_project',
-    uiState: {
-      appMode: mergedAppMode,
-      lang,
-    },
-    assetsState: {
-      availableFiles,
-      assets,
-      allFileContents,
-      motorLibrary,
-      selectedFileName,
-      originalUrdfContent,
-      originalFileFormat,
-      usdPreparedExportCaches,
-    },
-    robotState: {
-      present: buildCurrentRobotExportData({
-        robotName,
-        robotLinks,
-        robotJoints,
-        rootLinkId,
-        robotMaterials,
-        closedLoopConstraints,
-      }),
-      history: robotHistory,
-      activity: robotActivity,
-    },
-    assemblyState: {
-      present: assemblyState,
-      history: exportableAssemblyHistory,
-      activity: assemblyActivity,
-    },
-    getMergedRobotData,
+  const projectName = name.trim() || workspace.name.trim() || 'my_project';
+  const result = await archiveProject({
+    name: projectName,
+    lang,
+    workspace,
+    workspaceHistory,
+    componentSourceDrafts,
+    assets,
+    derivedCaches,
     onProgress: (progress) => {
       switch (progress.phase) {
         case 'assets':
@@ -159,7 +96,7 @@ export async function executeProjectExport({
             replaceTemplate(t.exportProgressWritingProjectDataDetail, {
               current: progress.completed,
               total: progress.total,
-              item: progress.label || 'project.json',
+              item: progress.label || 'manifest.json',
             }),
             {
               stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
@@ -210,16 +147,16 @@ export async function executeProjectExport({
             },
           );
           break;
-        default:
-          break;
       }
     },
   });
 
   if (!options.skipDownload) {
-    downloadBlob(result.blob, `${robotName || assemblyState?.name || 'my_project'}.usp`);
+    downloadBlob(result.blob, `${projectName}.usp`);
   }
-  markAllSaved();
+  if (isPersistenceSnapshotCurrent()) {
+    markAllSaved();
+  }
 
   return {
     partial: result.partial,

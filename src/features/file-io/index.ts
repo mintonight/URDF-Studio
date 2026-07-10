@@ -31,9 +31,18 @@ export type {
   ProjectExportProgressPhase,
   ProjectImportResult,
   ImportedProjectArchiveData,
+  ImportedProjectArchiveAssets,
+  ImportedProjectAssets,
   ImportedProjectLibraryFile,
+  ProjectImportWarning,
   UsdMeshCompressionOptions,
   ExportProjectParams,
+  ProjectAssetsManifest,
+  ProjectComponentSourceDraftEntry,
+  ProjectComponentSourceDraftManifest,
+  ProjectDerivedCaches,
+  ProjectExportAssets,
+  ProjectManifest,
 } from './utils';
 export type {
   MjcfVisualMeshVariant,

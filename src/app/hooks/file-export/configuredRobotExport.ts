@@ -26,7 +26,6 @@ import {
   addArchiveFilesToZip,
   addSkeletonToZip,
   createArchiveRoot,
-  getFileBaseName,
 } from './archive';
 import { applyBoxFaceMaterialExportFallback } from './materialFallbacks';
 import type { ExportProgressReporter } from './progress';
@@ -94,9 +93,8 @@ interface ExecuteConfiguredRobotExportParams {
   prepareMjcfMeshExportAssets: (
     params: PrepareMjcfMeshExportAssetsOptions,
   ) => Promise<PreparedMjcfMeshExportAssets>;
-  requiresResolvedUsdContext: boolean;
   resolveExportContext: (target?: ExportTarget) => Promise<ExportContext | null>;
-  resolveLibraryRobotForExport: (file: RobotFile) => Promise<RobotState>;
+  resolveLibraryExportContext: (file: RobotFile) => Promise<ExportContext>;
   t: ExportTranslations;
   target: ExportTarget;
   throwForAssetPackagingFailures: (failures: RobotAssetPackagingFailure[]) => void;
@@ -154,9 +152,8 @@ export async function executeConfiguredRobotExport({
   normalizedAssemblyState,
   options,
   prepareMjcfMeshExportAssets,
-  requiresResolvedUsdContext,
   resolveExportContext,
-  resolveLibraryRobotForExport,
+  resolveLibraryExportContext,
   t,
   target,
   throwForAssetPackagingFailures,
@@ -196,15 +193,9 @@ export async function executeConfiguredRobotExport({
 
   const exportContext =
     target.type === 'library-file'
-      ? {
-          robot: await resolveLibraryRobotForExport(target.file),
-          exportName: getFileBaseName(target.file.name),
-        }
+      ? await resolveLibraryExportContext(target.file)
       : await resolveExportContext(target);
   if (!exportContext) {
-    if (requiresResolvedUsdContext) {
-      throw new Error(t.usdExportUnavailable);
-    }
     throw new Error(t.exportFailedParse);
   }
 

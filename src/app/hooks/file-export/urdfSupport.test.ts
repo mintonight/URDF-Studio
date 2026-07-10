@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_LINK,
+  type AssemblyComponent,
   type AssemblyState,
+  type AssemblyTransform,
   type RobotClosedLoopConstraint,
   type RobotData,
   type RobotState,
@@ -33,6 +35,30 @@ const robotData: RobotData = {
   joints: {},
   rootLinkId: 'base',
 };
+
+function createTransform(): AssemblyTransform {
+  return {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  };
+}
+
+function createComponent(
+  id: string,
+  name: string,
+  sourceFile: string,
+  robot: RobotData = robotData,
+  visible = true,
+): AssemblyComponent {
+  return {
+    id,
+    name,
+    sourceFile,
+    robot,
+    transform: createTransform(),
+    visible,
+  };
+}
 
 const closedLoopConstraint: RobotClosedLoopConstraint = {
   id: 'c',
@@ -88,16 +114,17 @@ test('assertUrdfExportSupported skips when no closed loops and throws when they 
 test('assertAssemblyUrdfExportSupported throws when any component has a constraint', () => {
   const assembly: AssemblyState = {
     name: 'assembly',
+    transform: createTransform(),
     components: {
-      comp: {
-        id: 'comp',
-        name: 'Component',
-        sourceFile: 'file',
-        robot: {
+      comp: createComponent(
+        'comp',
+        'Component',
+        'file',
+        {
           ...robotData,
           closedLoopConstraints: [{ ...closedLoopConstraint, id: 'c2' }],
         },
-      },
+      ),
     },
     bridges: {},
   };
@@ -111,16 +138,11 @@ test('assertAssemblyUrdfExportSupported throws when any component has a constrai
 test('buildAssemblyExportName derives workspace export names from component names', () => {
   const assembly: AssemblyState = {
     name: 'assembly',
+    transform: createTransform(),
     components: {
-      comp_t1: { id: 'comp_t1', name: 't1', sourceFile: 't1.xml', robot: robotData },
-      comp_piper: { id: 'comp_piper', name: 'piper', sourceFile: 'piper.xml', robot: robotData },
-      comp_hidden: {
-        id: 'comp_hidden',
-        name: 'hidden',
-        sourceFile: 'hidden.xml',
-        robot: robotData,
-        visible: false,
-      },
+      comp_t1: createComponent('comp_t1', 't1', 't1.xml'),
+      comp_piper: createComponent('comp_piper', 'piper', 'piper.xml'),
+      comp_hidden: createComponent('comp_hidden', 'hidden', 'hidden.xml', robotData, false),
     },
     bridges: {},
   };
@@ -131,9 +153,10 @@ test('buildAssemblyExportName derives workspace export names from component name
 test('resolveDisconnectedWorkspaceUrdfAction only fires for current URDF targets with disconnected components', () => {
   const assembly: AssemblyState = {
     name: 'assembly',
+    transform: createTransform(),
     components: {
-      c1: { id: 'c1', name: 'C1', sourceFile: 'a', robot: robotData },
-      c2: { id: 'c2', name: 'C2', sourceFile: 'b', robot: robotData },
+      c1: createComponent('c1', 'C1', 'a'),
+      c2: createComponent('c2', 'C2', 'b'),
     },
     bridges: {},
   };
