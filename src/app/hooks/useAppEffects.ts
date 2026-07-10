@@ -5,7 +5,6 @@
 import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { isComponentSourceDraftMatchingComponent } from '@/core/robot';
 import { useUIStore } from '@/store';
 import { useAssetsStore } from '@/store/assetsStore';
 import {
@@ -141,10 +140,12 @@ export function useComponentSourceDraftCleanup() {
     const matchingDrafts = Object.fromEntries(
       Object.entries(componentSourceDrafts).filter(([componentId, draft]) => {
         const component = workspace.components[componentId];
-        return Boolean(
-          component
-          && isComponentSourceDraftMatchingComponent(draft, component),
-        );
+        // Only prune drafts whose component no longer exists. Do NOT prune
+        // on hash mismatch — normal post-import processing (inertia defaults,
+        // mesh path normalization, etc.) changes the semantic hash and would
+        // discard the freshly-created draft, leaving the source editor
+        // read-only until the user re-imports.
+        return Boolean(component && draft.componentId === componentId);
       }),
     );
     if (Object.keys(matchingDrafts).length !== Object.keys(componentSourceDrafts).length) {
