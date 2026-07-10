@@ -1,207 +1,138 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GeometryType, JointType, type AssemblyState } from '@/types';
-import type { Selection } from '@/store/selectionStore';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  JointType,
+  type AssemblyState,
+  type WorkspaceSelection,
+} from '@/types';
 
 import {
   filterSelectableBridgeComponents,
-  isAssemblySelectionAllowedForBridge,
-  resolveAssemblySelection,
-  resolveAssemblyViewerComponentSelection,
+  isWorkspaceSelectionAllowedForBridge,
   resolveBlockedBridgeComponentId,
+  resolveBridgeSelectionTarget,
 } from './bridgeSelection.ts';
 
+const identityTransform = () => ({
+  position: { x: 0, y: 0, z: 0 },
+  rotation: { r: 0, p: 0, y: 0 },
+});
+
 function createAssemblyState(): AssemblyState {
+  const component = (id: string, name: string) => ({
+    id,
+    name,
+    sourceFile: `${id}.urdf`,
+    visible: true,
+    transform: identityTransform(),
+    robot: {
+      name: `robot_${id}`,
+      rootLinkId: 'base_link',
+      links: {
+        base_link: { ...structuredClone(DEFAULT_LINK), id: 'base_link', name: 'base_link' },
+        tool_link: { ...structuredClone(DEFAULT_LINK), id: 'tool_link', name: 'tool_link' },
+      },
+      joints: {
+        tool_joint: {
+          ...structuredClone(DEFAULT_JOINT),
+          id: 'tool_joint',
+          name: 'tool_joint',
+          type: JointType.FIXED,
+          parentLinkId: 'base_link',
+          childLinkId: 'tool_link',
+        },
+      },
+    },
+  });
+
   return {
     name: 'test-assembly',
+    transform: identityTransform(),
     components: {
-      component_a: {
-        id: 'component_a',
-        name: 'Component A',
-        sourceFile: 'component_a.urdf',
-        robot: {
-          name: 'robot_a',
-          rootLinkId: 'component_a/base_link',
-          links: {
-            'component_a/base_link': {
-              id: 'component_a/base_link',
-              name: 'robot_a',
-              visual: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-              collision: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-            },
-            'component_a/tool_link': {
-              id: 'component_a/tool_link',
-              name: 'robot_a_tool_link',
-              visual: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-              collision: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-            },
-          },
-          joints: {
-            'component_a/tool_joint': {
-              id: 'component_a/tool_joint',
-              name: 'robot_a_tool_joint',
-              type: JointType.FIXED,
-              parentLinkId: 'component_a/base_link',
-              childLinkId: 'component_a/tool_link',
-              origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              dynamics: { damping: 0, friction: 0 },
-              hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
-            },
-          },
-        },
-      },
-      component_b: {
-        id: 'component_b',
-        name: 'Component B',
-        sourceFile: 'component_b.urdf',
-        robot: {
-          name: 'robot_b',
-          rootLinkId: 'component_b/base_link',
-          links: {
-            'component_b/base_link': {
-              id: 'component_b/base_link',
-              name: 'robot_b',
-              visual: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-              collision: {
-                type: GeometryType.BOX,
-                dimensions: { x: 1, y: 1, z: 1 },
-                color: '#ffffff',
-                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-              },
-            },
-          },
-          joints: {},
-        },
-      },
+      component_a: component('component_a', 'Component A'),
+      component_b: component('component_b', 'Component B'),
     },
     bridges: {},
   };
 }
 
-test('resolveAssemblySelection maps both link and joint picks back to their component and link', () => {
-  const assemblyState = createAssemblyState();
+test('bridge link and joint picks resolve through explicit component ownership', () => {
+  const workspace = createAssemblyState();
 
   assert.deepEqual(
-    resolveAssemblySelection(assemblyState, { type: 'link', id: 'component_a/tool_link' }),
+    resolveBridgeSelectionTarget(workspace, {
+      entity: { type: 'link', componentId: 'component_a', entityId: 'tool_link' },
+    }),
     {
       componentId: 'component_a',
       componentName: 'Component A',
-      linkId: 'component_a/tool_link',
-      linkName: 'robot_a_tool_link',
+      linkId: 'tool_link',
+      linkName: 'tool_link',
     },
   );
-
   assert.deepEqual(
-    resolveAssemblySelection(assemblyState, { type: 'joint', id: 'component_a/tool_joint' }),
+    resolveBridgeSelectionTarget(workspace, {
+      entity: { type: 'joint', componentId: 'component_b', entityId: 'tool_joint' },
+    }),
     {
-      componentId: 'component_a',
-      componentName: 'Component A',
-      linkId: 'component_a/tool_link',
-      linkName: 'robot_a_tool_link',
+      componentId: 'component_b',
+      componentName: 'Component B',
+      linkId: 'tool_link',
+      linkName: 'tool_link',
     },
   );
 });
 
-test('resolveAssemblySelection accepts viewer-facing link and joint names', () => {
-  const assemblyState = createAssemblyState();
+test('duplicate source-local IDs never leak across bridge component owners', () => {
+  const workspace = createAssemblyState();
+  const selection: WorkspaceSelection = {
+    entity: { type: 'link', componentId: 'component_b', entityId: 'base_link' },
+  };
 
-  assert.deepEqual(
-    resolveAssemblySelection(assemblyState, { type: 'link', id: 'robot_a_tool_link' }),
-    {
-      componentId: 'component_a',
-      componentName: 'Component A',
-      linkId: 'component_a/tool_link',
-      linkName: 'robot_a_tool_link',
-    },
-  );
-
-  assert.deepEqual(
-    resolveAssemblySelection(assemblyState, { type: 'joint', id: 'robot_a_tool_joint' }),
-    {
-      componentId: 'component_a',
-      componentName: 'Component A',
-      linkId: 'component_a/tool_link',
-      linkName: 'robot_a_tool_link',
-    },
-  );
-});
-
-test('resolveAssemblyViewerComponentSelection only promotes root link picks to a component when bridge picking is inactive', () => {
-  const assemblyState = createAssemblyState();
-
+  assert.equal(resolveBridgeSelectionTarget(workspace, selection)?.componentId, 'component_b');
   assert.equal(
-    resolveAssemblyViewerComponentSelection(assemblyState, {
-      type: 'link',
-      id: 'component_a/base_link',
-    }),
-    'component_a',
-  );
-
-  assert.equal(
-    resolveAssemblyViewerComponentSelection(assemblyState, {
-      type: 'link',
-      id: 'robot_a',
-    }),
-    'component_a',
-  );
-
-  assert.equal(
-    resolveAssemblyViewerComponentSelection(assemblyState, {
-      type: 'joint',
-      id: 'robot_a_tool_joint',
-    }),
-    null,
-  );
-
-  assert.equal(
-    resolveAssemblyViewerComponentSelection(assemblyState, {
-      type: 'link',
-      id: 'component_a/tool_link',
+    resolveBridgeSelectionTarget(workspace, {
+      entity: { type: 'link', componentId: 'missing', entityId: 'base_link' },
     }),
     null,
   );
 });
 
-test('resolveAssemblyViewerComponentSelection keeps link or joint picking active while a bridge interaction guard is present', () => {
-  const assemblyState = createAssemblyState();
+test('bridge selection guard rejects the blocked owner and non-link entities', () => {
+  const workspace = createAssemblyState();
 
   assert.equal(
-    resolveAssemblyViewerComponentSelection(
-      assemblyState,
-      { type: 'link', id: 'component_a/base_link' },
-      { hasInteractionGuard: true },
+    isWorkspaceSelectionAllowedForBridge(
+      workspace,
+      { entity: { type: 'link', componentId: 'component_a', entityId: 'base_link' } },
+      'component_a',
     ),
-    null,
+    false,
+  );
+  assert.equal(
+    isWorkspaceSelectionAllowedForBridge(
+      workspace,
+      { entity: { type: 'link', componentId: 'component_b', entityId: 'base_link' } },
+      'component_a',
+    ),
+    true,
+  );
+  assert.equal(
+    isWorkspaceSelectionAllowedForBridge(
+      workspace,
+      { entity: { type: 'component', componentId: 'component_b' } },
+      'component_a',
+    ),
+    false,
   );
 });
 
-test('resolveBlockedBridgeComponentId blocks the opposite side component for the active pick target', () => {
+test('bridge helper rules block the opposite side and filter dropdown components', () => {
+  const workspace = createAssemblyState();
+
   assert.equal(
     resolveBlockedBridgeComponentId({
       pickTarget: 'child',
@@ -210,61 +141,10 @@ test('resolveBlockedBridgeComponentId blocks the opposite side component for the
     }),
     'component_a',
   );
-
-  assert.equal(
-    resolveBlockedBridgeComponentId({
-      pickTarget: 'parent',
-      parentComponentId: '',
-      childComponentId: 'component_b',
-    }),
-    'component_b',
-  );
-});
-
-test('bridge selection rules reject picks from the blocked component and trim dropdown options', () => {
-  const assemblyState = createAssemblyState();
-  const blockedComponentId = 'component_a';
-
-  assert.equal(
-    isAssemblySelectionAllowedForBridge(
-      assemblyState,
-      { type: 'link', id: 'component_a/base_link' } satisfies Selection,
-      blockedComponentId,
-    ),
-    false,
-  );
-
-  assert.equal(
-    isAssemblySelectionAllowedForBridge(
-      assemblyState,
-      { type: 'link', id: 'component_b/base_link' } satisfies Selection,
-      blockedComponentId,
-    ),
-    true,
-  );
-
-  assert.equal(
-    isAssemblySelectionAllowedForBridge(
-      assemblyState,
-      { type: 'link', id: 'robot_a' } satisfies Selection,
-      blockedComponentId,
-    ),
-    false,
-  );
-
-  assert.equal(
-    isAssemblySelectionAllowedForBridge(
-      assemblyState,
-      { type: 'joint', id: 'robot_a_tool_joint' } satisfies Selection,
-      blockedComponentId,
-    ),
-    false,
-  );
-
   assert.deepEqual(
     filterSelectableBridgeComponents(
-      Object.values(assemblyState.components),
-      blockedComponentId,
+      Object.values(workspace.components),
+      'component_a',
     ).map((component) => component.id),
     ['component_b'],
   );

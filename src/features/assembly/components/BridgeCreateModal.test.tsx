@@ -6,10 +6,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { GeometryType, JointType, type AssemblyState } from '@/types';
-import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
 import { useSelectionStore } from '@/store/selectionStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 
 import { BridgeCreateModal } from './BridgeCreateModal.tsx';
+import type { BridgeCreateModalProps } from './BridgeCreateModal.tsx';
 
 function assertNearlyEqual(actual: number, expected: number, message?: string) {
   assert.ok(Math.abs(actual - expected) < 1e-6, message ?? `${actual} !== ${expected}`);
@@ -79,24 +80,46 @@ async function destroyComponentRoot(dom: JSDOM, root: Root) {
   dom.window.close();
 }
 
+function createBridgeModalElement({
+  workspace,
+  ...props
+}: BridgeCreateModalProps & { workspace: AssemblyState }) {
+  useWorkspaceStore.setState({
+    workspace,
+    activeComponentId: Object.keys(workspace.components)[0]!,
+  });
+  return React.createElement(BridgeCreateModal, props);
+}
+
+function selectLink(componentId: string, entityId: string) {
+  useSelectionStore.getState().setSelection({
+    entity: { type: 'link', componentId, entityId },
+  });
+}
+
 function createAssemblyState(): AssemblyState {
   return {
     name: 'test-assembly',
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
     components: {
       component_a: {
         id: 'component_a',
         name: 'Component A',
         sourceFile: 'component_a.urdf',
+        visible: true,
         transform: {
           position: { x: 0, y: 0, z: 0 },
           rotation: { r: 0, p: 0, y: 0 },
         },
         robot: {
           name: 'robot_a',
-          rootLinkId: 'component_a/base_link',
+          rootLinkId: 'base_link',
           links: {
-            'component_a/base_link': {
-              id: 'component_a/base_link',
+            'base_link': {
+              id: 'base_link',
               name: 'base_link',
               visual: {
                 type: GeometryType.BOX,
@@ -111,8 +134,8 @@ function createAssemblyState(): AssemblyState {
                 origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
               },
             },
-            'component_a/tool_link': {
-              id: 'component_a/tool_link',
+            'tool_link': {
+              id: 'tool_link',
               name: 'tool_link',
               visual: {
                 type: GeometryType.BOX,
@@ -129,12 +152,12 @@ function createAssemblyState(): AssemblyState {
             },
           },
           joints: {
-            'component_a/tool_joint': {
-              id: 'component_a/tool_joint',
+            'tool_joint': {
+              id: 'tool_joint',
               name: 'tool_joint',
               type: JointType.FIXED,
-              parentLinkId: 'component_a/base_link',
-              childLinkId: 'component_a/tool_link',
+              parentLinkId: 'base_link',
+              childLinkId: 'tool_link',
               origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
               dynamics: { damping: 0, friction: 0 },
               hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
@@ -146,16 +169,17 @@ function createAssemblyState(): AssemblyState {
         id: 'component_b',
         name: 'Component B',
         sourceFile: 'component_b.urdf',
+        visible: true,
         transform: {
           position: { x: 4, y: 0, z: 0 },
           rotation: { r: 0, p: 0, y: 0 },
         },
         robot: {
           name: 'robot_b',
-          rootLinkId: 'component_b/base_link',
+          rootLinkId: 'base_link',
           links: {
-            'component_b/base_link': {
-              id: 'component_b/base_link',
+            'base_link': {
+              id: 'base_link',
               name: 'base_link',
               visual: {
                 type: GeometryType.BOX,
@@ -286,7 +310,7 @@ test('bridge create modal auto-fills parent and child from direct link picks', a
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -301,12 +325,12 @@ test('bridge create modal auto-fills parent and child from direct link picks', a
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -314,12 +338,12 @@ test('bridge create modal auto-fills parent and child from direct link picks', a
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -333,7 +357,7 @@ test('bridge create modal auto-fills parent and child from direct link picks', a
     assert.equal(childCard.dataset.bridgeLinkSummary, 'base_link');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -347,12 +371,12 @@ test('bridge create modal opens as a compact single-page editor with stacked XYZ
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -407,7 +431,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
   const { dom, container, root } = createComponentRoot();
   const originalConsoleError = console.error;
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -422,12 +446,12 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -442,7 +466,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     assert.doesNotMatch(container.textContent ?? '', /保持窗口打开时/);
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
 
@@ -527,7 +551,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
       'relation grid should not reserve an oversized fixed connector column',
     );
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -560,7 +584,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     expectSelectSlot(childFieldsRow, 'child-link');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -572,7 +596,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
   const { dom, container, root } = createComponentRoot();
   const originalConsoleError = console.error;
   const assemblyState = createAssemblyState();
-  const mjcfRootLink = assemblyState.components.component_a.robot.links['component_a/base_link'];
+  const mjcfRootLink = assemblyState.components.component_a.robot.links['base_link'];
 
   mjcfRootLink.name = 'world_body_0';
   mjcfRootLink.visual = {
@@ -595,7 +619,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
   };
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -610,12 +634,12 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState,
+          workspace: assemblyState,
           lang: 'en',
         }),
       );
@@ -623,7 +647,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/base_link' });
+      selectLink('component_a', 'base_link');
       await Promise.resolve();
     });
 
@@ -644,7 +668,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
     );
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -657,7 +681,7 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -672,12 +696,12 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -685,11 +709,11 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -710,7 +734,7 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
     assert.doesNotMatch(container.textContent ?? '', /无位置上下限/);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -723,7 +747,7 @@ test('bridge create modal keeps zh hardware interface labels Chinese-only and pr
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -738,12 +762,12 @@ test('bridge create modal keeps zh hardware interface labels Chinese-only and pr
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -751,11 +775,11 @@ test('bridge create modal keeps zh hardware interface labels Chinese-only and pr
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -793,7 +817,7 @@ test('bridge create modal keeps zh hardware interface labels Chinese-only and pr
     assert.deepEqual(optionLabels, ['位置', '力矩', '速度']);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -806,7 +830,7 @@ test('bridge create modal lets users switch back to the parent side and repick i
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -821,12 +845,12 @@ test('bridge create modal lets users switch back to the parent side and repick i
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -834,15 +858,15 @@ test('bridge create modal lets users switch back to the parent side and repick i
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/base_link' });
+      selectLink('component_a', 'base_link');
       await Promise.resolve();
     });
 
@@ -852,7 +876,7 @@ test('bridge create modal lets users switch back to the parent side and repick i
     assert.equal(parentCard.dataset.bridgeLinkSummary, 'base_link');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -866,7 +890,7 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -881,14 +905,14 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: (bridge) => {
             previewUpdates.push(bridge?.joint.origin?.rpy.r);
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -896,11 +920,11 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -926,7 +950,7 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
     assert.equal(previewUpdates.at(-1), 0);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -944,7 +968,7 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -959,14 +983,14 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: (bridge) => {
             previewUpdates.push(bridge ? bridge.joint.origin.rpy : null);
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -974,11 +998,11 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1020,7 +1044,7 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
     );
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1028,17 +1052,18 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
   }
 });
 
-test('bridge create modal clears stale selection state on open so picking starts from a clean slate', async () => {
+test('bridge create modal clears stale state but accepts the first click on that same link', async () => {
   const { dom, container, root } = createComponentRoot();
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: 'link', id: 'component_a/tool_link' },
-    hoveredSelection: { type: 'link', id: 'component_a/tool_link' },
+    selection: {
+      entity: { type: 'link', componentId: 'component_a', entityId: 'tool_link' },
+    },
+    hoveredSelection: {
+      entity: { type: 'link', componentId: 'component_a', entityId: 'tool_link' },
+    },
     interactionGuard: null,
-  });
-  useAssemblySelectionStore.setState({
-    selection: { type: 'component', id: 'component_a' },
   });
 
   console.error = (...args: unknown[]) => {
@@ -1052,12 +1077,12 @@ test('bridge create modal clears stale selection state on open so picking starts
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1068,12 +1093,11 @@ test('bridge create modal clears stale selection state on open so picking starts
     assert.ok(parentCard, 'parent side card should render');
     assert.equal(parentCard.dataset.bridgeComponentSummary, '--');
     assert.equal(parentCard.dataset.bridgeLinkSummary, '--');
-    assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
-    assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
-    assert.deepEqual(useAssemblySelectionStore.getState().selection, { type: null, id: null });
+    assert.equal(useSelectionStore.getState().selection, null);
+    assert.equal(useSelectionStore.getState().hoveredSelection, null);
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
 
@@ -1081,12 +1105,9 @@ test('bridge create modal clears stale selection state on open so picking starts
     assert.equal(parentCard.dataset.bridgeLinkSummary, 'tool_link');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
-      hoveredSelection: { type: null, id: null },
+      selection: null,
+      hoveredSelection: null,
       interactionGuard: null,
-    });
-    useAssemblySelectionStore.setState({
-      selection: { type: null, id: null },
     });
     await destroyComponentRoot(dom, root);
     console.error = originalConsoleError;
@@ -1103,7 +1124,7 @@ test('bridge create modal auto-selects each component root link so preview can m
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1118,7 +1139,7 @@ test('bridge create modal auto-selects each component root link so preview can m
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
@@ -1133,7 +1154,7 @@ test('bridge create modal auto-selects each component root link so preview can m
                 : null,
             );
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1156,7 +1177,7 @@ test('bridge create modal auto-selects each component root link so preview can m
     assert.ok(parentLinkSelect, 'parent link select should render');
     assert.equal(
       parentLinkSelect.value,
-      'component_a/base_link',
+      'base_link',
       'parent component selection should default to the root link',
     );
 
@@ -1175,13 +1196,13 @@ test('bridge create modal auto-selects each component root link so preview can m
     assert.ok(childLinkSelect, 'child link select should render');
     assert.equal(
       childLinkSelect.value,
-      'component_b/base_link',
+      'base_link',
       'child component selection should default to the root link',
     );
     const lastPreview = previewUpdates.at(-1);
     assert.ok(lastPreview, 'bridge preview should be emitted once both sides are selected');
-    assert.equal(lastPreview.parentLinkId, 'component_a/base_link');
-    assert.equal(lastPreview.childLinkId, 'component_b/base_link');
+    assert.equal(lastPreview.parentLinkId, 'base_link');
+    assert.equal(lastPreview.childLinkId, 'base_link');
     assertNearlyEqual(
       lastPreview.originX ?? 0,
       1.002,
@@ -1189,7 +1210,7 @@ test('bridge create modal auto-selects each component root link so preview can m
     );
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1204,7 +1225,7 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1219,7 +1240,7 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: (params) => {
@@ -1227,7 +1248,7 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
             createdOriginXs.push(params.joint.origin.xyz.x);
           },
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1235,11 +1256,11 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1277,7 +1298,7 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
     );
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1293,7 +1314,7 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
   const pendingAnimationFrames: FrameRequestCallback[] = [];
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
   dom.window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -1312,7 +1333,7 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {
             events.push('close');
@@ -1325,7 +1346,7 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
               events.push('preview-clear');
             }
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1333,11 +1354,11 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1367,7 +1388,7 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
     );
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     dom.window.requestAnimationFrame = originalRequestAnimationFrame;
@@ -1384,15 +1405,15 @@ test('bridge create modal increments the generated bridge name when the default 
     id: 'existing_bridge',
     name: 'Component_A-Component_B',
     parentComponentId: 'component_a',
-    parentLinkId: 'component_a/tool_link',
+    parentLinkId: 'tool_link',
     childComponentId: 'component_b',
-    childLinkId: 'component_b/base_link',
+    childLinkId: 'base_link',
     joint: {
       id: 'existing_bridge',
       name: 'existing_bridge',
       type: JointType.FIXED,
-      parentLinkId: 'component_a/tool_link',
-      childLinkId: 'component_b/base_link',
+      parentLinkId: 'tool_link',
+      childLinkId: 'base_link',
       origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
       dynamics: { damping: 0, friction: 0 },
       hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
@@ -1400,7 +1421,7 @@ test('bridge create modal increments the generated bridge name when the default 
   };
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1415,12 +1436,12 @@ test('bridge create modal increments the generated bridge name when the default 
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState,
+          workspace: assemblyState,
           lang: 'zh',
         }),
       );
@@ -1428,11 +1449,11 @@ test('bridge create modal increments the generated bridge name when the default 
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1441,7 +1462,7 @@ test('bridge create modal increments the generated bridge name when the default 
     assert.equal(nameInput.placeholder, 'Component_A-Component_B-1');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1455,7 +1476,7 @@ test('bridge create modal updates the preview immediately when origin steppers c
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1470,14 +1491,14 @@ test('bridge create modal updates the preview immediately when origin steppers c
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: (bridge) => {
             previewUpdates.push(bridge?.joint.origin?.xyz.x);
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1485,11 +1506,11 @@ test('bridge create modal updates the preview immediately when origin steppers c
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1507,7 +1528,7 @@ test('bridge create modal updates the preview immediately when origin steppers c
     assertNearlyEqual(previewUpdates.at(-1) ?? 0, autoSuggestedOriginX + 0.01);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1521,7 +1542,7 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1536,14 +1557,14 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: (bridge) => {
             previewUpdates.push(bridge?.joint.origin?.xyz.x);
           },
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1551,11 +1572,11 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1583,7 +1604,7 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
     assert.equal(distinctPositiveUpdates.length >= 2, true);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1596,7 +1617,7 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1611,12 +1632,12 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1624,11 +1645,11 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1643,7 +1664,7 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
     assert.equal(typeof reactProps.onLostPointerCapture, 'function');
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1661,7 +1682,7 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1676,7 +1697,7 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: (params) => {
@@ -1687,7 +1708,7 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
             });
           },
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1695,11 +1716,11 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1757,7 +1778,7 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
     });
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1770,7 +1791,7 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
   const originalConsoleError = console.error;
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1785,12 +1806,12 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState: createAssemblyState(),
+          workspace: createAssemblyState(),
           lang: 'zh',
         }),
       );
@@ -1798,11 +1819,11 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      selectLink('component_a', 'tool_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
 
@@ -1831,7 +1852,7 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
     assert.match(container.textContent ?? '', /下限必须小于或等于上限/);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
@@ -1847,15 +1868,15 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
     id: 'bridge_component_a_component_b',
     name: 'Component_A-Component_B',
     parentComponentId: 'component_a',
-    parentLinkId: 'component_a/tool_link',
+    parentLinkId: 'tool_link',
     childComponentId: 'component_b',
-    childLinkId: 'component_b/base_link',
+    childLinkId: 'base_link',
     joint: {
       id: 'bridge_component_a_component_b',
       name: 'bridge_component_a_component_b',
       type: JointType.FIXED,
-      parentLinkId: 'component_a/tool_link',
-      childLinkId: 'component_b/base_link',
+      parentLinkId: 'tool_link',
+      childLinkId: 'base_link',
       origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
       dynamics: { damping: 0, friction: 0 },
       hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
@@ -1863,7 +1884,7 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
   };
 
   useSelectionStore.setState({
-    selection: { type: null, id: null },
+    selection: null,
     interactionGuard: null,
   });
 
@@ -1878,12 +1899,12 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
   try {
     await act(async () => {
       root.render(
-        React.createElement(BridgeCreateModal, {
+        createBridgeModalElement({
           isOpen: true,
           onClose: () => {},
           onCreate: () => {},
           onPreviewChange: () => {},
-          assemblyState,
+          workspace: assemblyState,
           lang: 'zh',
         }),
       );
@@ -1891,11 +1912,11 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
     });
 
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      selectLink('component_b', 'base_link');
       await Promise.resolve();
     });
     await act(async () => {
-      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/base_link' });
+      selectLink('component_a', 'base_link');
       await Promise.resolve();
     });
 
@@ -1915,7 +1936,7 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
     assert.match(container.textContent ?? '', /成环桥接仅支持 fixed 关节/);
   } finally {
     useSelectionStore.setState({
-      selection: { type: null, id: null },
+      selection: null,
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);

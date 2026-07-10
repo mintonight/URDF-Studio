@@ -1,7 +1,6 @@
 import type { Language } from '@/store';
 import {
   JointType,
-  type AssemblyState,
   type BridgeJoint,
   type UrdfJoint,
   type UrdfOrigin,
@@ -30,6 +29,5 @@ export interface BridgeCreateModalProps {
   onClose: () => void;
   onPreviewChange?: (bridge: BridgeJoint | null) => void;
   onCreate: (params: BridgeCreateParams) => void;
-  assemblyState: AssemblyState;
   lang: Language;
 }

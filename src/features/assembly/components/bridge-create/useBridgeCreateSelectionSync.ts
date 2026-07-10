@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
+
 import { useSelectionStore } from '@/store/selectionStore';
-import type { AssemblyState, BridgeJoint } from '@/types';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { entityRefKey, type BridgeJoint, type WorkspaceSelection } from '@/types';
 import {
   resolveBridgePickAssignment,
-  resolveAssemblySelection,
+  resolveBridgeSelectionTarget,
   type BridgePickTarget,
 } from '../../utils/bridgeSelection';
 
 interface UseBridgeCreateSelectionSyncOptions {
-  assemblyState: AssemblyState;
   parentCompId: string;
   childCompId: string;
   childLinkId: string;
@@ -24,8 +24,21 @@ interface UseBridgeCreateSelectionSyncOptions {
   setPickTarget: (value: BridgePickTarget) => void;
 }
 
+function getSelectionSignature(selection: WorkspaceSelection): string | null {
+  if (!selection) {
+    return null;
+  }
+
+  return [
+    entityRefKey(selection.entity),
+    selection.subType ?? '',
+    selection.objectIndex ?? '',
+    selection.helperKind ?? '',
+    selection.highlightObjectId ?? '',
+  ].join(':');
+}
+
 export function useBridgeCreateSelectionSync({
-  assemblyState,
   parentCompId,
   childCompId,
   childLinkId,
@@ -39,17 +52,15 @@ export function useBridgeCreateSelectionSync({
   setParentLinkId,
   setPickTarget,
 }: UseBridgeCreateSelectionSyncOptions) {
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const selection = useSelectionStore((state) => state.selection);
   const setInteractionGuard = useSelectionStore((state) => state.setInteractionGuard);
-  const clearInteractionSelection = useSelectionStore((state) => state.clearSelection);
+  const clearSelection = useSelectionStore((state) => state.clearSelection);
   const clearHover = useSelectionStore((state) => state.clearHover);
-  const clearAssemblySelection = useAssemblySelectionStore((state) => state.clearSelection);
   const lastAppliedSelectionRef = useRef<string | null>(null);
-  const ignoredInitialSelectionSignatureRef = useRef<string | null>(null);
 
   const resetSelectionSyncState = useCallback(() => {
     lastAppliedSelectionRef.current = null;
-    ignoredInitialSelectionSignatureRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -60,22 +71,14 @@ export function useBridgeCreateSelectionSync({
       return undefined;
     }
 
-    // Bridge picking should always begin from a clean interaction state.
-    // Reusing a stale pre-open link selection can silently auto-fill a side,
-    // flip the active pick target, and make hover/selection appear broken.
-    const currentSelection = useSelectionStore.getState().selection;
-    ignoredInitialSelectionSignatureRef.current =
-      currentSelection.type && currentSelection.id
-        ? `${currentSelection.type}:${currentSelection.id}:${currentSelection.subType ?? ''}:${currentSelection.objectIndex ?? ''}`
-        : null;
-    clearAssemblySelection();
-    clearInteractionSelection();
+    // Bridge picking starts clean so a selection made before opening the
+    // dialog cannot silently fill either endpoint.
+    clearSelection();
     clearHover();
     lastAppliedSelectionRef.current = null;
   }, [
-    clearAssemblySelection,
     clearHover,
-    clearInteractionSelection,
+    clearSelection,
     isOpen,
     onPreviewChange,
     resetSelectionSyncState,
@@ -88,11 +91,7 @@ export function useBridgeCreateSelectionSync({
     }
 
     setInteractionGuard((nextSelection) => {
-      if (!nextSelection.id || !nextSelection.type) {
-        return true;
-      }
-
-      const resolvedSelection = resolveAssemblySelection(assemblyState, nextSelection);
+      const resolvedSelection = resolveBridgeSelectionTarget(workspace, nextSelection);
       if (!resolvedSelection) {
         return false;
       }
@@ -119,13 +118,13 @@ export function useBridgeCreateSelectionSync({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [
-    assemblyState,
     childCompId,
     handleClose,
     isOpen,
     parentCompId,
     pickTarget,
     setInteractionGuard,
+    workspace,
   ]);
 
   useEffect(() => {
@@ -133,7 +132,15 @@ export function useBridgeCreateSelectionSync({
       return;
     }
 
-    const resolvedSelection = resolveAssemblySelection(assemblyState, selection);
+    // The open effect clears the store synchronously, but this effect belongs
+    // to the render that still captured the pre-open selection. Only consume
+    // a selection that is still the live store value; a subsequent deliberate
+    // click (including the same link) creates a new live value and is accepted.
+    if (selection !== useSelectionStore.getState().selection) {
+      return;
+    }
+
+    const resolvedSelection = resolveBridgeSelectionTarget(workspace, selection);
     if (!resolvedSelection) {
       return;
     }
@@ -148,17 +155,11 @@ export function useBridgeCreateSelectionSync({
       return;
     }
 
-    const selectionSignature = `${assignmentTarget}:${selection.type}:${selection.id}:${selection.subType ?? ''}:${selection.objectIndex ?? ''}`;
-    const initialSelectionSignature = ignoredInitialSelectionSignatureRef.current;
-    if (
-      initialSelectionSignature &&
-      initialSelectionSignature ===
-        `${selection.type}:${selection.id}:${selection.subType ?? ''}:${selection.objectIndex ?? ''}`
-    ) {
-      ignoredInitialSelectionSignatureRef.current = null;
+    const canonicalSelectionSignature = getSelectionSignature(selection);
+    if (!canonicalSelectionSignature) {
       return;
     }
-
+    const selectionSignature = `${assignmentTarget}:${canonicalSelectionSignature}`;
     if (lastAppliedSelectionRef.current === selectionSignature) {
       return;
     }
@@ -180,7 +181,6 @@ export function useBridgeCreateSelectionSync({
       setPickTarget('parent');
     }
   }, [
-    assemblyState,
     childCompId,
     childLinkId,
     isOpen,
@@ -192,6 +192,7 @@ export function useBridgeCreateSelectionSync({
     setParentCompId,
     setParentLinkId,
     setPickTarget,
+    workspace,
   ]);
 
   return { resetSelectionSyncState };

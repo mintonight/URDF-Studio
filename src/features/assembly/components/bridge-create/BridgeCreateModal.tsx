@@ -18,6 +18,7 @@ import { degToRad, radToDeg } from '@/core/robot/transforms';
 import { DEFAULT_JOINT, JointType, type JointHardwareInterface } from '@/types';
 import { translations } from '@/shared/i18n';
 import { useManagedWindowLayer } from '@/store';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { filterSelectableBridgeComponents } from '../../utils/bridgeSelection';
 import { buildBridgeJointFromDraft, buildBridgePreview } from '../../utils/bridgePreview';
 import {
@@ -81,7 +82,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   onClose,
   onPreviewChange,
   onCreate,
-  assemblyState,
   lang,
 }) => {
   const t = translations[lang];
@@ -96,7 +96,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
   const defaultWindowSize = useMemo(() => ({ width: 600, height: 500 }), []);
-  const comps = Object.values(assemblyState.components);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const comps = Object.values(workspace.components);
   const defaultPosition = useMemo(() => {
     if (typeof window === 'undefined') {
       return { x: 72, y: 92 };
@@ -213,22 +214,22 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     defaultLimitVelocity,
   });
 
-  const parentComp = parentCompId ? assemblyState.components[parentCompId] : null;
-  const childComp = childCompId ? assemblyState.components[childCompId] : null;
+  const parentComp = parentCompId ? workspace.components[parentCompId] : null;
+  const childComp = childCompId ? workspace.components[childCompId] : null;
   const parentComponentOptions = useMemo(
     () => filterSelectableBridgeComponents(comps, childCompId || null),
     [childCompId, comps],
   );
   const childComponentHasIncomingBridge = useMemo(
-    () => hasIncomingStructuralBridge(assemblyState, childCompId),
-    [assemblyState, childCompId],
+    () => hasIncomingStructuralBridge(workspace, childCompId),
+    [childCompId, workspace],
   );
   const childComponentOptions = useMemo(
     () =>
       filterSelectableBridgeComponents(comps, parentCompId || null).filter(
-        (component) => !hasIncomingStructuralBridge(assemblyState, component.id),
+        (component) => !hasIncomingStructuralBridge(workspace, component.id),
       ),
-    [assemblyState, comps, parentCompId],
+    [comps, parentCompId, workspace],
   );
   const parentLinks = parentComp ? Object.values(parentComp.robot.links) : [];
   const childLinks = childComp ? Object.values(childComp.robot.links) : [];
@@ -292,11 +293,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const suggestedBridgeName = useMemo(
     () =>
       buildSuggestedBridgeName({
-        assemblyState,
+        assemblyState: workspace,
         parentComponentId: parentCompId,
         childComponentId: childCompId,
       }),
-    [assemblyState, childCompId, parentCompId],
+    [childCompId, parentCompId, workspace],
   );
   const effectiveBridgeName = name.trim() || suggestedBridgeName;
   const parentSummary = parentComp?.name ?? '--';
@@ -314,7 +315,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       Boolean(childCompId) &&
       parentCompId !== childCompId &&
       wouldBridgeCreateUnsupportedAssemblyCycle(
-        Object.values(assemblyState.bridges),
+        Object.values(workspace.bridges),
         {
           id: '__bridge_preview__',
           parentComponentId: parentCompId,
@@ -322,7 +323,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
         },
         jointType,
       ),
-    [assemblyState.bridges, childCompId, jointType, parentCompId],
+    [childCompId, jointType, parentCompId, workspace.bridges],
   );
   const nonFixedCycleValidationMessage = hasUnsupportedNonFixedCycle
     ? t.bridgeNonFixedCycleUnsupported
@@ -558,7 +559,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   }, [onClose, onPreviewChange, resetForm]);
 
   useBridgeCreateSelectionSync({
-    assemblyState,
     parentCompId,
     childCompId,
     childLinkId,
@@ -650,7 +650,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     }
 
     const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
-      assemblyState,
+      assemblyState: workspace,
       parentComponentId: parentCompId,
       parentLinkId,
       childComponentId: childCompId,
@@ -679,7 +679,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     applySuggestedOrigin(suggestedOrigin);
   }, [
     applySuggestedOrigin,
-    assemblyState,
+    workspace,
     childCompId,
     childLinkId,
     isOpen,
@@ -836,7 +836,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   onParentComponentChange={(value) => {
                     setPickTarget('parent');
                     setParentCompId(value);
-                    setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                    setParentLinkId(resolveBridgeComponentDefaultLinkId(workspace, value));
                   }}
                   onParentLinkChange={(value) => {
                     setPickTarget('parent');
@@ -845,7 +845,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   onChildComponentChange={(value) => {
                     setPickTarget('child');
                     setChildCompId(value);
-                    setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                    setChildLinkId(resolveBridgeComponentDefaultLinkId(workspace, value));
                   }}
                   onChildLinkChange={(value) => {
                     setPickTarget('child');
@@ -866,7 +866,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     onComponentChange={(value) => {
                       setPickTarget('parent');
                       setParentCompId(value);
-                      setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                      setParentLinkId(resolveBridgeComponentDefaultLinkId(workspace, value));
                     }}
                     onLinkChange={(value) => {
                       setPickTarget('parent');
@@ -890,7 +890,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     onComponentChange={(value) => {
                       setPickTarget('child');
                       setChildCompId(value);
-                      setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                      setChildLinkId(resolveBridgeComponentDefaultLinkId(workspace, value));
                     }}
                     onLinkChange={(value) => {
                       setPickTarget('child');

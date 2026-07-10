@@ -1,12 +1,14 @@
-import type { AssemblyComponent, AssemblyState } from '@/types';
-import type { Selection } from '@/store/selectionStore';
+import type {
+  AssemblyComponent,
+  AssemblyState,
+  WorkspaceSelection,
+} from '@/types';
 import type { BridgePickTarget } from '@/shared/utils/assembly/bridgePickAssignment';
-import { resolveAssemblyRootComponentSelection } from '@/shared/utils/assembly/transformSelection';
 
 export type { BridgePickTarget };
 export { resolveBridgePickAssignment } from '@/shared/utils/assembly/bridgePickAssignment';
 
-export interface ResolvedAssemblySelection {
+export interface ResolvedBridgeSelectionTarget {
   componentId: string;
   componentName: string;
   linkId: string;
@@ -19,79 +21,47 @@ export interface BridgeInteractionState {
   childComponentId: string;
 }
 
-function resolveComponentLinkSelection(component: AssemblyComponent, selectionId: string) {
-  const directMatch = component.robot.links[selectionId];
-  if (directMatch) {
-    return directMatch;
-  }
-
-  return Object.values(component.robot.links).find((link) => link.name === selectionId) ?? null;
-}
-
-function resolveComponentJointSelection(component: AssemblyComponent, selectionId: string) {
-  const directMatch = component.robot.joints[selectionId];
-  if (directMatch) {
-    return directMatch;
-  }
-
-  return Object.values(component.robot.joints).find((joint) => joint.name === selectionId) ?? null;
-}
-
-export function resolveAssemblySelection(
-  assemblyState: AssemblyState,
-  selection: Selection,
-): ResolvedAssemblySelection | null {
-  if (!selection.id || !selection.type) {
+/**
+ * Resolve a canonical workspace pick to the link used by a bridge endpoint.
+ * Ownership always comes from EntityRef; source-local IDs are never scanned
+ * across components or reconstructed from renderer prefixes.
+ */
+export function resolveBridgeSelectionTarget(
+  workspace: AssemblyState,
+  selection: WorkspaceSelection,
+): ResolvedBridgeSelectionTarget | null {
+  if (!selection) {
     return null;
   }
 
-  for (const component of Object.values(assemblyState.components)) {
-    if (selection.type === 'link') {
-      const link = resolveComponentLinkSelection(component, selection.id);
-      if (link) {
-        return {
-          componentId: component.id,
-          componentName: component.name,
-          linkId: link.id,
-          linkName: link.name,
-        };
-      }
-      continue;
-    }
-
-    const joint = resolveComponentJointSelection(component, selection.id);
-    if (!joint) {
-      continue;
-    }
-
-    const childLink = component.robot.links[joint.childLinkId];
-    if (!childLink) {
-      continue;
-    }
-
-    return {
-      componentId: component.id,
-      componentName: component.name,
-      linkId: childLink.id,
-      linkName: childLink.name,
-    };
-  }
-
-  return null;
-}
-
-export function resolveAssemblyViewerComponentSelection(
-  assemblyState: AssemblyState | null | undefined,
-  selection: Selection,
-  options: {
-    hasInteractionGuard?: boolean;
-  } = {},
-): string | null {
-  if (!assemblyState || options.hasInteractionGuard) {
+  const ref = selection.entity;
+  if (ref.type !== 'link' && ref.type !== 'joint') {
     return null;
   }
 
-  return resolveAssemblyRootComponentSelection(assemblyState, selection)?.componentId ?? null;
+  const component = workspace.components[ref.componentId];
+  if (!component) {
+    return null;
+  }
+
+  const linkId = ref.type === 'link'
+    ? ref.entityId
+    : component.robot.joints[ref.entityId]?.childLinkId;
+  if (!linkId) {
+    return null;
+  }
+
+  const link = component.robot.links[linkId];
+  if (!link) {
+    return null;
+  }
+
+  return {
+    componentId: component.id,
+    componentName: component.name,
+    linkId: link.id,
+    linkName: link.name,
+  };
 }
 
 export function resolveBlockedBridgeComponentId({
@@ -106,21 +76,19 @@ export function resolveBlockedBridgeComponentId({
   return parentComponentId || null;
 }
 
-export function isAssemblySelectionAllowedForBridge(
-  assemblyState: AssemblyState,
-  selection: Selection,
+export function isWorkspaceSelectionAllowedForBridge(
+  workspace: AssemblyState,
+  selection: WorkspaceSelection,
   blockedComponentId: string | null,
 ): boolean {
-  if (!selection.id || !selection.type || !blockedComponentId) {
+  if (!selection || !blockedComponentId) {
     return true;
   }
 
-  const resolvedSelection = resolveAssemblySelection(assemblyState, selection);
-  if (!resolvedSelection) {
-    return false;
-  }
-
-  return resolvedSelection.componentId !== blockedComponentId;
+  const resolvedSelection = resolveBridgeSelectionTarget(workspace, selection);
+  return Boolean(
+    resolvedSelection && resolvedSelection.componentId !== blockedComponentId,
+  );
 }
 
 export function filterSelectableBridgeComponents(
