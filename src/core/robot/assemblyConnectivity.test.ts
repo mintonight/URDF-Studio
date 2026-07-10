@@ -5,6 +5,11 @@ import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type AssemblyComponent, type As
 
 import { analyzeAssemblyConnectivity } from './assemblyConnectivity.ts';
 
+const IDENTITY_TRANSFORM = {
+  position: { x: 0, y: 0, z: 0 },
+  rotation: { r: 0, p: 0, y: 0 },
+} as const;
+
 function createRobotData(rootId: string, rootName: string): RobotData {
   return {
     name: rootName,
@@ -27,6 +32,7 @@ function createComponent(id: string, name: string, sourceFile: string, visible =
     name,
     sourceFile,
     visible,
+    transform: structuredClone(IDENTITY_TRANSFORM),
     robot: createRobotData(rootId, name),
   };
 }
@@ -34,6 +40,7 @@ function createComponent(id: string, name: string, sourceFile: string, visible =
 function createAssembly(): AssemblyState {
   return {
     name: 'demo_workspace',
+    transform: structuredClone(IDENTITY_TRANSFORM),
     components: {
       comp_left: createComponent('comp_left', 'left_arm', 'robots/left_arm.urdf'),
       comp_right: createComponent('comp_right', 'right_arm', 'robots/right_arm.urdf'),

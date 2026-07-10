@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import { DEFAULT_LINK, GeometryType, type AssemblyState, type RobotData } from '@/types';
 
-import { resolveSuggestedBridgeOriginForVisualContact } from './assemblyBridgeAlignment.ts';
+import {
+  resolveAssemblyComponentLinkId,
+  resolveSuggestedBridgeOriginForVisualContact,
+} from './assemblyBridgeAlignment.ts';
 
 function assertNearlyEqual(actual: number, expected: number, message?: string) {
   assert.ok(Math.abs(actual - expected) < 1e-6, message ?? `${actual} !== ${expected}`);
@@ -19,7 +22,7 @@ function createBoxRobot(
         z: number;
       } = 1,
 ): RobotData {
-  const linkId = `${componentId}_base_link`;
+  const linkId = 'base_link';
   const dimensions =
     typeof size === 'number' ? { x: size, y: size, z: size } : { x: size.x, y: size.y, z: size.z };
   return {
@@ -85,15 +88,22 @@ function createAssemblyState(): AssemblyState {
   };
 }
 
+test('resolveAssemblyComponentLinkId accepts exact source-local ids only', () => {
+  const component = createAssemblyState().components.comp_parent;
+
+  assert.equal(resolveAssemblyComponentLinkId(component, 'base_link'), 'base_link');
+  assert.equal(resolveAssemblyComponentLinkId(component, 'comp_parent_base_link'), null);
+});
+
 test('resolveSuggestedBridgeOriginForVisualContact keeps the child on its current side while preventing center overlap', () => {
   const assemblyState = createAssemblyState();
 
   const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
     assemblyState,
     parentComponentId: 'comp_parent',
-    parentLinkId: 'comp_parent_base_link',
+    parentLinkId: 'base_link',
     childComponentId: 'comp_child',
-    childLinkId: 'comp_child_base_link',
+    childLinkId: 'base_link',
     origin: {
       xyz: { x: 0, y: 0, z: 0 },
       rpy: { r: 0, p: 0, y: 0 },
@@ -120,9 +130,9 @@ test('resolveSuggestedBridgeOriginForVisualContact respects the current componen
   const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
     assemblyState,
     parentComponentId: 'comp_parent',
-    parentLinkId: 'comp_parent_base_link',
+    parentLinkId: 'base_link',
     childComponentId: 'comp_child',
-    childLinkId: 'comp_child_base_link',
+    childLinkId: 'base_link',
     origin: {
       xyz: { x: 0, y: 0, z: 0 },
       rpy: { r: 0, p: 0, y: 0 },
@@ -150,9 +160,9 @@ test('resolveSuggestedBridgeOriginForVisualContact prefers the parent dominant a
   const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
     assemblyState,
     parentComponentId: 'comp_parent',
-    parentLinkId: 'comp_parent_base_link',
+    parentLinkId: 'base_link',
     childComponentId: 'comp_child',
-    childLinkId: 'comp_child_base_link',
+    childLinkId: 'base_link',
     origin: {
       xyz: { x: 0, y: 0, z: 0 },
       rpy: { r: 0, p: 0, y: 0 },
@@ -175,8 +185,8 @@ test('resolveSuggestedBridgeOriginForVisualContact prefers the parent dominant a
 
 test('resolveSuggestedBridgeOriginForVisualContact logs an error when it falls back without renderable bounds', () => {
   const assemblyState = createAssemblyState();
-  assemblyState.components.comp_parent.robot.links.comp_parent_base_link = {
-    ...assemblyState.components.comp_parent.robot.links.comp_parent_base_link,
+  assemblyState.components.comp_parent.robot.links.base_link = {
+    ...assemblyState.components.comp_parent.robot.links.base_link,
     visual: {
       type: GeometryType.NONE,
       dimensions: { x: 0, y: 0, z: 0 },
@@ -201,9 +211,9 @@ test('resolveSuggestedBridgeOriginForVisualContact logs an error when it falls b
     const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
       assemblyState,
       parentComponentId: 'comp_parent',
-      parentLinkId: 'comp_parent_base_link',
+      parentLinkId: 'base_link',
       childComponentId: 'comp_child',
-      childLinkId: 'comp_child_base_link',
+      childLinkId: 'base_link',
       origin: {
         xyz: { x: 0, y: 0, z: 0 },
         rpy: { r: 0, p: 0, y: 0 },

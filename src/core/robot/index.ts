@@ -133,15 +133,52 @@ export {
 
 // Assembly Merger - Merge AssemblyState to RobotData
 export { mergeAssembly } from './assemblyMerger';
+export { createAssemblySceneProjection } from './assemblySceneProjection';
+export {
+  buildAssemblyProjectedAssetAliases,
+  projectAssemblyComponentRobotResources,
+  resolveAssemblyComponentResourcePath,
+  resolveAssemblySceneRenderStrategy,
+} from './assemblyResourcePaths';
+export type { AssemblySceneRenderStrategy } from './assemblyResourcePaths';
+export type {
+  AssemblyComponentRootTarget,
+  AssemblySceneProjection,
+} from './assemblySceneProjection';
+export { createAssemblyScenePlacement } from './assemblyScenePlacement';
+export type {
+  AssemblyComponentSceneTransformTarget,
+  AssemblyScenePlacement,
+} from './assemblyScenePlacement';
+export { resolveWorkspaceRobotDataTarget } from './workspaceRobotTarget';
+export type {
+  WorkspaceInspectableEntityRef,
+  WorkspaceRobotDataTarget,
+} from './workspaceRobotTarget';
 export { analyzeAssemblyConnectivity } from './assemblyConnectivity';
 export {
   buildAssemblyComponentIdentity,
   createUniqueAssemblyComponentName,
-  namespaceAssemblyRobotData,
+  normalizeComponentRobot,
   prepareAssemblyRobotData,
   resolveAssemblyComponentBaseName,
   sanitizeAssemblyComponentId,
 } from './assemblyComponentPreparation';
+export {
+  assertCanonicalRobotData,
+  assertCanonicalWorkspace,
+  createDefaultWorkspace,
+  createSingleComponentWorkspace,
+  validateCanonicalRobotData,
+  validateCanonicalWorkspace,
+} from './canonicalWorkspace';
+export type {
+  CanonicalAssemblyComponent,
+  CanonicalAssemblyState,
+  CanonicalWorkspaceValidationIssue,
+  CanonicalWorkspaceValidationResult,
+  CreateSingleComponentWorkspaceOptions,
+} from './canonicalWorkspace';
 export {
   buildDefaultAssemblyComponentPlacementTransform,
   estimateLinkCollisionBounds,
@@ -205,3 +242,24 @@ export type {
   GeometryPatchCandidate,
   JointPatchCandidate,
 } from './runtime_patch_diff';
+
+export {
+  createComponentSourceDraft,
+  createSourceSemanticRobotHash,
+  isComponentSourceDraftMatchingComponent,
+  isComponentSourceDraftMatchingRobot,
+  isComponentSourceFormat,
+  requireSourcePreservingComponentDraft,
+  resolveSourcePreservingComponentDraft,
+} from './componentSourceDraft';
+export type { SourcePreservingDraftResolution } from './componentSourceDraft';
+export {
+  createRobotPersistenceSnapshot,
+  createRobotSemanticSnapshot,
+  createStableJsonSnapshot,
+  stripPresentationStateFromRobotData,
+  stripRobotPersistenceState,
+  stripTransientJointMotionFromJoint,
+  stripTransientJointMotionFromJoints,
+  stripTransientJointMotionFromRobotData,
+} from './semanticSnapshot';

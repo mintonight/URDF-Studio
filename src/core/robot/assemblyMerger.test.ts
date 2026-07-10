@@ -32,27 +32,27 @@ function createAssemblyState(): AssemblyState {
         visible: true,
         robot: {
           name: 'left_robot',
-          rootLinkId: 'comp_left_base_link',
+          rootLinkId: 'base_link',
           links: {
-            comp_left_base_link: {
+            base_link: {
               ...DEFAULT_LINK,
-              id: 'comp_left_base_link',
+              id: 'base_link',
               name: 'left_base_link',
             },
-            comp_left_child_link: {
+            child_link: {
               ...DEFAULT_LINK,
-              id: 'comp_left_child_link',
+              id: 'child_link',
               name: 'left_child_link',
             },
           },
           joints: {
-            comp_left_joint: {
+            joint: {
               ...DEFAULT_JOINT,
-              id: 'comp_left_joint',
-              name: 'comp_left_joint',
+              id: 'joint',
+              name: 'left_joint',
               type: JointType.FIXED,
-              parentLinkId: 'comp_left_base_link',
-              childLinkId: 'comp_left_child_link',
+              parentLinkId: 'base_link',
+              childLinkId: 'child_link',
             },
           },
         },
@@ -68,11 +68,11 @@ function createAssemblyState(): AssemblyState {
         visible: true,
         robot: {
           name: 'right_robot',
-          rootLinkId: 'comp_right_base_link',
+          rootLinkId: 'base_link',
           links: {
-            comp_right_base_link: {
+            base_link: {
               ...DEFAULT_LINK,
-              id: 'comp_right_base_link',
+              id: 'base_link',
               name: 'right_base_link',
             },
           },
@@ -85,16 +85,16 @@ function createAssemblyState(): AssemblyState {
         id: 'bridge_join',
         name: 'bridge_join',
         parentComponentId: 'comp_left',
-        parentLinkId: 'comp_left_base_link',
+        parentLinkId: 'base_link',
         childComponentId: 'comp_right',
-        childLinkId: 'comp_right_base_link',
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_join',
           name: 'bridge_join',
           type: JointType.FIXED,
-          parentLinkId: 'comp_left_base_link',
-          childLinkId: 'comp_right_base_link',
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
         },
       },
     },
@@ -102,7 +102,7 @@ function createAssemblyState(): AssemblyState {
 }
 
 function createSingleLinkComponent(componentId: string, name: string) {
-  const rootLinkId = `${componentId}_base_link`;
+  const rootLinkId = 'base_link';
 
   return {
     id: componentId,
@@ -129,13 +129,13 @@ function createSingleLinkComponent(componentId: string, name: string) {
 }
 
 function createDynamicChainComponent(componentId: string, name: string) {
-  const baseLinkId = `${componentId}_base_link`;
-  const elbowLinkId = `${componentId}_elbow_link`;
-  const toolLinkId = `${componentId}_tool_link`;
-  const sensorLinkId = `${componentId}_sensor_link`;
-  const shoulderJointId = `${componentId}_shoulder_joint`;
-  const wristSlideJointId = `${componentId}_wrist_slide_joint`;
-  const sensorMountJointId = `${componentId}_sensor_mount_joint`;
+  const baseLinkId = 'base_link';
+  const elbowLinkId = 'elbow_link';
+  const toolLinkId = 'tool_link';
+  const sensorLinkId = 'sensor_link';
+  const shoulderJointId = 'shoulder_joint';
+  const wristSlideJointId = 'wrist_slide_joint';
+  const sensorMountJointId = 'sensor_mount_joint';
 
   return {
     id: componentId,
@@ -250,9 +250,9 @@ function createDynamicChainComponent(componentId: string, name: string) {
 }
 
 function createUnsupportedDynamicComponent(componentId: string, name: string) {
-  const baseLinkId = `${componentId}_base_link`;
-  const toolLinkId = `${componentId}_tool_link`;
-  const jointId = `${componentId}_ball_joint`;
+  const baseLinkId = 'base_link';
+  const toolLinkId = 'tool_link';
+  const jointId = 'ball_joint';
 
   return {
     id: componentId,
@@ -297,15 +297,15 @@ function createUnsupportedDynamicComponent(componentId: string, name: string) {
 }
 
 function createFloatingRootComponent(componentId: string, name: string) {
-  const worldLinkId = `${componentId}_world`;
-  const thoraxLinkId = `${componentId}_thorax_link`;
-  const wingMountLinkId = `${componentId}_wing_mount_link`;
-  const wingTipLinkId = `${componentId}_wing_tip_link`;
-  const sensorLinkId = `${componentId}_sensor_link`;
-  const floatingJointId = `${componentId}_free_joint`;
-  const wingMountJointId = `${componentId}_wing_mount_joint`;
-  const wingPitchJointId = `${componentId}_wing_pitch_joint`;
-  const sensorJointId = `${componentId}_sensor_joint`;
+  const worldLinkId = 'world';
+  const thoraxLinkId = 'thorax_link';
+  const wingMountLinkId = 'wing_mount_link';
+  const wingTipLinkId = 'wing_tip_link';
+  const sensorLinkId = 'sensor_link';
+  const floatingJointId = 'free_joint';
+  const wingMountJointId = 'wing_mount_joint';
+  const wingPitchJointId = 'wing_pitch_joint';
+  const sensorJointId = 'sensor_joint';
 
   return {
     id: componentId,
@@ -492,19 +492,21 @@ function assertMatrixClose(
   assert.ok(maxDelta < 1e-6, `${message}; max delta was ${maxDelta}`);
 }
 
-test('mergeAssembly reuses component links and joints while synthesizing bridge joints', () => {
+test('mergeAssembly projects source-local component entities and synthesizes bridge joints', () => {
   const assemblyState = createAssemblyState();
 
   const merged = mergeAssembly(assemblyState);
 
-  assert.equal(
+  assert.notEqual(
     merged.links.comp_left_base_link,
-    assemblyState.components.comp_left.robot.links.comp_left_base_link,
+    assemblyState.components.comp_left.robot.links.base_link,
   );
-  assert.equal(
+  assert.notEqual(
     merged.joints.comp_left_joint,
-    assemblyState.components.comp_left.robot.joints.comp_left_joint,
+    assemblyState.components.comp_left.robot.joints.joint,
   );
+  assert.equal(assemblyState.components.comp_left.robot.rootLinkId, 'base_link');
+  assert.equal(assemblyState.components.comp_right.robot.rootLinkId, 'base_link');
   assert.notEqual(merged.joints.bridge_join, assemblyState.bridges.bridge_join.joint);
   assert.equal(merged.joints.bridge_join.parentLinkId, 'comp_left_base_link');
   assert.equal(merged.joints.bridge_join.childLinkId, 'comp_right_base_link');
@@ -530,16 +532,16 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
         id: 'bridge_attach_tool',
         name: 'bridge_attach_tool',
         parentComponentId: parentComponent.id,
-        parentLinkId: `${parentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
-        childLinkId: `${childComponent.id}_tool_link`,
+        childLinkId: 'tool_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_attach_tool',
           name: 'bridge_attach_tool',
           type: JointType.FIXED,
-          parentLinkId: `${parentComponent.id}_base_link`,
-          childLinkId: `${childComponent.id}_tool_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'tool_link',
           origin: {
             xyz: { x: 0, y: 0, z: 0 },
             rpy: { r: 0, p: 0, y: 0 },
@@ -560,32 +562,28 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.axis, { x: 0, y: 0, z: -1 });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.axis, { x: -1, y: 0, z: 0 });
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.limit, {
-    lower: originalChildRobot.joints.comp_child_shoulder_joint.limit?.lower ?? 0,
-    upper: originalChildRobot.joints.comp_child_shoulder_joint.limit?.upper ?? 0,
-    effort: originalChildRobot.joints.comp_child_shoulder_joint.limit?.effort ?? 0,
-    velocity: originalChildRobot.joints.comp_child_shoulder_joint.limit?.velocity ?? 0,
+    lower: originalChildRobot.joints.shoulder_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.shoulder_joint.limit?.upper ?? 0,
+    effort: originalChildRobot.joints.shoulder_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.shoulder_joint.limit?.velocity ?? 0,
   });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.limit, {
-    lower: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.lower ?? 0,
-    upper: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.upper ?? 0,
-    effort: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.effort ?? 0,
-    velocity: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.velocity ?? 0,
+    lower: originalChildRobot.joints.wrist_slide_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.wrist_slide_joint.limit?.upper ?? 0,
+    effort: originalChildRobot.joints.wrist_slide_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.wrist_slide_joint.limit?.velocity ?? 0,
   });
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.safetyController, {
-    softLowerLimit:
-      originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.softLowerLimit,
-    softUpperLimit:
-      originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.softUpperLimit,
-    kPosition: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kPosition,
-    kVelocity: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kVelocity,
+    softLowerLimit: originalChildRobot.joints.shoulder_joint.safetyController?.softLowerLimit,
+    softUpperLimit: originalChildRobot.joints.shoulder_joint.safetyController?.softUpperLimit,
+    kPosition: originalChildRobot.joints.shoulder_joint.safetyController?.kPosition,
+    kVelocity: originalChildRobot.joints.shoulder_joint.safetyController?.kVelocity,
   });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.safetyController, {
-    softLowerLimit:
-      originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.softLowerLimit,
-    softUpperLimit:
-      originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.softUpperLimit,
-    kPosition: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kPosition,
-    kVelocity: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kVelocity,
+    softLowerLimit: originalChildRobot.joints.wrist_slide_joint.safetyController?.softLowerLimit,
+    softUpperLimit: originalChildRobot.joints.wrist_slide_joint.safetyController?.softUpperLimit,
+    kPosition: originalChildRobot.joints.wrist_slide_joint.safetyController?.kPosition,
+    kVelocity: originalChildRobot.joints.wrist_slide_joint.safetyController?.kVelocity,
   });
   assert.ok(
     (merged.joints.comp_child_wrist_slide_joint.angle ?? 0) >=
@@ -602,33 +600,33 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
 
   assertMatrixClose(
     getRelativeLinkMatrix(merged, 'comp_child_tool_link', 'comp_child_tool_link'),
-    getRelativeLinkMatrix(originalChildRobot, 'comp_child_tool_link', 'comp_child_tool_link'),
+    getRelativeLinkMatrix(originalChildRobot, 'tool_link', 'tool_link'),
     'tool link should stay at the reroot origin',
   );
   assertMatrixClose(
     getRelativeLinkMatrix(merged, 'comp_child_tool_link', 'comp_child_sensor_link'),
-    getRelativeLinkMatrix(originalChildRobot, 'comp_child_tool_link', 'comp_child_sensor_link'),
+    getRelativeLinkMatrix(originalChildRobot, 'tool_link', 'sensor_link'),
     'off-path branch links should stay attached at the same physical pose',
   );
   assertMatrixClose(
     getRelativeVisualMatrix(merged, 'comp_child_tool_link', 'comp_child_base_link'),
-    getRelativeVisualMatrix(originalChildRobot, 'comp_child_tool_link', 'comp_child_base_link'),
+    getRelativeVisualMatrix(originalChildRobot, 'tool_link', 'base_link'),
     'path link visuals should keep their physical placement after frame rewrites',
   );
   assertMatrixClose(
     getRelativeVisualMatrix(merged, 'comp_child_tool_link', 'comp_child_elbow_link'),
-    getRelativeVisualMatrix(originalChildRobot, 'comp_child_tool_link', 'comp_child_elbow_link'),
+    getRelativeVisualMatrix(originalChildRobot, 'tool_link', 'elbow_link'),
     'intermediate link visuals should keep their physical placement after frame rewrites',
   );
 
   assert.equal(childComponent.robot.rootLinkId, originalChildRobot.rootLinkId);
   assert.equal(
-    childComponent.robot.joints.comp_child_shoulder_joint.parentLinkId,
-    originalChildRobot.joints.comp_child_shoulder_joint.parentLinkId,
+    childComponent.robot.joints.shoulder_joint.parentLinkId,
+    originalChildRobot.joints.shoulder_joint.parentLinkId,
   );
   assert.equal(
-    childComponent.robot.joints.comp_child_shoulder_joint.childLinkId,
-    originalChildRobot.joints.comp_child_shoulder_joint.childLinkId,
+    childComponent.robot.joints.shoulder_joint.childLinkId,
+    originalChildRobot.joints.shoulder_joint.childLinkId,
   );
 });
 
@@ -652,16 +650,16 @@ test('mergeAssembly reroots a floating-root child subtree when a bridge targets 
         id: 'bridge_attach_wing',
         name: 'bridge_attach_wing',
         parentComponentId: parentComponent.id,
-        parentLinkId: `${parentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
-        childLinkId: `${childComponent.id}_wing_tip_link`,
+        childLinkId: 'wing_tip_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_attach_wing',
           name: 'bridge_attach_wing',
           type: JointType.FIXED,
-          parentLinkId: `${parentComponent.id}_base_link`,
-          childLinkId: `${childComponent.id}_wing_tip_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'wing_tip_link',
           origin: {
             xyz: { x: 0, y: 0, z: 0 },
             rpy: { r: 0, p: 0, y: 0 },
@@ -683,42 +681,30 @@ test('mergeAssembly reroots a floating-root child subtree when a bridge targets 
   assert.equal(merged.joints.comp_child_free_joint.childLinkId, 'comp_child_world');
   assert.deepEqual(merged.joints.comp_child_wing_pitch_joint.axis, { x: 0, y: -1, z: 0 });
   assert.deepEqual(merged.joints.comp_child_wing_pitch_joint.limit, {
-    lower: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.lower ?? 0,
-    upper: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.upper ?? 0,
-    effort: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.effort ?? 0,
-    velocity: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.velocity ?? 0,
+    lower: originalChildRobot.joints.wing_pitch_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.wing_pitch_joint.limit?.upper ?? 0,
+    effort: originalChildRobot.joints.wing_pitch_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.wing_pitch_joint.limit?.velocity ?? 0,
   });
 
   assertMatrixClose(
     getRelativeLinkMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_wing_tip_link'),
-    getRelativeLinkMatrix(
-      originalChildRobot,
-      'comp_child_wing_tip_link',
-      'comp_child_wing_tip_link',
-    ),
+    getRelativeLinkMatrix(originalChildRobot, 'wing_tip_link', 'wing_tip_link'),
     'wing tip should stay at the reroot origin',
   );
   assertMatrixClose(
     getRelativeLinkMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_sensor_link'),
-    getRelativeLinkMatrix(originalChildRobot, 'comp_child_wing_tip_link', 'comp_child_sensor_link'),
+    getRelativeLinkMatrix(originalChildRobot, 'wing_tip_link', 'sensor_link'),
     'off-path sensor links should keep the same pose relative to the attached wing tip',
   );
   assertMatrixClose(
     getRelativeVisualMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_wing_mount_link'),
-    getRelativeVisualMatrix(
-      originalChildRobot,
-      'comp_child_wing_tip_link',
-      'comp_child_wing_mount_link',
-    ),
+    getRelativeVisualMatrix(originalChildRobot, 'wing_tip_link', 'wing_mount_link'),
     'wing mount visuals should keep their physical placement after floating-root rerooting',
   );
   assertMatrixClose(
     getRelativeVisualMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_thorax_link'),
-    getRelativeVisualMatrix(
-      originalChildRobot,
-      'comp_child_wing_tip_link',
-      'comp_child_thorax_link',
-    ),
+    getRelativeVisualMatrix(originalChildRobot, 'wing_tip_link', 'thorax_link'),
     'thorax visuals should keep their physical placement after floating-root rerooting',
   );
 });
@@ -742,16 +728,16 @@ test('mergeAssembly fails fast when rerooting would need to reverse an unsupport
         id: 'bridge_attach_tool',
         name: 'bridge_attach_tool',
         parentComponentId: parentComponent.id,
-        parentLinkId: `${parentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
-        childLinkId: `${childComponent.id}_tool_link`,
+        childLinkId: 'tool_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_attach_tool',
           name: 'bridge_attach_tool',
           type: JointType.FIXED,
-          parentLinkId: `${parentComponent.id}_base_link`,
-          childLinkId: `${childComponent.id}_tool_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'tool_link',
         },
       },
     },
@@ -782,7 +768,7 @@ test('mergeAssembly fails fast when a visible bridge references a missing link',
         id: 'bridge_attach_missing',
         name: 'bridge_attach_missing',
         parentComponentId: parentComponent.id,
-        parentLinkId: `${parentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
         childLinkId: 'missing_link',
         joint: {
@@ -790,7 +776,7 @@ test('mergeAssembly fails fast when a visible bridge references a missing link',
           id: 'bridge_attach_missing',
           name: 'bridge_attach_missing',
           type: JointType.FIXED,
-          parentLinkId: `${parentComponent.id}_base_link`,
+          parentLinkId: 'base_link',
           childLinkId: 'missing_link',
         },
       },
@@ -799,7 +785,7 @@ test('mergeAssembly fails fast when a visible bridge references a missing link',
 
   assert.throws(
     () => mergeAssembly(assemblyState),
-    /Cannot merge assembly "missing-bridge-link" because bridge "bridge_attach_missing" references missing child link "missing_link" on component "comp_child"/,
+    /Cannot project component "comp_child" because bridge child link "missing_link" does not exist/,
   );
 });
 
@@ -824,32 +810,32 @@ test('mergeAssembly fails fast when a link would end up with multiple parent joi
         id: 'bridge_left_child',
         name: 'bridge_left_child',
         parentComponentId: leftParentComponent.id,
-        parentLinkId: `${leftParentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
-        childLinkId: `${childComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_left_child',
           name: 'bridge_left_child',
           type: JointType.FIXED,
-          parentLinkId: `${leftParentComponent.id}_base_link`,
-          childLinkId: `${childComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
         },
       },
       bridge_right_child: {
         id: 'bridge_right_child',
         name: 'bridge_right_child',
         parentComponentId: rightParentComponent.id,
-        parentLinkId: `${rightParentComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: childComponent.id,
-        childLinkId: `${childComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_right_child',
           name: 'bridge_right_child',
           type: JointType.FIXED,
-          parentLinkId: `${rightParentComponent.id}_base_link`,
-          childLinkId: `${childComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
         },
       },
     },
@@ -880,16 +866,16 @@ test('mergeAssembly converts a cyclic bridge into a closed-loop constraint while
         id: 'bridge_left_right',
         name: 'bridge_left_right',
         parentComponentId: leftComponent.id,
-        parentLinkId: `${leftComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: rightComponent.id,
-        childLinkId: `${rightComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_left_right',
           name: 'bridge_left_right',
           type: JointType.FIXED,
-          parentLinkId: `${leftComponent.id}_base_link`,
-          childLinkId: `${rightComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
           origin: {
             xyz: { x: 1, y: 0, z: 0 },
             rpy: { r: 0, p: 0, y: 0 },
@@ -900,16 +886,16 @@ test('mergeAssembly converts a cyclic bridge into a closed-loop constraint while
         id: 'bridge_right_left',
         name: 'bridge_right_left',
         parentComponentId: rightComponent.id,
-        parentLinkId: `${rightComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: leftComponent.id,
-        childLinkId: `${leftComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_right_left',
           name: 'bridge_right_left',
           type: JointType.FIXED,
-          parentLinkId: `${rightComponent.id}_base_link`,
-          childLinkId: `${leftComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
           origin: {
             xyz: { x: -1, y: 0, z: 0 },
             rpy: { r: 0, p: 0, y: 0 },
@@ -957,32 +943,32 @@ test('mergeAssembly rejects a non-fixed bridge that would close a component cycl
         id: 'bridge_left_right',
         name: 'bridge_left_right',
         parentComponentId: leftComponent.id,
-        parentLinkId: `${leftComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: rightComponent.id,
-        childLinkId: `${rightComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_left_right',
           name: 'bridge_left_right',
           type: JointType.FIXED,
-          parentLinkId: `${leftComponent.id}_base_link`,
-          childLinkId: `${rightComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
         },
       },
       bridge_right_left: {
         id: 'bridge_right_left',
         name: 'bridge_right_left',
         parentComponentId: rightComponent.id,
-        parentLinkId: `${rightComponent.id}_base_link`,
+        parentLinkId: 'base_link',
         childComponentId: leftComponent.id,
-        childLinkId: `${leftComponent.id}_base_link`,
+        childLinkId: 'base_link',
         joint: {
           ...DEFAULT_JOINT,
           id: 'bridge_right_left',
           name: 'bridge_right_left',
           type: JointType.REVOLUTE,
-          parentLinkId: `${rightComponent.id}_base_link`,
-          childLinkId: `${leftComponent.id}_base_link`,
+          parentLinkId: 'base_link',
+          childLinkId: 'base_link',
         },
       },
     },

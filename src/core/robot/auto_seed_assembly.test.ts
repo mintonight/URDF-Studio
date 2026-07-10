@@ -64,6 +64,12 @@ test('autoSeedAssembly keeps single selected-file link and joint names unmodifie
   const [component] = Object.values(assembly.components);
 
   assert.ok(component);
+  assert.deepEqual(assembly.transform, {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  });
+  assert.deepEqual(component.transform, assembly.transform);
+  assert.equal(component.visible, true);
   assert.equal(component.robot.rootLinkId, 'world');
   assert.equal(component.robot.links.Trunk?.name, 'Trunk');
   assert.equal(component.robot.links.H1?.name, 'H1');
@@ -111,10 +117,14 @@ test('autoSeedAssembly can explicitly split MJCF scene wrappers into scene and r
   assert.deepEqual(
     components
       .map((component) => component.sourceFile)
+      .filter((sourceFile): sourceFile is string => Boolean(sourceFile))
       .sort((left, right) => left.localeCompare(right)),
     [robotFile.name, sceneFile.name].sort((left, right) => left.localeCompare(right)),
   );
-  assert.equal(components.find((component) => component.sourceFile === robotFile.name)?.name, 'go2');
+  assert.equal(
+    components.find((component) => component.sourceFile === robotFile.name)?.name,
+    'go2',
+  );
   assert.equal(bridges.length, 1);
   assert.equal(bridges[0]?.joint.type, JointType.FIXED);
   assert.equal(
@@ -125,4 +135,15 @@ test('autoSeedAssembly can explicitly split MJCF scene wrappers into scene and r
     bridges[0]?.childComponentId,
     components.find((component) => component.sourceFile === robotFile.name)?.id,
   );
+  components.forEach((component) => {
+    assert.equal(component.visible, true);
+    assert.deepEqual(component.transform, {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    });
+    assert.equal(
+      Object.keys(component.robot.links).some((linkId) => linkId.startsWith(`${component.id}_`)),
+      false,
+    );
+  });
 });

@@ -63,16 +63,7 @@ export function resolveAssemblyComponentLinkId(
   component: AssemblyComponent,
   linkId: string,
 ): string | null {
-  if (component.robot.links[linkId]) {
-    return linkId;
-  }
-
-  const namespacedLinkId = `${component.id}_${linkId}`;
-  if (component.robot.links[namespacedLinkId]) {
-    return namespacedLinkId;
-  }
-
-  return null;
+  return component.robot.links[linkId] ? linkId : null;
 }
 
 function getMatrixPosition(matrix: THREE.Matrix4): THREE.Vector3 {

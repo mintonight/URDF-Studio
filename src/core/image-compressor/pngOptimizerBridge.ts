@@ -11,6 +11,7 @@ export interface PngOptimizeBufferOptions {
   level: PngOptimizeLevel;
   interlace?: boolean;
   optimiseAlpha?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface CreatePngOptimizerClientOptions {
@@ -24,6 +25,16 @@ export interface PngOptimizerClient {
 }
 
 const DEFAULT_PNG_OPTIMIZE_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+
+function createPngOptimizeAbortError(): Error | DOMException {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('PNG optimization aborted', 'AbortError');
+  }
+
+  const error = new Error('PNG optimization aborted');
+  error.name = 'AbortError';
+  return error;
+}
 
 /**
  * Build a PNG optimizer client backed by a single oxipng worker.
@@ -92,9 +103,25 @@ export async function optimizePngBuffer(
   options: PngOptimizeBufferOptions,
 ): Promise<ArrayBuffer> {
   const client = createPngOptimizerClient();
+  const abortError = createPngOptimizeAbortError();
+  const handleAbort = () => {
+    client.dispose(abortError);
+  };
+
+  if (options.signal?.aborted) {
+    client.dispose();
+    throw abortError;
+  }
+
+  options.signal?.addEventListener('abort', handleAbort, { once: true });
   try {
-    return await client.optimize(source, options);
+    const result = await client.optimize(source, options);
+    if (options.signal?.aborted) {
+      throw abortError;
+    }
+    return result;
   } finally {
+    options.signal?.removeEventListener('abort', handleAbort);
     client.dispose();
   }
 }

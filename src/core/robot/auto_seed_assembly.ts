@@ -1,4 +1,11 @@
-import type { AssemblyComponent, AssemblyState, BridgeJoint, RobotData, RobotFile } from '@/types';
+import type {
+  AssemblyComponent,
+  AssemblyState,
+  AssemblyTransform,
+  BridgeJoint,
+  RobotData,
+  RobotFile,
+} from '@/types';
 import { DEFAULT_JOINT, JointType } from '@/types';
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import {
@@ -17,6 +24,13 @@ interface AutoSeedAssemblyOptions {
 interface PreparedAssemblyComponentSeed {
   component: AssemblyComponent;
   displayName: string;
+}
+
+function createIdentityAssemblyTransform(): AssemblyTransform {
+  return {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  };
 }
 
 function normalizePath(path: string): string {
@@ -75,7 +89,13 @@ function resolveMjcfIncludeFile(
     const baseParts = normalizedBasePath.split('/').filter(Boolean);
     for (let index = baseParts.length; index >= 0; index -= 1) {
       const prefix = baseParts.slice(0, index).join('/');
-      const scopedBase = prefix ? (isAbsoluteBase ? `/${prefix}` : prefix) : isAbsoluteBase ? '/' : '';
+      const scopedBase = prefix
+        ? isAbsoluteBase
+          ? `/${prefix}`
+          : prefix
+        : isAbsoluteBase
+          ? '/'
+          : '';
       const candidatePath = normalizePath(
         scopedBase ? `${scopedBase}/${normalizedIncludePath}` : normalizedIncludePath,
       );
@@ -143,9 +163,7 @@ function createAssemblyComponentSeed({
     existingComponentIds,
     existingComponentNames,
   });
-  const namespacedRobotData = prepareAssemblyRobotData(robotData, {
-    componentId,
-    rootName: displayName,
+  const preparedRobotData = prepareAssemblyRobotData(robotData, {
     sourceFilePath: sourceFile.name,
     sourceFormat: sourceFile.format,
   });
@@ -157,7 +175,8 @@ function createAssemblyComponentSeed({
       id: componentId,
       name: componentName,
       sourceFile: sourceFile.name,
-      robot: namespacedRobotData,
+      robot: preparedRobotData,
+      transform: createIdentityAssemblyTransform(),
       visible: true,
     },
   };
@@ -283,9 +302,7 @@ function autoSeedMjcfSceneAssembly(
   const [primaryRobotSeed] = includedRobotSeeds;
   const primaryRobotName = primaryRobotSeed?.robotData.name || robotData.name;
   const sceneComponent = sceneSeed.component;
-  const robotComponents = componentSeeds
-    .slice(1)
-    .map((componentSeed) => componentSeed.component);
+  const robotComponents = componentSeeds.slice(1).map((componentSeed) => componentSeed.component);
   const bridges = Object.fromEntries(
     robotComponents.map((robotComponent) => {
       const bridge = createSceneBridge(sceneComponent, robotComponent);
@@ -295,6 +312,7 @@ function autoSeedMjcfSceneAssembly(
 
   return {
     name: primaryRobotName,
+    transform: createIdentityAssemblyTransform(),
     components: Object.fromEntries(
       componentSeeds.map((componentSeed) => [componentSeed.component.id, componentSeed.component]),
     ),
@@ -329,11 +347,13 @@ export function autoSeedAssembly(
     name: robotData.name || displayName,
     sourceFile: sourceFileName,
     robot: structuredClone(robotData),
+    transform: createIdentityAssemblyTransform(),
     visible: true,
   };
 
   return {
     name: robotData.name || displayName,
+    transform: createIdentityAssemblyTransform(),
     components: { [componentId]: component },
     bridges: {},
   };
