@@ -277,27 +277,22 @@ export interface RobotState {
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   rootLinkId: string;
-  components?: Record<string, AssemblyComponent>;
-  bridges?: Record<string, BridgeJoint>;
-  workspaceTransform?: AssemblyTransform;
-  activeComponentId?: string | null;
   materials?: Record<string, RobotMaterialState>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
   inspectionContext?: RobotInspectionContext;
   selection: InteractionSelection;
 }
 
-/** Robot data without selection (selection is in selectionStore) */
+/**
+ * Parser/renderer/export robot data without selection. Workspace ownership and
+ * placement live only on AssemblyState and must never be mirrored here.
+ */
 export interface RobotData {
   name: string;
   version?: string;
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   rootLinkId: string;
-  components?: Record<string, AssemblyComponent>;
-  bridges?: Record<string, BridgeJoint>;
-  workspaceTransform?: AssemblyTransform;
-  activeComponentId?: string | null;
   materials?: Record<string, RobotMaterialState>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
   inspectionContext?: RobotInspectionContext;
@@ -313,18 +308,18 @@ export interface RenderableBounds {
   max: Vector3;
 }
 
-/** Assembly component: a URDF parsed into RobotData with namespace */
+/** A source-local RobotData instance placed in the workspace. */
 export interface AssemblyComponent {
   id: string;
   name: string;
-  sourceFile: string;
+  sourceFile: string | null;
   robot: RobotData;
   renderableBounds?: RenderableBounds;
-  transform?: AssemblyTransform;
-  visible?: boolean;
+  transform: AssemblyTransform;
+  visible: boolean;
 }
 
-/** Bridge joint: connects two components */
+/** Bridge joint with source-local link endpoints scoped by explicit component IDs. */
 export interface BridgeJoint {
   id: string;
   name: string;
@@ -335,10 +330,10 @@ export interface BridgeJoint {
   joint: UrdfJoint;
 }
 
-/** Assembly state for multi-URDF composition */
+/** Canonical non-empty workspace state for both single- and multi-robot projects. */
 export interface AssemblyState {
   name: string;
-  transform?: AssemblyTransform;
+  transform: AssemblyTransform;
   components: Record<string, AssemblyComponent>;
   bridges: Record<string, BridgeJoint>;
 }

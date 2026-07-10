@@ -21,6 +21,12 @@ export * from './ui';
 // Viewer orchestration types
 export * from './viewer';
 
+// Canonical workspace entity and selection types
+export * from './workspace';
+
+// Component-scoped editable source cache
+export * from './sourceDraft';
+
 // USD runtime/cache types
 export * from './usd';
 
