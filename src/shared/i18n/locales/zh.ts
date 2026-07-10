@@ -120,6 +120,13 @@ export const zh: TranslationKeys = {
   selectLinkJointOrTendon: '选择连杆、关节或肌腱以查看属性。',
   selectedJoint: '选中关节',
   previewReadOnlyHint: '预览模式为只读。返回当前编辑模型后才能修改参数。',
+  propertyEntityMissing: '选中的实体已不存在。',
+  propertyEntityTendon: '肌腱',
+  propertyTransform: '变换',
+  componentDisplayName: '显示名称',
+  componentSourceFile: '源文件',
+  componentBridgeAttachmentTransform: '桥接连接变换',
+  componentBridgePlacementControlledBy: '组件位置由入站桥接“{name}”控制。',
   name: '名称',
   visualGeometry: '可视化几何',
   material: '材质',
@@ -364,7 +371,8 @@ export const zh: TranslationKeys = {
   inspectionSelectedChecksSummary: '已选择 {selected}/{total} 项检查',
   inspectionRobotSnapshot: '机器人快照',
   inspectionRunSummary: '本次运行摘要',
-  inspectionRunSummaryDescription: '总分上限按已选 Profile item 数计算，推荐 Profile 会作为默认执行范围。',
+  inspectionRunSummaryDescription:
+    '总分上限按已选 Profile item 数计算，推荐 Profile 会作为默认执行范围。',
   inspectionRunDetails: '本次审阅详情',
   inspectionRunDetailsSeparator: '：',
   inspectionRunDetailsDescription:
@@ -381,8 +389,7 @@ export const zh: TranslationKeys = {
     '系统根据识别结果计算出的只读建议范围，用于和当前方案对照。',
   inspectionReadOnlyBaseline: '只读',
   inspectionCurrentPlan: '当前方案',
-  inspectionCurrentPlanDescription:
-    '本次真正会运行的方案。添加、移除或调整检查项只会更新这里。',
+  inspectionCurrentPlanDescription: '本次真正会运行的方案。添加、移除或调整检查项只会更新这里。',
   inspectionPlanOrchestration: '方案编排',
   inspectionPlanOrchestrationDescription:
     '推荐基线保持只读；当前方案用于承载用户对 Profile 和检查项的调整。',
@@ -420,7 +427,8 @@ export const zh: TranslationKeys = {
   inspectionRegenerateConfirmMessage:
     '重新生成会关闭当前报告并返回常规模式/专业模式选择页。若需要保留这份报告，请先保存；保存后会留在当前结果页，你也可以直接选择重新生成并返回设置页重新运行审阅。',
   inspectionRecommendedPlan: '推荐方案',
-  inspectionRecommendedPlanDescription: '系统会根据当前模型形态和源格式推荐本次审阅的 profile 范围。',
+  inspectionRecommendedPlanDescription:
+    '系统会根据当前模型形态和源格式推荐本次审阅的 profile 范围。',
   inspectionRecommendationArchitecture: '推荐方案架构',
   inspectionRecommendationArchitectureDescription:
     '按层查看推荐 Profile，点击任一 Profile 即可在右侧调整检查项。',
@@ -621,8 +629,7 @@ export const zh: TranslationKeys = {
   rightClickToRename: '右键重命名',
   rightClickForActions: '右键更多操作',
   simpleModeSwitchDraftConfirmTitle: '当前模型有未保存编辑',
-  simpleModeSwitchDraftConfirmMessage:
-    '你可以先预览目标模型，或丢弃当前修改并直接切换。',
+  simpleModeSwitchDraftConfirmMessage: '你可以先预览目标模型，或丢弃当前修改并直接切换。',
   previewTargetModel: '预览目标模型',
   saveDraftAndOpen: '存草稿并打开',
   discardAndOpen: '丢弃并切换',
@@ -743,8 +750,7 @@ export const zh: TranslationKeys = {
   botWorldImportWaiting: '等待编辑器响应…',
   botWorldImportTitleBlink: '新资产导入 - URDF Studio',
   appErrorBoundaryTitle: '应用遇到错误',
-  appErrorBoundaryMessage:
-    '页面渲染中断。请重新加载；若问题持续，可将下方错误信息反馈给开发团队。',
+  appErrorBoundaryMessage: '页面渲染中断。请重新加载；若问题持续，可将下方错误信息反馈给开发团队。',
   appErrorBoundaryReload: '重新加载',
   appErrorBoundaryDismiss: '尝试恢复',
   appErrorBoundaryLogPrefix: '[URDF Studio] 未捕获的渲染错误:',
@@ -845,6 +851,16 @@ export const zh: TranslationKeys = {
   snapshotPreviewRetryingHint: '继续调整参数会自动再次尝试生成预览。',
   snapshotCapture: '导出快照',
   snapshotCapturing: '正在导出…',
+  snapshotCancelCapture: '取消',
+  snapshotProgressTitle: '正在导出快照',
+  snapshotProgressPreparing: '正在准备场景与导出参数。',
+  snapshotProgressWarmingUp: '正在预热渲染帧。',
+  snapshotProgressRendering: '正在渲染高分辨率画面。',
+  snapshotProgressEncoding: '正在编码图片。',
+  snapshotProgressOptimizing: '正在优化 PNG 体积。',
+  snapshotProgressDownloading: '正在准备下载。',
+  snapshotProgressComplete: '导出完成。',
+  snapshotProgressCancelHint: '取消后会回到快照设置，不会下载当前结果。',
   snapshotAspectViewport: '当前画布',
   snapshotCompactOutput: '输出',
   snapshotCompactScene: '场景',

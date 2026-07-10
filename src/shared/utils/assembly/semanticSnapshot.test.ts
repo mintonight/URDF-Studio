@@ -30,12 +30,20 @@ function createJoint(id: string, name: string, parentLinkId: string, childLinkId
 function createAssemblyState(): AssemblyState {
   return {
     name: 'demo_assembly',
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
     components: {
       comp_demo: {
         id: 'comp_demo',
         name: 'demo',
         sourceFile: 'robots/demo.urdf',
         visible: true,
+        transform: {
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { r: 0, p: 0, y: 0 },
+        },
         robot: {
           name: 'demo_robot',
           rootLinkId: 'comp_demo_base_link',
@@ -59,7 +67,7 @@ function createAssemblyState(): AssemblyState {
         childComponentId: 'comp_demo',
         childLinkId: 'comp_demo_base_link',
         joint: createJoint(
-          'bridge_demo_joint',
+          'bridge_demo',
           'bridge_demo_joint',
           'comp_demo_base_link',
           'comp_demo_base_link',

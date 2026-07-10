@@ -6,7 +6,7 @@ import {
   stripTransientJointMotionFromJoint,
 } from '@/shared/utils/robot/semanticSnapshot';
 
-function stripPersistenceStateFromComponent(component: AssemblyComponent): AssemblyComponent {
+function stripPersistenceStateFromComponent(component: AssemblyComponent) {
   const { visible: _visible, robot, ...sourceComponent } = component;
   return {
     ...sourceComponent,

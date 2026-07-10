@@ -898,16 +898,11 @@ input[type='number'] {
  * the icon or label. Disabled when the user prefers reduced motion.
  */
 .ai-glow-button {
-  position: relative;
   isolation: isolate;
+  position: relative;
 }
 
 .ai-glow-button::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  padding: 2px;
   background: conic-gradient(
     from var(--ai-glow-angle, 0deg),
     #c4b5fd,
@@ -915,17 +910,22 @@ input[type='number'] {
     #93c5fd,
     #c4b5fd
   );
+  border-radius: inherit;
+  content: '';
+  inset: -2px;
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
   mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
-  transition: opacity 220ms ease;
+  padding: 2px;
   pointer-events: none;
+  position: absolute;
+  transition: opacity 220ms ease;
   z-index: -1;
 }
 
@@ -961,4 +961,3 @@ input[type='number'] {
     animation: none;
   }
 }
-

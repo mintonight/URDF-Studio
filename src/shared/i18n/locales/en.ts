@@ -127,6 +127,14 @@ export const en: TranslationKeys = {
   selectedJoint: 'Selected Joint',
   previewReadOnlyHint:
     'Preview mode is read-only. Return to the current editing model to change parameters.',
+  propertyEntityMissing: 'The selected entity no longer exists.',
+  propertyEntityTendon: 'Tendon',
+  propertyTransform: 'Transform',
+  componentDisplayName: 'Display name',
+  componentSourceFile: 'Source file',
+  componentBridgeAttachmentTransform: 'Bridge attachment transform',
+  componentBridgePlacementControlledBy:
+    'Placement is controlled by incoming bridge “{name}”.',
   name: 'Name',
   visualGeometry: 'Visual Geometry',
   material: 'Material',
@@ -877,6 +885,16 @@ export const en: TranslationKeys = {
   snapshotPreviewRetryingHint: 'Adjusting options will trigger another preview attempt.',
   snapshotCapture: 'Export Snapshot',
   snapshotCapturing: 'Capturing…',
+  snapshotCancelCapture: 'Cancel',
+  snapshotProgressTitle: 'Exporting snapshot',
+  snapshotProgressPreparing: 'Preparing the scene and export settings.',
+  snapshotProgressWarmingUp: 'Warming up render frames.',
+  snapshotProgressRendering: 'Rendering the high-resolution image.',
+  snapshotProgressEncoding: 'Encoding the image.',
+  snapshotProgressOptimizing: 'Optimizing PNG size.',
+  snapshotProgressDownloading: 'Preparing the download.',
+  snapshotProgressComplete: 'Export complete.',
+  snapshotProgressCancelHint: 'Cancel returns to the snapshot settings without downloading.',
   snapshotAspectViewport: 'Viewport',
   snapshotCompactOutput: 'Output',
   snapshotCompactScene: 'Scene',
@@ -970,7 +988,8 @@ export const en: TranslationKeys = {
   paintErrorMultiMaterial:
     'Paint does not yet support editing built-in multi-material targets that were not authored by the paint tool.',
   paintErrorFaceUnavailable: 'Could not resolve the clicked visual face.',
-  paintErrorSelectionUnavailable: 'Could not resolve a valid face selection from the clicked visual.',
+  paintErrorSelectionUnavailable:
+    'Could not resolve a valid face selection from the clicked visual.',
 
   // Performance
   performance: 'Performance',
