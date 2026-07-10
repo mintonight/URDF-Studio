@@ -1,89 +1,60 @@
-export interface EditableTextFileLike {
-  name: string;
-  content: string;
-}
+import { createSourceSemanticRobotHash } from '@/core/robot';
+import type { AssemblyState, ComponentSourceDraft } from '@/types';
 
-export interface ResolvedEditablePatchTarget<TFile extends EditableTextFileLike> {
-  targetFileName: string;
-  targetFile: TFile | null;
-}
+export type EditableSourcePatchInvalidationReason =
+  | 'component-missing'
+  | 'draft-missing'
+  | 'foreign-component'
+  | 'unexpected-robot';
 
-export interface EditableSourcePatchStateResult<TFile extends EditableTextFileLike> {
-  nextSelectedFile: TFile | null;
-  nextAvailableFiles: TFile[];
-  nextAllFileContents: Record<string, string>;
-  didChange: boolean;
-}
+export type ResolvedEditablePatchTarget =
+  | {
+      status: 'ready';
+      draft: ComponentSourceDraft;
+      currentRobotSnapshotHash: string;
+    }
+  | { status: 'invalid'; reason: EditableSourcePatchInvalidationReason };
 
-export function resolveEditablePatchTarget<TFile extends EditableTextFileLike>({
-  selectedFile,
-  availableFiles,
-  sourceFileName,
+export function resolveEditablePatchTarget({
+  workspace,
+  drafts,
+  componentId,
+  expectedRobotSnapshotHash,
 }: {
-  selectedFile: TFile | null;
-  availableFiles: TFile[];
-  sourceFileName?: string | null;
-}): ResolvedEditablePatchTarget<TFile> {
-  const targetFileName = sourceFileName ?? selectedFile?.name ?? null;
-  if (!targetFileName) {
-    return {
-      targetFileName: '',
-      targetFile: null,
-    };
+  workspace: AssemblyState;
+  drafts: Record<string, ComponentSourceDraft>;
+  componentId: string;
+  expectedRobotSnapshotHash: string;
+}): ResolvedEditablePatchTarget {
+  const component = workspace.components[componentId];
+  if (!component) return { status: 'invalid', reason: 'component-missing' };
+  const draft = drafts[componentId];
+  if (!draft) return { status: 'invalid', reason: 'draft-missing' };
+  if (draft.componentId !== componentId) {
+    return { status: 'invalid', reason: 'foreign-component' };
   }
-
-  const targetFile =
-    selectedFile?.name === targetFileName
-      ? selectedFile
-      : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-  return {
-    targetFileName,
-    targetFile,
-  };
+  const currentRobotSnapshotHash = createSourceSemanticRobotHash(component.robot);
+  if (
+    draft.robotSnapshotHash !== expectedRobotSnapshotHash
+    && draft.robotSnapshotHash !== currentRobotSnapshotHash
+  ) {
+    return { status: 'invalid', reason: 'unexpected-robot' };
+  }
+  return { status: 'ready', draft, currentRobotSnapshotHash };
 }
 
-export function buildEditableSourcePatchState<TFile extends EditableTextFileLike>({
-  selectedFile,
-  availableFiles,
-  allFileContents,
-  targetFile,
+export function buildEditableSourcePatchState({
+  draft,
   nextContent,
+  currentRobotSnapshotHash,
 }: {
-  selectedFile: TFile | null;
-  availableFiles: TFile[];
-  allFileContents: Record<string, string>;
-  targetFile: TFile;
+  draft: ComponentSourceDraft;
   nextContent: string;
-}): EditableSourcePatchStateResult<TFile> {
-  const nextSelectedFile =
-    selectedFile?.name === targetFile.name && selectedFile.content !== nextContent
-      ? { ...selectedFile, content: nextContent }
-      : selectedFile;
-
-  const nextAvailableFiles = availableFiles.some(
-    (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-  )
-    ? availableFiles.map((entry) =>
-        entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-      )
-    : availableFiles;
-
-  const nextAllFileContents =
-    allFileContents[targetFile.name] !== nextContent
-      ? {
-          ...allFileContents,
-          [targetFile.name]: nextContent,
-        }
-      : allFileContents;
-
+  currentRobotSnapshotHash: string;
+}): ComponentSourceDraft {
   return {
-    nextSelectedFile,
-    nextAvailableFiles,
-    nextAllFileContents,
-    didChange:
-      nextSelectedFile !== selectedFile ||
-      nextAvailableFiles !== availableFiles ||
-      nextAllFileContents !== allFileContents,
+    ...draft,
+    content: nextContent,
+    robotSnapshotHash: currentRobotSnapshotHash,
   };
 }

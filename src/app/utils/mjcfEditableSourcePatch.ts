@@ -1,4 +1,4 @@
-import { GeometryType, JointType, type RobotFile, type UrdfJoint, type UrdfVisual } from '@/types';
+import { GeometryType, JointType, type RobotFile, type UrdfInertial, type UrdfJoint, type UrdfVisual } from '@/types';
 import { assignMJCFBodyGeomRoles, type MJCFGeomClassificationInput } from '@/core/parsers/mjcf/mjcfGeomClassification';
 
 interface AppendMJCFChildBodyOptions {
@@ -40,6 +40,12 @@ interface MJCFJointLimitSourcePatchOptions {
   jointName: string;
   jointType: UrdfJoint['type'];
   limit: NonNullable<UrdfJoint['limit']>;
+}
+
+interface MJCFBodyInertialSourcePatchOptions {
+  sourceContent: string;
+  bodyName: string;
+  inertial: UrdfInertial;
 }
 
 type EditableCollisionGeom = Pick<UrdfVisual, 'type' | 'dimensions' | 'color' | 'origin' | 'meshPath' | 'assetRef' | 'mjcfHfield'>;
@@ -493,6 +499,73 @@ function findDirectBodyGeomOccurrences(sourceContent: string, bodyName: string):
   return occurrences;
 }
 
+function findDirectBodyInertialOccurrence(sourceContent: string, bodyName: string): GeomTagOccurrence | null {
+  const bodyPoint = findBodyInsertionPoint(sourceContent, bodyName);
+  if (!bodyPoint) {
+    throw new Error(`Failed to locate MJCF <body name="${bodyName}"> in editable source.`);
+  }
+
+  if (bodyPoint.selfClosing) {
+    return null;
+  }
+
+  const tokenRe = /<\s*(\/?)\s*(body|inertial)\b[^>]*?(\/?)>/gi;
+  tokenRe.lastIndex = bodyPoint.openTagEnd;
+
+  let nestedBodyDepth = 0;
+  let pendingInertialStart: number | null = null;
+
+  let match: RegExpExecArray | null;
+  while ((match = tokenRe.exec(sourceContent)) !== null && match.index < bodyPoint.closeTagStart) {
+    const rawTag = match[0];
+    const tagName = match[2].toLowerCase();
+    const isClosing = match[1] === '/';
+    const selfClosing = match[3] === '/' || /\/\s*>$/.test(rawTag);
+    const tagStart = match.index;
+    const tagEnd = tagStart + rawTag.length;
+
+    if (tagName === 'body') {
+      if (isClosing) {
+        nestedBodyDepth = Math.max(0, nestedBodyDepth - 1);
+      } else if (!selfClosing) {
+        nestedBodyDepth += 1;
+      }
+      continue;
+    }
+
+    if (nestedBodyDepth !== 0) {
+      continue;
+    }
+
+    if (isClosing) {
+      if (pendingInertialStart !== null) {
+        return {
+          start: pendingInertialStart,
+          end: tagEnd,
+          rawTag: sourceContent.slice(pendingInertialStart, tagEnd),
+        };
+      }
+      continue;
+    }
+
+    if (selfClosing) {
+      return {
+        start: tagStart,
+        end: tagEnd,
+        rawTag,
+      };
+    }
+
+    pendingInertialStart = tagStart;
+  }
+
+  if (pendingInertialStart !== null) {
+    throw new Error(`Failed to resolve closing MJCF <inertial> while inspecting <body name="${bodyName}">.`);
+  }
+
+  return null;
+}
+
 function normalizeHexColor(color: string | undefined): string | null {
   if (!color) {
     return null;
@@ -558,6 +631,132 @@ function formatEuler(rpy: { r: number; p: number; y: number }): string {
     formatScalar(rpy.p) ?? '0',
     formatScalar(rpy.y) ?? '0',
   ].join(' ');
+}
+
+function formatEulerForAngleUnit(
+  rpy: { r: number; p: number; y: number },
+  angleUnit: 'radian' | 'degree',
+): string {
+  if (angleUnit === 'radian') {
+    return formatEuler(rpy);
+  }
+
+  return [
+    formatScalar(rpy.r * 180 / Math.PI) ?? '0',
+    formatScalar(rpy.p * 180 / Math.PI) ?? '0',
+    formatScalar(rpy.y * 180 / Math.PI) ?? '0',
+  ].join(' ');
+}
+
+function formatQuaternionWxyzFromRpy(rpy: { r: number; p: number; y: number }): string {
+  const cr = Math.cos(rpy.r / 2);
+  const sr = Math.sin(rpy.r / 2);
+  const cp = Math.cos(rpy.p / 2);
+  const sp = Math.sin(rpy.p / 2);
+  const cy = Math.cos(rpy.y / 2);
+  const sy = Math.sin(rpy.y / 2);
+
+  const w = cr * cp * cy + sr * sp * sy;
+  const x = sr * cp * cy - cr * sp * sy;
+  const y = cr * sp * cy + sr * cp * sy;
+  const z = cr * cp * sy - sr * sp * cy;
+
+  return [w, x, y, z]
+    .map((value) => formatScalar(value) ?? '0')
+    .join(' ');
+}
+
+function formatMJCFInertiaDiagonal(inertial: UrdfInertial): string {
+  return [
+    inertial.inertia.ixx,
+    inertial.inertia.iyy,
+    inertial.inertia.izz,
+  ].map((value) => formatScalar(value) ?? '0').join(' ');
+}
+
+function formatMJCFFullInertia(inertial: UrdfInertial): string {
+  return [
+    inertial.inertia.ixx,
+    inertial.inertia.iyy,
+    inertial.inertia.izz,
+    inertial.inertia.ixy,
+    inertial.inertia.ixz,
+    inertial.inertia.iyz,
+  ].map((value) => formatScalar(value) ?? '0').join(' ');
+}
+
+function buildManagedInertialAttributeEntries(
+  inertial: UrdfInertial,
+  options: {
+    angleUnit: 'radian' | 'degree';
+    existingAttributes: Record<string, string>;
+  },
+): Array<[string, string]> {
+  const entries: Array<[string, string]> = [];
+  const origin = inertial.origin;
+
+  entries.push(['mass', formatScalar(inertial.mass) ?? '0']);
+
+  if (origin?.xyz) {
+    entries.push(['pos', formatVec3(origin.xyz)]);
+  }
+
+  if (origin?.rpy) {
+    if (Object.prototype.hasOwnProperty.call(options.existingAttributes, 'euler') &&
+        !Object.prototype.hasOwnProperty.call(options.existingAttributes, 'quat')) {
+      entries.push(['euler', formatEulerForAngleUnit(origin.rpy, options.angleUnit)]);
+    } else {
+      entries.push(['quat', formatQuaternionWxyzFromRpy(origin.rpy)]);
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options.existingAttributes, 'fullinertia')) {
+    entries.push(['fullinertia', formatMJCFFullInertia(inertial)]);
+  } else {
+    entries.push(['diaginertia', formatMJCFInertiaDiagonal(inertial)]);
+  }
+
+  return entries;
+}
+
+function updateInertialRawTag(
+  rawTag: string,
+  inertial: UrdfInertial,
+  angleUnit: 'radian' | 'degree',
+): string {
+  const existingAttributes = parseXmlAttributes(rawTag);
+  const managedAttributeNames = new Set([
+    'mass',
+    'pos',
+    'quat',
+    'euler',
+    'axisangle',
+    'xyaxes',
+    'zaxis',
+    'diaginertia',
+    'fullinertia',
+  ]);
+
+  const nextAttributes = new Map<string, string>();
+  Object.entries(existingAttributes).forEach(([name, value]) => {
+    if (managedAttributeNames.has(name)) {
+      return;
+    }
+    nextAttributes.set(name, value);
+  });
+
+  buildManagedInertialAttributeEntries(inertial, { angleUnit, existingAttributes })
+    .forEach(([name, value]) => {
+      nextAttributes.set(name, value);
+    });
+
+  const serializedAttributes = Array.from(nextAttributes.entries())
+    .map(([name, value]) => `${name}="${escapeXmlAttribute(value)}"`)
+    .join(' ');
+
+  return serializedAttributes
+    ? `<inertial ${serializedAttributes} />`
+    : '<inertial />';
 }
 
 function buildManagedCollisionGeomAttributeEntries(
@@ -986,6 +1185,56 @@ export function appendMJCFBodyCollisionGeomToSource({
     sourceContent.slice(0, closingLineStart),
     snippet,
     sourceContent.slice(closingLineStart),
+  ].join('');
+}
+
+export function patchMJCFBodyInertialInSource({
+  sourceContent,
+  bodyName,
+  inertial,
+}: MJCFBodyInertialSourcePatchOptions): string {
+  const insertionPoint = findBodyInsertionPoint(sourceContent, bodyName);
+  if (!insertionPoint) {
+    throw new Error(`Failed to locate MJCF <body name="${bodyName}"> in editable source.`);
+  }
+
+  const angleUnit = resolveMJCFSourceAngleUnit(sourceContent);
+  const occurrence = findDirectBodyInertialOccurrence(sourceContent, bodyName);
+  if (occurrence) {
+    const nextRawTag = updateInertialRawTag(occurrence.rawTag, inertial, angleUnit);
+    return [
+      sourceContent.slice(0, occurrence.start),
+      nextRawTag,
+      sourceContent.slice(occurrence.end),
+    ].join('');
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  const parentIndent = getIndentAt(sourceContent, insertionPoint.openTagStart);
+  const indentUnit = insertionPoint.selfClosing
+    ? DEFAULT_INDENT_UNIT
+    : detectIndentUnit(sourceContent, insertionPoint.openTagEnd, insertionPoint.closeTagStart, parentIndent);
+  const inertialIndent = `${parentIndent}${indentUnit}`;
+  const inertialSnippet =
+    `${inertialIndent}${updateInertialRawTag('<inertial />', inertial, angleUnit)}${newline}`;
+
+  if (insertionPoint.selfClosing) {
+    const expandedOpenTag = insertionPoint.rawOpenTag.replace(/\/\s*>$/, '>');
+    return [
+      sourceContent.slice(0, insertionPoint.openTagStart),
+      expandedOpenTag,
+      newline,
+      inertialSnippet,
+      `${parentIndent}</body>`,
+      sourceContent.slice(insertionPoint.openTagEnd),
+    ].join('');
+  }
+
+  return [
+    sourceContent.slice(0, insertionPoint.openTagEnd),
+    newline,
+    inertialSnippet,
+    sourceContent.slice(insertionPoint.openTagEnd),
   ].join('');
 }
 

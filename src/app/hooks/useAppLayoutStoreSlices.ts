@@ -3,13 +3,27 @@ import { useShallow } from 'zustand/react/shallow';
 
 import {
   useAssetsStore,
-  useAssemblySelectionStore,
   useCollisionTransformStore,
-  useRobotStore,
   useSelectionStore,
   useUIStore,
 } from '@/store';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+
+type WorkspaceStoreState = ReturnType<typeof useWorkspaceStore.getState>;
+
+export function createSemanticWorkspaceSelector() {
+  let cachedRevision: number | null = null;
+  let cachedWorkspace: WorkspaceStoreState['workspace'] | null = null;
+  return (state: WorkspaceStoreState) => {
+    const semanticRevision = state.revision - state.jointMotionRevision;
+    if (cachedRevision !== semanticRevision || !cachedWorkspace) {
+      cachedRevision = semanticRevision;
+      cachedWorkspace = state.workspace;
+    }
+    return cachedWorkspace;
+  };
+}
 
 export function useAppLayoutStoreSlices() {
   const uiStore = useUIStore(
@@ -32,17 +46,11 @@ export function useAppLayoutStoreSlices() {
       selection: state.selection,
       setSelection: state.setSelection,
       setHoveredSelection: state.setHoveredSelection,
+      clearSelection: state.clearSelection,
+      selectComponent: state.selectComponent,
       focusTarget: state.focusTarget,
       focusOn: state.focusOn,
       pulseSelection: state.pulseSelection,
-    })),
-  );
-
-  const assemblySelectionStore = useAssemblySelectionStore(
-    useShallow((state) => ({
-      assemblySelection: state.selection,
-      clearSelection: state.clearSelection,
-      selectComponent: state.selectComponent,
     })),
   );
 
@@ -57,8 +65,10 @@ export function useAppLayoutStoreSlices() {
       setAvailableFiles: state.setAvailableFiles,
       setSelectedFile: state.setSelectedFile,
       setAllFileContents: state.setAllFileContents,
-      originalUrdfContent: state.originalUrdfContent,
-      setOriginalUrdfContent: state.setOriginalUrdfContent,
+      componentSourceDrafts: state.componentSourceDrafts,
+      setComponentSourceDraft: state.setComponentSourceDraft,
+      removeComponentSourceDraft: state.removeComponentSourceDraft,
+      clearComponentSourceDrafts: state.clearComponentSourceDrafts,
       uploadAsset: state.uploadAsset,
       removeRobotFile: state.removeRobotFile,
       removeRobotFolder: state.removeRobotFolder,
@@ -74,42 +84,37 @@ export function useAppLayoutStoreSlices() {
     [assetsStore.documentLoadState],
   );
 
-  const robotStore = useRobotStore(
+  const semanticWorkspaceSelector = useMemo(createSemanticWorkspaceSelector, []);
+  const semanticWorkspace = useWorkspaceStore(semanticWorkspaceSelector);
+  const workspaceStore = useWorkspaceStore(
     useShallow((state) => ({
-      robotName: state.name,
-      robotLinks: state.links,
-      robotJoints: state.joints,
-      rootLinkId: state.rootLinkId,
-      robotMaterials: state.materials,
-      closedLoopConstraints: state.closedLoopConstraints,
-      setName: state.setName,
-      setRobot: state.setRobot,
-      resetRobot: state.resetRobot,
+      workspace: state.workspace,
+      activeComponentId: state.activeComponentId,
+      transaction: state.transaction,
+      replaceWorkspace: state.replaceWorkspace,
+      resetWorkspace: state.resetWorkspace,
+      renameWorkspace: state.renameWorkspace,
+      setActiveComponent: state.setActiveComponent,
+      appendComponent: state.appendComponent,
+      insertComponent: state.insertComponent,
+      removeComponent: state.removeComponent,
+      renameComponent: state.renameComponent,
+      updateComponentTransform: state.updateComponentTransform,
+      setComponentVisibility: state.setComponentVisibility,
+      replaceComponentRobot: state.replaceComponentRobot,
       addChild: state.addChild,
       deleteSubtree: state.deleteSubtree,
       updateLink: state.updateLink,
       updateJoint: state.updateJoint,
-      updateMjcfTendon: state.updateMjcfTendon,
+      updateTendon: state.updateTendon,
       setAllLinksVisibility: state.setAllLinksVisibility,
-      setJointAngle: state.setJointAngle,
-      applyJointKinematicOverrides: state.applyJointKinematicOverrides,
-    })),
-  );
-
-  const assemblyStore = useRobotStore(
-    useShallow((state) => ({
-      assemblyState: state.assemblyState,
-      assemblyRevision: state.assemblyRevision,
-      addComponent: state.addComponent,
-      initAssembly: state.initAssembly,
-      removeComponent: state.removeComponent,
+      setJointMotion: state.setJointMotion,
+      setComponentJointMotion: state.setComponentJointMotion,
+      flushPendingJointMotion: state.flushPendingJointMotion,
       addBridge: state.addBridge,
       removeBridge: state.removeBridge,
-      updateComponentName: state.updateComponentName,
-      updateComponentTransform: state.updateComponentTransform,
-      updateComponentRobot: state.updateComponentRobot,
+      updateBridge: state.updateBridge,
       updateAssemblyTransform: state.updateAssemblyTransform,
-      renameComponentSourceFolder: state.renameComponentSourceFolder,
     })),
   );
 
@@ -123,13 +128,14 @@ export function useAppLayoutStoreSlices() {
   return {
     uiStore,
     selectionStore,
-    assemblySelectionStore,
     assetsStore: {
       ...assetsStore,
       documentLoadLifecycleState,
     },
-    robotStore,
-    assemblyStore,
+    workspaceStore: {
+      ...workspaceStore,
+      semanticWorkspace,
+    },
     collisionTransformStore,
   };
 }

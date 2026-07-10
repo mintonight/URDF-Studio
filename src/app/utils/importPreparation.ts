@@ -40,7 +40,6 @@ import {
   createImportedUsdFile,
   createImportedUsdFileFromLooseFile,
   isUsdFamilyPath,
-  MAX_EAGER_TEXT_USD_BYTES,
 } from './import-preparation/usdFiles.ts';
 import { pickFastPreparedPreferredFile } from './import-preparation/fastPreferredFile.ts';
 import {
@@ -240,26 +239,6 @@ function resolveImportInputPath(input: ImportPreparationFileInput): string {
 
   const file = resolveImportInputFile(input);
   return file.webkitRelativePath || file.name;
-}
-
-function resolveLooseImportBudgetSize(input: ImportPreparationFileInput): number {
-  const file = resolveImportInputFile(input);
-  const path = resolveImportInputPath(input);
-  const lowerPath = path.toLowerCase();
-
-  if (!isUsdFamilyPath(path)) {
-    if (!isRobotImportAssetPath(path)) {
-      return file.size;
-    }
-
-    if (shouldMirrorTextMeshAssetContent(lowerPath)) {
-      return Math.min(file.size, MAX_EAGER_TEXT_MESH_ASSET_BYTES);
-    }
-
-    return 0;
-  }
-
-  return Math.min(file.size, MAX_EAGER_TEXT_USD_BYTES);
 }
 
 function normalizeImportPath(path: string): string {
@@ -1502,17 +1481,6 @@ async function collectImportPayloadFromLooseFiles(
   const looseTextMeshFilesByPath = new Map<string, File>();
   const candidateFiles = files.filter((input) =>
     isRobotImportCandidatePath(resolveImportInputPath(input)),
-  );
-  assertImportEntriesWithinLimits(
-    candidateFiles.map((input) => {
-      const file = resolveImportInputFile(input);
-      return {
-        path: resolveImportInputPath(input),
-        size: file.size,
-        budgetSize: resolveLooseImportBudgetSize(input),
-      };
-    }),
-    'Import',
   );
   const totalEntries = candidateFiles.length;
   const totalBytes = candidateFiles.reduce(

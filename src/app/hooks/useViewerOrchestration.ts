@@ -1,73 +1,66 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
-import { resolveLinkKey } from '@/core/robot';
+
 import { useSelectionStore, useUIStore } from '@/store';
-import type { DetailLinkTab, InteractionSelection, RobotState } from '@/types';
-import type { ViewerHelperKind } from '@/features/editor';
+import {
+  areEntityRefsEqual,
+  type AssemblyState,
+  type DetailLinkTab,
+  type EntityRef,
+  type WorkspaceSelection,
+} from '@/types';
 
-const EMPTY_SELECTION: InteractionSelection = { type: null, id: null };
-type ViewerSelectionRobotContext = Pick<RobotState, 'links' | 'joints'>;
+type LinkEntityRef = Extract<EntityRef, { type: 'link' }>;
 
-function resolveDetailLinkTabAfterViewerMeshSelect(
-  objectType: 'visual' | 'collision',
-): DetailLinkTab {
-  return objectType;
-}
-
-function resolveDetailLinkTabAfterGeometrySelection(
-  subType: 'visual' | 'collision',
-): DetailLinkTab {
+function resolveDetailLinkTab(subType: 'visual' | 'collision'): DetailLinkTab {
   return subType;
 }
 
 interface UseViewerOrchestrationOptions {
-  setSelection: (selection: RobotState['selection']) => void;
-  pulseSelection: (selection: RobotState['selection'], durationMs?: number) => void;
-  setHoveredSelection: (selection: InteractionSelection) => void;
-  focusOn: (id: string) => void;
+  workspace: AssemblyState;
+  setSelection: (selection: WorkspaceSelection) => void;
+  pulseSelection: (selection: WorkspaceSelection, durationMs?: number) => void;
+  setHoveredSelection: (selection: WorkspaceSelection) => void;
+  focusOn: (ref: EntityRef) => void;
   transformPendingRef: RefObject<boolean>;
-  selectionRobot?: ViewerSelectionRobotContext;
 }
 
+/** Resolve attention by exact component ownership and source-local IDs. */
 export function resolveParentJointAttentionSelection(
-  robot: ViewerSelectionRobotContext | undefined,
-  linkIdentity: string | null | undefined,
-): InteractionSelection | null {
-  if (!robot || !linkIdentity) {
+  workspace: AssemblyState,
+  linkRef: LinkEntityRef,
+): WorkspaceSelection {
+  const component = workspace.components[linkRef.componentId];
+  if (!component?.robot.links[linkRef.entityId]) {
     return null;
   }
-
-  const resolvedLinkId = resolveLinkKey(robot.links, linkIdentity);
-  const linkCandidates = new Set<string>([linkIdentity]);
-  if (resolvedLinkId) {
-    linkCandidates.add(resolvedLinkId);
-    const resolvedLinkName = robot.links[resolvedLinkId]?.name;
-    if (resolvedLinkName) {
-      linkCandidates.add(resolvedLinkName);
-    }
-  }
-
-  for (const [jointKey, joint] of Object.entries(robot.joints)) {
-    if (linkCandidates.has(joint.childLinkId)) {
-      return { type: 'joint', id: joint.id || jointKey };
-    }
-  }
-
-  return null;
+  const parentJoint = Object.values(component.robot.joints).find(
+    (joint) => joint.childLinkId === linkRef.entityId,
+  );
+  return parentJoint
+    ? {
+        entity: {
+          type: 'joint',
+          componentId: linkRef.componentId,
+          entityId: parentJoint.id,
+        },
+      }
+    : null;
 }
 
 export function useViewerOrchestration({
+  workspace,
   setSelection,
   pulseSelection,
   setHoveredSelection,
   focusOn,
   transformPendingRef,
-  selectionRobot,
 }: UseViewerOrchestrationOptions) {
   const isInteractionAllowed = useCallback(
-    (selection: RobotState['selection']) =>
+    (selection: WorkspaceSelection) =>
       useSelectionStore.getState().isInteractionAllowed(selection),
     [],
   );
+
   const ensureCollisionVisible = useCallback(() => {
     const uiState = useUIStore.getState();
     if (!uiState.viewOptions.showCollision) {
@@ -75,113 +68,102 @@ export function useViewerOrchestration({
     }
   }, []);
 
-  const applyHelperSelectionUiState = useCallback((helperKind?: ViewerHelperKind) => {
-    if (!helperKind) {
-      return;
-    }
-
-    const uiState = useUIStore.getState();
-
-    if (helperKind === 'center-of-mass' || helperKind === 'inertia') {
-      if (uiState.detailLinkTab !== 'physics') {
-        uiState.setDetailLinkTab('physics');
+  const applyHelperSelectionUiState = useCallback(
+    (helperKind: NonNullable<WorkspaceSelection>['helperKind']) => {
+      if (!helperKind) return;
+      const uiState = useUIStore.getState();
+      if (helperKind === 'center-of-mass' || helperKind === 'inertia') {
+        if (uiState.detailLinkTab !== 'physics') uiState.setDetailLinkTab('physics');
+        uiState.setPanelSection('property_editor_link_inertial', false);
+      } else if (helperKind === 'origin-axes') {
+        if (uiState.detailLinkTab !== 'visual') uiState.setDetailLinkTab('visual');
+        uiState.setPanelSection('property_editor_link_frame', false);
+      } else if (helperKind === 'joint-axis') {
+        uiState.setPanelSection('kinematics', false);
       }
-      uiState.setPanelSection('property_editor_link_inertial', false);
-      return;
-    }
+    },
+    [],
+  );
 
-    if (helperKind === 'origin-axes') {
-      if (uiState.detailLinkTab !== 'visual') {
-        uiState.setDetailLinkTab('visual');
-      }
-      uiState.setPanelSection('property_editor_link_frame', false);
-      return;
-    }
-
-    if (helperKind === 'joint-axis') {
-      uiState.setPanelSection('kinematics', false);
-    }
-  }, []);
-
-  const preserveCollisionObjectIndex = useCallback((selection: RobotState['selection']) => {
-    if (
-      selection.type !== 'link' ||
-      selection.subType !== 'collision' ||
-      selection.objectIndex !== undefined
-    ) {
-      return selection;
-    }
-
-    const currentSelection = useSelectionStore.getState().selection;
-    if (
-      currentSelection.type === 'link' &&
-      currentSelection.id === selection.id &&
-      currentSelection.subType === 'collision' &&
-      currentSelection.objectIndex !== undefined
-    ) {
-      return {
-        ...selection,
-        objectIndex: currentSelection.objectIndex,
-      };
-    }
-
-    return selection;
-  }, []);
-
-  const preserveHoveredHighlightObject = useCallback((selection: RobotState['selection']) => {
-    if (selection.type !== 'link' || !selection.id || !selection.subType) {
-      return selection;
-    }
-
-    const hoveredSelection = useSelectionStore.getState().hoveredSelection;
-    if (
-      hoveredSelection.type !== 'link' ||
-      hoveredSelection.id !== selection.id ||
-      hoveredSelection.subType !== selection.subType ||
-      hoveredSelection.objectIndex !== selection.objectIndex ||
-      hoveredSelection.highlightObjectId === undefined
-    ) {
-      return selection;
-    }
-
-    return {
-      ...selection,
-      highlightObjectId: hoveredSelection.highlightObjectId,
-    };
-  }, []);
-
-  const resolveViewerAttentionSelection = useCallback(
-    (selection: RobotState['selection']) => {
-      if (selection.type !== 'link' || !selection.id || selection.helperKind) {
+  const preserveCollisionObjectIndex = useCallback(
+    (selection: WorkspaceSelection): WorkspaceSelection => {
+      if (
+        !selection
+        || selection.entity.type !== 'link'
+        || selection.subType !== 'collision'
+        || selection.objectIndex !== undefined
+      ) {
         return selection;
       }
-
-      return resolveParentJointAttentionSelection(selectionRobot, selection.id) ?? selection;
+      const current = useSelectionStore.getState().selection;
+      return current
+        && current.entity.type === 'link'
+        && areEntityRefsEqual(current.entity, selection.entity)
+        && current.subType === 'collision'
+        && current.objectIndex !== undefined
+        ? { ...selection, objectIndex: current.objectIndex }
+        : selection;
     },
-    [selectionRobot],
+    [],
+  );
+
+  const preserveHoveredHighlightObject = useCallback(
+    (selection: WorkspaceSelection): WorkspaceSelection => {
+      if (!selection || selection.entity.type !== 'link' || !selection.subType) {
+        return selection;
+      }
+      const hovered = useSelectionStore.getState().hoveredSelection;
+      return hovered
+        && hovered.entity.type === 'link'
+        && areEntityRefsEqual(hovered.entity, selection.entity)
+        && hovered.subType === selection.subType
+        && hovered.objectIndex === selection.objectIndex
+        && hovered.highlightObjectId !== undefined
+        ? { ...selection, highlightObjectId: hovered.highlightObjectId }
+        : selection;
+    },
+    [],
+  );
+
+  const revealSelection = useCallback(
+    (selection: WorkspaceSelection, suppressAutoReveal = false) => {
+      if (!selection || selection.entity.type !== 'link' || !selection.subType) return;
+      if (selection.subType === 'collision' && !suppressAutoReveal) {
+        ensureCollisionVisible();
+      }
+      const uiState = useUIStore.getState();
+      const nextTab = resolveDetailLinkTab(selection.subType);
+      if (uiState.detailLinkTab !== nextTab) uiState.setDetailLinkTab(nextTab);
+    },
+    [ensureCollisionVisible],
+  );
+
+  const resolveAttentionSelection = useCallback(
+    (selection: WorkspaceSelection): WorkspaceSelection => {
+      if (
+        !selection
+        || selection.entity.type !== 'link'
+        || selection.helperKind
+      ) {
+        return selection;
+      }
+      return resolveParentJointAttentionSelection(workspace, selection.entity) ?? selection;
+    },
+    [workspace],
   );
 
   const handleSelect = useCallback(
-    (
-      type: Exclude<InteractionSelection['type'], null>,
-      id: string,
-      subType?: 'visual' | 'collision',
-    ) => {
+    (selection: WorkspaceSelection) => {
       if (transformPendingRef.current) return;
-      const nextSelection = preserveCollisionObjectIndex({ type, id, subType });
-      if (!isInteractionAllowed(nextSelection)) {
-        return;
-      }
-
-      if (nextSelection.type === 'link' && nextSelection.subType === 'collision') {
-        ensureCollisionVisible();
-      }
-      setSelection(nextSelection);
+      const next = preserveCollisionObjectIndex(selection);
+      if (!isInteractionAllowed(next)) return;
+      revealSelection(next);
+      setSelection(next);
     },
     [
-      ensureCollisionVisible,
       isInteractionAllowed,
       preserveCollisionObjectIndex,
+      revealSelection,
       setSelection,
       transformPendingRef,
     ],
@@ -189,121 +171,53 @@ export function useViewerOrchestration({
 
   const handleSelectGeometry = useCallback(
     (
-      linkId: string,
+      ref: LinkEntityRef,
       subType: 'visual' | 'collision',
       objectIndex = 0,
       suppressPulse = false,
       suppressAutoReveal = false,
     ) => {
       if (transformPendingRef.current) return;
-      const nextSelection = { type: 'link' as const, id: linkId, subType, objectIndex };
-      if (!isInteractionAllowed(nextSelection)) {
-        return;
-      }
-
-      if (subType === 'collision' && !suppressAutoReveal) {
-        ensureCollisionVisible();
-      }
-      setSelection(nextSelection);
-      if (!suppressPulse) {
-        pulseSelection(nextSelection);
-      }
-      const uiState = useUIStore.getState();
-      const nextTab = resolveDetailLinkTabAfterGeometrySelection(subType);
-      if (uiState.detailLinkTab !== nextTab) {
-        uiState.setDetailLinkTab(nextTab);
-      }
+      const next: WorkspaceSelection = { entity: ref, subType, objectIndex };
+      if (!isInteractionAllowed(next)) return;
+      revealSelection(next, suppressAutoReveal);
+      setSelection(next);
+      if (!suppressPulse) pulseSelection(next);
     },
-    [
-      ensureCollisionVisible,
-      isInteractionAllowed,
-      pulseSelection,
-      setSelection,
-      transformPendingRef,
-    ],
+    [isInteractionAllowed, pulseSelection, revealSelection, setSelection, transformPendingRef],
   );
 
   const handleViewerSelect = useCallback(
-    (
-      type: Exclude<InteractionSelection['type'], null>,
-      id: string,
-      subType?: 'visual' | 'collision',
-      helperKind?: ViewerHelperKind,
-    ) => {
+    (selection: WorkspaceSelection) => {
       if (transformPendingRef.current) return;
-      if (!id) {
-        setSelection(EMPTY_SELECTION);
-        setHoveredSelection(EMPTY_SELECTION);
-        pulseSelection(EMPTY_SELECTION);
+      if (!selection) {
+        setSelection(null);
+        setHoveredSelection(null);
+        pulseSelection(null);
         return;
       }
-
-      const baseSelection = helperKind
-        ? ({ type, id, subType, helperKind } as const)
-        : ({ type, id, subType } as const);
-      const nextSelection = preserveCollisionObjectIndex(baseSelection);
-      if (!isInteractionAllowed(nextSelection)) {
-        return;
+      const next = preserveCollisionObjectIndex(
+        preserveHoveredHighlightObject(selection),
+      );
+      if (!next) return;
+      if (!isInteractionAllowed(next)) return;
+      revealSelection(next);
+      setSelection(next);
+      if (next.helperKind) {
+        setHoveredSelection(null);
+        applyHelperSelectionUiState(next.helperKind);
       }
-
-      if (nextSelection.type === 'link' && nextSelection.subType === 'collision') {
-        ensureCollisionVisible();
-      }
-      setSelection(nextSelection);
-      if (helperKind) {
-        setHoveredSelection({ type: null, id: null });
-        applyHelperSelectionUiState(helperKind);
-      }
-      pulseSelection(resolveViewerAttentionSelection(nextSelection));
+      pulseSelection(resolveAttentionSelection(next));
     },
     [
       applyHelperSelectionUiState,
-      ensureCollisionVisible,
+      isInteractionAllowed,
       preserveCollisionObjectIndex,
-      pulseSelection,
-      resolveViewerAttentionSelection,
-      isInteractionAllowed,
-      setHoveredSelection,
-      setSelection,
-      transformPendingRef,
-    ],
-  );
-
-  const handleViewerMeshSelect = useCallback(
-    (
-      linkId: string,
-      _jointId: string | null,
-      objectIndex: number,
-      objectType: 'visual' | 'collision',
-    ) => {
-      if (transformPendingRef.current) return;
-      const nextSelection = preserveHoveredHighlightObject({
-        type: 'link' as const,
-        id: linkId,
-        subType: objectType,
-        objectIndex,
-      });
-      if (!isInteractionAllowed(nextSelection)) {
-        return;
-      }
-
-      if (objectType === 'collision') {
-        ensureCollisionVisible();
-      }
-      setSelection(nextSelection);
-      const uiState = useUIStore.getState();
-      const nextTab = resolveDetailLinkTabAfterViewerMeshSelect(objectType);
-      if (uiState.detailLinkTab !== nextTab) {
-        uiState.setDetailLinkTab(nextTab);
-      }
-      pulseSelection(resolveViewerAttentionSelection(nextSelection));
-    },
-    [
-      ensureCollisionVisible,
-      isInteractionAllowed,
-      pulseSelection,
       preserveHoveredHighlightObject,
-      resolveViewerAttentionSelection,
+      pulseSelection,
+      resolveAttentionSelection,
+      revealSelection,
+      setHoveredSelection,
       setSelection,
       transformPendingRef,
     ],
@@ -316,124 +230,75 @@ export function useViewerOrchestration({
     [transformPendingRef],
   );
 
-  // rAF-coalesced hover dispatch: the leading call goes through synchronously,
-  // subsequent calls within one frame are queued and the latest one fires on
-  // the next animation frame. Pointer move events come in at ~60Hz but only
-  // the final hover target per frame meaningfully changes downstream subscribers
-  // (TreeNode highlight, viewer outline, PropertyEditor focus); collapsing
-  // mid-sweep boundary crossings into one update per frame drops the redundant
-  // store-wide notifications.
-  type HoverArgs = [
-    InteractionSelection['type'],
-    string | null,
-    ('visual' | 'collision')?,
-    number?,
-    ViewerHelperKind?,
-    number?,
-  ];
-
   const lastHoverDispatchTimeRef = useRef(0);
-  const pendingHoverArgsRef = useRef<HoverArgs | null>(null);
+  const pendingHoverRef = useRef<WorkspaceSelection>(null);
+  const hasPendingHoverRef = useRef(false);
   const hoverRafRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (hoverRafRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
-      }
-      pendingHoverArgsRef.current = null;
-    };
+  useEffect(() => () => {
+    if (hoverRafRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(hoverRafRef.current);
+    }
+    hoverRafRef.current = null;
+    hasPendingHoverRef.current = false;
   }, []);
 
   const dispatchHoverNow = useCallback(
-    (args: HoverArgs) => {
-      const [type, id, subType, objectIndex, helperKind, highlightObjectId] = args;
-      const current = useSelectionStore.getState().hoveredSelection;
+    (selection: WorkspaceSelection) => {
       const selected = useSelectionStore.getState().selection;
-
+      const hovered = useSelectionStore.getState().hoveredSelection;
       if (
-        selected.type === 'link' &&
-        selected.id &&
-        type === 'link' &&
-        id === selected.id &&
-        current.type === 'link' &&
-        current.id === selected.id
+        selection
+        && selected
+        && hovered
+        && selection.entity.type === 'link'
+        && selected.entity.type === 'link'
+        && areEntityRefsEqual(selection.entity, selected.entity)
+        && areEntityRefsEqual(hovered.entity, selected.entity)
       ) {
         return;
       }
-
-      if (
-        current.type === type &&
-        current.id === id &&
-        current.subType === subType &&
-        (current.objectIndex ?? 0) === (objectIndex ?? 0) &&
-        current.helperKind === helperKind &&
-        (current.highlightObjectId ?? null) === (highlightObjectId ?? null)
-      ) {
+      if (!isInteractionAllowed(selection)) {
+        setHoveredSelection(null);
         return;
       }
-
-      const nextSelection = { type, id, subType, objectIndex, helperKind, highlightObjectId };
-      if (!isInteractionAllowed(nextSelection)) {
-        setHoveredSelection({ type: null, id: null });
-        return;
-      }
-
-      setHoveredSelection(nextSelection);
+      setHoveredSelection(selection);
     },
     [isInteractionAllowed, setHoveredSelection],
   );
 
   const handleHover = useCallback(
-    (
-      type: InteractionSelection['type'],
-      id: string | null,
-      subType?: 'visual' | 'collision',
-      objectIndex?: number,
-      helperKind?: ViewerHelperKind,
-      highlightObjectId?: number,
-    ) => {
-      const args: HoverArgs = [type, id, subType, objectIndex, helperKind, highlightObjectId];
-
+    (selection: WorkspaceSelection) => {
       if (typeof window === 'undefined') {
-        dispatchHoverNow(args);
+        dispatchHoverNow(selection);
         return;
       }
-
       const now = performance.now();
       if (hoverRafRef.current === null && now - lastHoverDispatchTimeRef.current >= 16) {
         lastHoverDispatchTimeRef.current = now;
-        dispatchHoverNow(args);
+        dispatchHoverNow(selection);
         return;
       }
-
-      pendingHoverArgsRef.current = args;
+      pendingHoverRef.current = selection;
+      hasPendingHoverRef.current = true;
       if (hoverRafRef.current !== null) return;
       hoverRafRef.current = window.requestAnimationFrame(() => {
         hoverRafRef.current = null;
-        const queued = pendingHoverArgsRef.current;
-        pendingHoverArgsRef.current = null;
-        if (!queued) return;
+        if (!hasPendingHoverRef.current) return;
+        hasPendingHoverRef.current = false;
         lastHoverDispatchTimeRef.current = performance.now();
-        dispatchHoverNow(queued);
+        dispatchHoverNow(pendingHoverRef.current);
       });
     },
     [dispatchHoverNow],
   );
 
-  const handleFocus = useCallback(
-    (id: string) => {
-      focusOn(id);
-    },
-    [focusOn],
-  );
+  const handleFocus = useCallback((ref: EntityRef) => focusOn(ref), [focusOn]);
 
   return {
     handleSelect,
     handleSelectGeometry,
     handleViewerSelect,
-    handleViewerMeshSelect,
     handleTransformPendingChange,
     handleHover,
     handleFocus,

@@ -1,13 +1,13 @@
-export type UnsavedChangesSaveScope = 'all' | 'robot' | 'assembly';
-
-type UnsavedChangesBaselineMarker = ((scope?: UnsavedChangesSaveScope) => void) | null;
+type UnsavedChangesBaselineMarker = (() => void) | null;
 
 let unsavedChangesBaselineMarker: UnsavedChangesBaselineMarker = null;
 
-export function registerUnsavedChangesBaselineMarker(marker: UnsavedChangesBaselineMarker) {
+export function registerUnsavedChangesBaselineMarker(
+  marker: UnsavedChangesBaselineMarker,
+): void {
   unsavedChangesBaselineMarker = marker;
 }
 
-export function markUnsavedChangesBaselineSaved(scope: UnsavedChangesSaveScope = 'all') {
-  unsavedChangesBaselineMarker?.(scope);
+export function markUnsavedChangesBaselineSaved(): void {
+  unsavedChangesBaselineMarker?.();
 }

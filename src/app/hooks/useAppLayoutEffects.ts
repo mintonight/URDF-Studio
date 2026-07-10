@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import type { InteractionSelection, RobotState } from '@/types';
+import type { AssemblyState, WorkspaceSelection } from '@/types';
 import { preloadSourceCodeEditor } from '@/app/utils/sourceCodeEditorLoader';
-import { validateSelection } from '@/store/selectionStore';
+import { validateEntityRef } from '@/store/selectionStore';
 import { useActiveHistory } from './useActiveHistory';
 
-interface LayoutSelection {
-  type: InteractionSelection['type'];
-  id: string | null;
-}
-
 interface UseAppLayoutEffectsParams {
-  robot: Pick<RobotState, 'links' | 'joints' | 'inspectionContext'>;
-  selection: LayoutSelection;
+  workspace: AssemblyState;
+  selection: WorkspaceSelection;
   clearSelection: () => void;
   shouldDeferSelectionCleanup?: boolean;
   onFileDrop: (files: File[]) => void;
@@ -46,7 +41,7 @@ function captureDroppedFileSystemEntries(items: DataTransferItemList | null | un
 }
 
 export function useAppLayoutEffects({
-  robot,
+  workspace,
   selection,
   clearSelection,
   shouldDeferSelectionCleanup = false,
@@ -95,16 +90,14 @@ export function useAppLayoutEffects({
       return;
     }
 
-    if (!validateSelection(selection, robot.links, robot.joints, robot.inspectionContext ?? null)) {
+    if (selection && !validateEntityRef(workspace, selection.entity)) {
       clearSelection();
     }
   }, [
     clearSelection,
-    robot.inspectionContext,
-    robot.joints,
-    robot.links,
     selection,
     shouldDeferSelectionCleanup,
+    workspace,
   ]);
 
   useEffect(() => {

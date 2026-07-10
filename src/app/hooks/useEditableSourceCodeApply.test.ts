@@ -1,206 +1,163 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
-  DEFAULT_JOINT,
-  DEFAULT_LINK,
-  JointType,
-  type RobotData,
-  type RobotFile,
-  type RobotState,
-} from '@/types';
+  createComponentSourceDraft,
+  createSingleComponentWorkspace,
+  createSourceSemanticRobotHash,
+  normalizeComponentRobot,
+} from '@/core/robot';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { DEFAULT_LINK, type RobotData } from '@/types';
+import { commitPreparedComponentSourceApply } from './useEditableSourceCodeApply.ts';
 
-import {
-  commitEditableSourceApply,
-  shouldAttemptEditableSourceIncrementalPatch,
-} from './useEditableSourceCodeApply';
-
-function createSourceFile(format: RobotFile['format']): Pick<RobotFile, 'format' | 'name'> {
+function robot(name: string): RobotData {
   return {
-    format,
-    name: `robot.${format === 'xacro' ? 'xacro' : format}`,
-  };
-}
-
-function createRobotState(): RobotState {
-  return {
-    name: 'demo_robot',
-    version: '1.2.3',
-    rootLinkId: 'base_link',
-    links: {
-      base_link: {
-        ...DEFAULT_LINK,
-        id: 'base_link',
-        name: 'base_link',
-      },
-    },
+    name,
+    rootLinkId: 'base',
+    links: { base: { ...structuredClone(DEFAULT_LINK), id: 'base', name: 'base' } },
     joints: {},
-    materials: {
-      demo: {
-        color: '#ff0000',
-      },
-    },
-    closedLoopConstraints: [
-      {
-        id: 'constraint_1',
-        type: 'connect',
-        linkAId: 'base_link',
-        linkBId: 'base_link',
-        anchorWorld: { x: 0, y: 0, z: 0 },
-        anchorLocalA: { x: 0, y: 0, z: 0 },
-        anchorLocalB: { x: 0, y: 0, z: 0 },
-        source: {
-          format: 'mjcf',
-          body1Name: 'body_a',
-          body2Name: 'body_b',
-        },
-      },
-    ],
-    inspectionContext: {
-      sourceFormat: 'mjcf',
-      mjcf: {
-        siteCount: 1,
-        tendonCount: 0,
-        tendonActuatorCount: 0,
-        bodiesWithSites: [],
-        tendons: [],
-      },
-    },
-    selection: { type: null, id: null },
   };
 }
 
-test('commitEditableSourceApply commits parsed source data without forcing a viewer reload', () => {
-  const events: string[] = [];
-  let syncedFileName: string | null = null as string | null;
-  let syncedContent: string | null = null as string | null;
-  let committedRobot: RobotData | null = null as RobotData | null;
+function reset() {
+  const workspace = createSingleComponentWorkspace(robot('before'), {
+    componentId: 'arm',
+    sourceFile: 'library/arm.urdf',
+  });
+  useWorkspaceStore.getState().replaceWorkspace(workspace, { resetHistory: true });
+  const initialDraft = createComponentSourceDraft({
+    componentId: 'arm',
+    format: 'urdf',
+    content: '<robot name="before"/>',
+    robot: workspace.components.arm.robot,
+  });
+  useAssetsStore.setState({
+    availableFiles: [{
+      name: 'library/arm.urdf',
+      format: 'urdf',
+      content: '<robot name="immutable-template"/>',
+    }],
+    componentSourceDrafts: { arm: initialDraft },
+  });
+  return { workspace, initialDraft, revision: useWorkspaceStore.getState().revision };
+}
 
-  commitEditableSourceApply({
-    newCode: '<robot name="demo_robot" />',
-    sourceFile: createSourceFile('urdf'),
-    targetFileName: 'robot.urdf',
-    nextState: createRobotState(),
-    syncSelectedEditableFileContent: (targetFileName, content) => {
-      events.push('sync');
-      syncedFileName = targetFileName;
-      syncedContent = content;
-    },
-    setOriginalUrdfContent: () => {
-      events.push('original');
-    },
-    setRobot: (data) => {
-      events.push('robot');
-      committedRobot = data;
-    },
+test('prepared full-source apply atomically replaces target robot and matching draft', () => {
+  const { revision } = reset();
+  const nextRobot = robot('after');
+  const nextDraft = createComponentSourceDraft({
+    componentId: 'arm',
+    format: 'urdf',
+    content: '<robot name="after"/>',
+    robot: nextRobot,
   });
 
-  assert.equal(syncedFileName, 'robot.urdf');
-  assert.equal(syncedContent, '<robot name="demo_robot" />');
-  assert.deepEqual(events, ['sync', 'robot']);
-  const expectedRobot = createRobotState();
-  assert.deepEqual(committedRobot, {
-    name: expectedRobot.name,
-    version: expectedRobot.version,
-    links: expectedRobot.links,
-    joints: expectedRobot.joints,
-    rootLinkId: expectedRobot.rootLinkId,
-    materials: expectedRobot.materials,
-    closedLoopConstraints: expectedRobot.closedLoopConstraints,
-    inspectionContext: expectedRobot.inspectionContext,
-  } satisfies RobotData);
+  assert.equal(commitPreparedComponentSourceApply({
+    componentId: 'arm',
+    expectedWorkspaceRevision: revision,
+    robot: nextRobot,
+    draft: nextDraft,
+  }), true);
+  assert.equal(useWorkspaceStore.getState().workspace.components.arm.robot.name, 'after');
+  assert.deepEqual(useAssetsStore.getState().componentSourceDrafts.arm, nextDraft);
+  assert.equal(
+    useAssetsStore.getState().availableFiles[0].content,
+    '<robot name="immutable-template"/>',
+  );
 });
 
-test('commitEditableSourceApply refreshes the resolved URDF baseline for xacro sources before commit', () => {
-  const events: string[] = [];
-  let resolvedUrdfContent: string | null = null as string | null;
-
-  commitEditableSourceApply({
-    newCode: '<xacro:robot name="demo_robot" />',
-    sourceFile: createSourceFile('xacro'),
-    targetFileName: 'robot.xacro',
-    nextState: createRobotState(),
-    syncSelectedEditableFileContent: () => {
-      events.push('sync');
-    },
-    setOriginalUrdfContent: (content) => {
-      events.push('original');
-      resolvedUrdfContent = content;
-    },
-    setRobot: () => {
-      events.push('robot');
-    },
-  });
-
-  assert.deepEqual(events, ['sync', 'original', 'robot']);
-  assert.match(resolvedUrdfContent ?? '', /<robot name="demo_robot"/);
-  assert.match(resolvedUrdfContent ?? '', /<link name="base_link">/);
-});
-
-test('commitEditableSourceApply skips xacro URDF baseline refresh for unsupported ball joints', () => {
-  const events: string[] = [];
-  let resolvedUrdfContent: string | null = '__unset__';
-  const nextState = createRobotState();
-  nextState.links.child_link = {
-    ...DEFAULT_LINK,
-    id: 'child_link',
-    name: 'child_link',
-  };
-  nextState.joints.ball_joint = {
-    ...DEFAULT_JOINT,
-    id: 'ball_joint',
-    name: 'ball_joint',
-    type: JointType.BALL,
-    parentLinkId: 'base_link',
-    childLinkId: 'child_link',
+test('invalid prepared result changes neither canonical workspace nor draft', () => {
+  const { revision, initialDraft } = reset();
+  const nextRobot = robot('invalid');
+  const invalidDraft = {
+    ...createComponentSourceDraft({
+      componentId: 'arm',
+      format: 'urdf',
+      content: '<robot name="invalid"/>',
+      robot: nextRobot,
+    }),
+    robotSnapshotHash: 'corrupt',
   };
 
-  commitEditableSourceApply({
-    newCode: '<xacro:robot name="demo_robot" />',
-    sourceFile: createSourceFile('xacro'),
-    targetFileName: 'robot.xacro',
-    nextState,
-    syncSelectedEditableFileContent: () => {
-      events.push('sync');
-    },
-    setOriginalUrdfContent: (content) => {
-      events.push('original');
-      resolvedUrdfContent = content;
-    },
-    setRobot: () => {
-      events.push('robot');
-    },
-  });
-
-  assert.deepEqual(events, ['sync', 'original', 'robot']);
-  assert.equal(resolvedUrdfContent, '');
+  assert.equal(commitPreparedComponentSourceApply({
+    componentId: 'arm',
+    expectedWorkspaceRevision: revision,
+    robot: nextRobot,
+    draft: invalidDraft,
+  }), false);
+  assert.equal(useWorkspaceStore.getState().workspace.components.arm.robot.name, 'before');
+  assert.deepEqual(useAssetsStore.getState().componentSourceDrafts.arm, initialDraft);
 });
 
-test('shouldAttemptEditableSourceIncrementalPatch only attempts selected source edits and skips closed-loop MJCF robots', () => {
-  assert.equal(
-    shouldAttemptEditableSourceIncrementalPatch({
-      sourceFile: { name: 'robot.urdf', format: 'urdf' },
-      targetFileName: 'robot.urdf',
-      closedLoopConstraints: [],
-    }),
-    true,
-  );
+test('late revision loses CAS and cannot commit workspace or draft', () => {
+  const { revision, initialDraft } = reset();
+  const nextRobot = robot('late');
+  const nextDraft = createComponentSourceDraft({
+    componentId: 'arm',
+    format: 'urdf',
+    content: '<robot name="late"/>',
+    robot: nextRobot,
+  });
+  useWorkspaceStore.getState().renameWorkspace('concurrent edit');
 
-  assert.equal(
-    shouldAttemptEditableSourceIncrementalPatch({
-      sourceFile: { name: 'robot.urdf', format: 'urdf' },
-      targetFileName: 'meshes/base.stl',
-      closedLoopConstraints: [],
-    }),
-    false,
-  );
+  assert.equal(commitPreparedComponentSourceApply({
+    componentId: 'arm',
+    expectedWorkspaceRevision: revision,
+    robot: nextRobot,
+    draft: nextDraft,
+  }), false);
+  assert.equal(useWorkspaceStore.getState().workspace.components.arm.robot.name, 'before');
+  assert.deepEqual(useAssetsStore.getState().componentSourceDrafts.arm, initialDraft);
+});
 
-  assert.equal(
-    shouldAttemptEditableSourceIncrementalPatch({
-      sourceFile: { name: 'robot.xml', format: 'mjcf' },
-      targetFileName: 'robot.xml',
-      closedLoopConstraints: createRobotState().closedLoopConstraints,
-    }),
-    false,
-  );
+test('source-only text edit can refresh a matching draft without adding workspace history', () => {
+  const { revision } = reset();
+  const currentRobot = useWorkspaceStore.getState().workspace.components.arm.robot;
+  const nextDraft = createComponentSourceDraft({
+    componentId: 'arm',
+    format: 'urdf',
+    content: '<!-- comment --><robot name="before"/>',
+    robot: currentRobot,
+  });
+  const historyCount = useWorkspaceStore.getState().history.past.length;
+
+  assert.equal(commitPreparedComponentSourceApply({
+    componentId: 'arm',
+    expectedWorkspaceRevision: revision,
+    robot: currentRobot,
+    draft: nextDraft,
+  }), true);
+  assert.equal(useWorkspaceStore.getState().revision, revision);
+  assert.equal(useWorkspaceStore.getState().history.past.length, historyCount);
+  assert.deepEqual(useAssetsStore.getState().componentSourceDrafts.arm, nextDraft);
+});
+
+test('material source apply hashes the same normalized robot committed to the component', () => {
+  const { revision } = reset();
+  const parsedRobot = robot('material_robot');
+  parsedRobot.links.base.visual = {
+    ...parsedRobot.links.base.visual,
+    color: '#ffffff',
+  };
+  parsedRobot.materials = { base: { color: '#123456' } };
+  const normalizedRobot = normalizeComponentRobot(parsedRobot);
+  const draft = createComponentSourceDraft({
+    componentId: 'arm',
+    format: 'urdf',
+    content: '<robot name="material_robot"><material name="base" /></robot>',
+    robot: normalizedRobot,
+  });
+
+  assert.equal(commitPreparedComponentSourceApply({
+    componentId: 'arm',
+    expectedWorkspaceRevision: revision,
+    robot: parsedRobot,
+    draft,
+  }), true);
+  const committedRobot = useWorkspaceStore.getState().workspace.components.arm.robot;
+  const committedDraft = useAssetsStore.getState().componentSourceDrafts.arm;
+  assert.equal(committedRobot.links.base.visual.color, '#123456');
+  assert.equal(committedDraft.robotSnapshotHash, createSourceSemanticRobotHash(committedRobot));
 });

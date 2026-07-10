@@ -1,5 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import {
+  buildAssemblyProjectedAssetAliases,
+  resolveAssemblyComponentResourcePath,
+  resolveAssemblySceneRenderStrategy,
+  type AssemblySceneRenderStrategy,
+} from '@/core/robot';
 import type { AssemblyState, RobotFile } from '@/types';
 
 interface PreparedUsdViewerAssetDescriptor {
@@ -15,7 +21,6 @@ interface UsePreparedUsdViewerAssetsOptions {
   additionalSourceFiles?: RobotFile[];
   preparedExportCaches: Record<string, { meshFiles?: Record<string, Blob> } | null>;
   getUsdPreparedExportCache: (path: string) => { meshFiles?: Record<string, Blob> } | null;
-  shouldRenderAssembly: boolean;
 }
 
 interface PreparedViewerAssetEntry {
@@ -24,10 +29,36 @@ interface PreparedViewerAssetEntry {
   url: string;
 }
 
+const EMPTY_ADDITIONAL_SOURCE_FILES: RobotFile[] = [];
+
+function preparedAssetMapsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => left[key] === right[key]);
+}
+
+export function buildProjectedAssemblyViewerAssetAliases({
+  assemblyState,
+  assets,
+}: {
+  assemblyState: AssemblyState | null;
+  assets: Record<string, string>;
+}): Record<string, string> {
+  return assemblyState ? buildAssemblyProjectedAssetAliases({ assembly: assemblyState, assets }) : {};
+}
+
 function appendPreparedUsdViewerAssetDescriptors(
   descriptors: PreparedUsdViewerAssetDescriptor[],
   sourceFile: RobotFile,
   getUsdPreparedExportCache: UsePreparedUsdViewerAssetsOptions['getUsdPreparedExportCache'],
+  componentProjection?: {
+    componentId: string;
+    renderStrategy: AssemblySceneRenderStrategy;
+  },
 ): void {
   if (sourceFile.format !== 'usd') {
     return;
@@ -39,7 +70,14 @@ function appendPreparedUsdViewerAssetDescriptors(
   }
 
   Object.entries(preparedCache.meshFiles).forEach(([meshPath, blob]) => {
-    const assetPath = resolveImportedAssetPath(meshPath, sourceFile.name);
+    const assetPath = componentProjection?.renderStrategy === 'assembled-scene'
+      ? resolveAssemblyComponentResourcePath({
+          componentId: componentProjection.componentId,
+          sourceFile: sourceFile.name,
+          resourcePath: meshPath,
+          renderStrategy: 'assembled-scene',
+        })
+      : resolveImportedAssetPath(meshPath, sourceFile.name);
     if (!assetPath) {
       return;
     }
@@ -47,7 +85,9 @@ function appendPreparedUsdViewerAssetDescriptors(
     descriptors.push({
       assetPath,
       blob,
-      cacheKey: `${sourceFile.name}::${meshPath}`,
+      cacheKey: componentProjection
+        ? `${componentProjection.componentId}::${sourceFile.name}::${meshPath}`
+        : `${sourceFile.name}::${meshPath}`,
     });
   });
 }
@@ -59,32 +99,45 @@ export function buildPreparedUsdViewerAssetDescriptors({
   getUsdPreparedExportCache,
 }: Omit<
   UsePreparedUsdViewerAssetsOptions,
-  'assets' | 'preparedExportCaches' | 'shouldRenderAssembly'
+  'assets' | 'preparedExportCaches'
 >): PreparedUsdViewerAssetDescriptor[] {
   const availableFilesByPath = new Map(availableFiles.map((file) => [file.name, file] as const));
-  const sourceFilesByPath = new Map<string, RobotFile>();
-
-  additionalSourceFiles.forEach((sourceFile) => {
-    if (sourceFile?.format === 'usd') {
-      sourceFilesByPath.set(sourceFile.name, sourceFile);
-    }
-  });
+  const assemblySourcePaths = new Set<string>();
+  const descriptors: PreparedUsdViewerAssetDescriptor[] = [];
+  let assemblyRenderStrategy: AssemblySceneRenderStrategy | null = null;
 
   if (assemblyState) {
+    const renderStrategy = resolveAssemblySceneRenderStrategy(assemblyState);
+    assemblyRenderStrategy = renderStrategy;
     Object.values(assemblyState.components).forEach((component) => {
       if (component.visible === false) {
         return;
       }
 
+      if (!component.sourceFile) return;
       const sourceFile = availableFilesByPath.get(component.sourceFile);
       if (sourceFile?.format === 'usd') {
-        sourceFilesByPath.set(sourceFile.name, sourceFile);
+        assemblySourcePaths.add(sourceFile.name);
+        appendPreparedUsdViewerAssetDescriptors(
+          descriptors,
+          sourceFile,
+          getUsdPreparedExportCache,
+          { componentId: component.id, renderStrategy },
+        );
       }
     });
   }
 
-  const descriptors: PreparedUsdViewerAssetDescriptor[] = [];
-  sourceFilesByPath.forEach((sourceFile) => {
+  additionalSourceFiles.forEach((sourceFile) => {
+    if (
+      sourceFile?.format !== 'usd'
+      || (
+        assemblyRenderStrategy !== 'assembled-scene'
+        && assemblySourcePaths.has(sourceFile.name)
+      )
+    ) {
+      return;
+    }
     appendPreparedUsdViewerAssetDescriptors(descriptors, sourceFile, getUsdPreparedExportCache);
   });
 
@@ -95,15 +148,14 @@ export function usePreparedUsdViewerAssets({
   assemblyState,
   assets,
   availableFiles,
-  additionalSourceFiles = [],
+  additionalSourceFiles = EMPTY_ADDITIONAL_SOURCE_FILES,
   preparedExportCaches,
   getUsdPreparedExportCache,
-  shouldRenderAssembly,
 }: UsePreparedUsdViewerAssetsOptions): Record<string, string> {
   const preparedAssetEntries = useMemo(
     () =>
       buildPreparedUsdViewerAssetDescriptors({
-        assemblyState: shouldRenderAssembly ? assemblyState : null,
+        assemblyState,
         availableFiles,
         additionalSourceFiles,
         getUsdPreparedExportCache,
@@ -114,8 +166,11 @@ export function usePreparedUsdViewerAssets({
       availableFiles,
       getUsdPreparedExportCache,
       preparedExportCaches,
-      shouldRenderAssembly,
     ],
+  );
+  const projectedAssetAliases = useMemo(
+    () => buildProjectedAssemblyViewerAssetAliases({ assemblyState, assets }),
+    [assemblyState, assets],
   );
 
   const preparedAssetRegistryRef = useRef<Map<string, PreparedViewerAssetEntry>>(new Map());
@@ -159,7 +214,9 @@ export function usePreparedUsdViewerAssets({
     });
 
     preparedAssetRegistryRef.current = nextRegistry;
-    setPreparedAssets(nextPreparedAssets);
+    setPreparedAssets((current) =>
+      preparedAssetMapsEqual(current, nextPreparedAssets) ? current : nextPreparedAssets
+    );
   }, [preparedAssetEntries]);
 
   useEffect(
@@ -173,7 +230,11 @@ export function usePreparedUsdViewerAssets({
   );
 
   return useMemo(
-    () => (Object.keys(preparedAssets).length === 0 ? assets : { ...assets, ...preparedAssets }),
-    [assets, preparedAssets],
+    () => (
+      Object.keys(preparedAssets).length === 0 && Object.keys(projectedAssetAliases).length === 0
+        ? assets
+        : { ...assets, ...projectedAssetAliases, ...preparedAssets }
+    ),
+    [assets, preparedAssets, projectedAssetAliases],
   );
 }

@@ -9,6 +9,7 @@ import {
   removeMJCFBodyCollisionGeomFromSource,
   updateMJCFBodyCollisionGeomInSource,
   removeMJCFBodyFromSource,
+  patchMJCFBodyInertialInSource,
   patchMJCFJointLimitInSource,
   patchMJCFRootModelNameInSource,
   renameMJCFEntitiesInSource,
@@ -137,6 +138,84 @@ test('patchMJCFRootModelNameInSource updates only the root model attribute', () 
   assert.match(patched, /<mujoco model="demo_renamed" custom="keep">/);
   assert.match(patched, /<option impratio="100"\/>/);
   assert.ok(parseMJCF(patched));
+});
+
+test('patchMJCFBodyInertialInSource updates only the targeted body inertial tag', () => {
+  const source = `<mujoco model="demo">
+  <compiler angle="radian"/>
+  <worldbody>
+    <body name="Trunk">
+      <inertial pos="0.0551365 -1.42058e-06 0.105062" quat="0.99996 1.40561e-05 -0.00899532 -1.39249e-05" mass="11.7"
+        diaginertia="0.0915404 0.0767787 0.0556055"/>
+      <body name="Child">
+        <inertial pos="0 0 0" mass="0.5" diaginertia="1 2 3"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFBodyInertialInSource({
+    sourceContent: source,
+    bodyName: 'Trunk',
+    inertial: {
+      mass: 12.34,
+      origin: {
+        xyz: { x: 0.123456, y: -0.000001, z: 0.105062 },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
+      inertia: {
+        ixx: 0.1,
+        ixy: 0,
+        ixz: 0,
+        iyy: 0.2,
+        iyz: 0,
+        izz: 0.3,
+      },
+    },
+  });
+
+  const trunkTag = patched.match(/<inertial[^>]*mass="12\.34"[^>]*\/>/)?.[0] ?? '';
+  assert.match(trunkTag, /pos="0\.123456 -0\.000001 0\.105062"/);
+  assert.match(trunkTag, /quat="1 0 0 0"/);
+  assert.match(trunkTag, /diaginertia="0\.1 0\.2 0\.3"/);
+  assert.match(patched, /<body name="Child">\s*<inertial pos="0 0 0" mass="0\.5" diaginertia="1 2 3"\/>/);
+
+  const parsed = parseMJCF(patched);
+  assert.equal(parsed.links.Trunk.inertial?.mass, 12.34);
+  assert.equal(parsed.links.Trunk.inertial?.origin?.xyz.x, 0.123456);
+});
+
+test('patchMJCFBodyInertialInSource inserts missing inertial on self-closing bodies', () => {
+  const source = `<mujoco model="demo">
+  <worldbody>
+    <body name="base_link"/>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFBodyInertialInSource({
+    sourceContent: source,
+    bodyName: 'base_link',
+    inertial: {
+      mass: 2,
+      origin: {
+        xyz: { x: 0, y: 0, z: 0 },
+        rpy: { r: 0, p: 0, y: Math.PI / 2 },
+      },
+      inertia: {
+        ixx: 1,
+        ixy: 0,
+        ixz: 0,
+        iyy: 2,
+        iyz: 0,
+        izz: 3,
+      },
+    },
+  });
+
+  assert.match(patched, /<body name="base_link">\s*<inertial mass="2" pos="0 0 0" quat="0\.707107 0 0 0\.707107" diaginertia="1 2 3" \/>\s*<\/body>/);
+  assert.equal(parseMJCF(patched).links.base_link.inertial?.mass, 2);
 });
 
 test('patchMJCFJointLimitInSource updates only the targeted joint range', () => {

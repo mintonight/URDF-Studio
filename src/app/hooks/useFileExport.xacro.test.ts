@@ -8,7 +8,11 @@ import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
 import { useFileExport } from './useFileExport.ts';
-import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
+import { useAssetsStore, useUIStore } from '@/store';
+import {
+  installExportTestRobot,
+  resetExportTestWorkspace,
+} from './file-export/exportTestWorkspace.ts';
 import { processXacro } from '@/core/parsers/xacro/xacroParser.ts';
 import {
   DEFAULT_JOINT,
@@ -162,12 +166,6 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useRobotStore.setState({
-    assemblyState: null,
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-
   useAssetsStore.setState({
     assets: {},
     availableFiles: [],
@@ -182,11 +180,10 @@ function resetStoresToBaseline() {
     },
     allFileContents: {},
     motorLibrary: {},
-    originalUrdfContent: '',
-    originalFileFormat: null,
+    componentSourceDrafts: {},
   });
 
-  useRobotStore.getState().resetRobot();
+  resetExportTestWorkspace();
 }
 
 function installDownloadMocks() {
@@ -398,10 +395,8 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
     format: 'xacro',
     error: null,
   });
-  useAssetsStore.getState().setOriginalUrdfContent('');
-  useAssetsStore.getState().setOriginalFileFormat('xacro');
 
-  useRobotStore.getState().setRobot(
+  installExportTestRobot(
     {
       name: 'demo_robot',
       rootLinkId: 'base_link',
@@ -491,7 +486,7 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
 test('useFileExport rejects xacro export when the current robot contains closed-loop constraints', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createClosedLoopRobotData('closed_loop_xacro_robot'));
+  installExportTestRobot(createClosedLoopRobotData('closed_loop_xacro_robot'));
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -517,7 +512,7 @@ test('useFileExport packages ROS2 modern Gazebo xacro exports with gz_ros2_contr
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
 
-  useRobotStore.getState().setRobot(
+  installExportTestRobot(
     {
       name: 'demo_robot',
       rootLinkId: 'base_link',
@@ -621,7 +616,7 @@ test('useFileExport packages xacro exports without Gazebo control metadata when 
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
 
-  useRobotStore.getState().setRobot(
+  installExportTestRobot(
     {
       name: 'plain_xacro_robot',
       rootLinkId: 'base_link',
@@ -713,7 +708,7 @@ test('useFileExport fails fast when xacro mesh packaging is incomplete', async (
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
 
-  useRobotStore.getState().setRobot(
+  installExportTestRobot(
     {
       name: 'missing_mesh_robot',
       rootLinkId: 'base_link',
@@ -806,10 +801,8 @@ test('useFileExport packages ROS1 xacro exports with gazebo_ros_control metadata
     format: 'xacro',
     error: null,
   });
-  useAssetsStore.getState().setOriginalUrdfContent('');
-  useAssetsStore.getState().setOriginalFileFormat('xacro');
 
-  useRobotStore.getState().setRobot(
+  installExportTestRobot(
     {
       name: 'demo_robot',
       rootLinkId: 'base_link',

@@ -13,12 +13,19 @@ import {
   resolveWorkspaceViewerShowVisual,
   subscribeToShowVisualPreference,
 } from '@/app/hooks/workspaceViewerDetailPreferences';
-import { getViewerSourceFile } from '@/app/hooks/workspaceSourceSyncUtils';
-import { resolveStandaloneViewerSourceFormat } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
+import {
+  resolveStandaloneViewerSourceFormat,
+  USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+} from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
+import {
+  createAssemblyScenePlacement,
+  createAssemblySceneProjection,
+  createSingleComponentWorkspace,
+} from '@/core/robot';
 import type { ViewerJointMotionStateValue } from '@/features/editor';
 import { useManagedWindowLayer, type Language } from '@/store';
 import type { DocumentLoadLifecycleState, DocumentLoadState } from '@/store/assetsStore';
-import type { RobotFile, RobotState, Theme } from '@/types';
+import type { RobotData, RobotFile, RobotState, Theme } from '@/types';
 
 const LazyUnifiedViewer = React.lazy(async () => ({
   default: (await import('./UnifiedViewer')).UnifiedViewer,
@@ -57,11 +64,18 @@ function resolvePreviewDocumentLoadLifecycleState(file: RobotFile): DocumentLoad
 }
 
 export function resolveFilePreviewViewerSourceFile(file: RobotFile): RobotFile {
-  return getViewerSourceFile({
-    selectedFile: file,
-    shouldRenderAssembly: false,
-    renderSelectedUsdFromRobotState: file.format === 'usd',
-  }) ?? file;
+  return file.format === 'usd'
+    ? {
+        ...file,
+        content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+        format: 'urdf',
+      }
+    : file;
+}
+
+export function createFilePreviewRobotData(previewRobot: RobotState): RobotData {
+  const { selection: _selection, ...robotData } = previewRobot;
+  return robotData;
 }
 
 export function resolveFilePreviewViewerConfig(
@@ -114,7 +128,7 @@ export function buildFilePreviewJointMotionState(
   }
 
   const motions: Record<string, ViewerJointMotionStateValue> = {};
-  Object.values(previewRobot.joints).forEach((joint) => {
+  Object.entries(previewRobot.joints).forEach(([jointId, joint]) => {
     const nextState: ViewerJointMotionStateValue = {};
     if (joint.angle !== undefined) {
       nextState.angle = joint.angle;
@@ -123,7 +137,7 @@ export function buildFilePreviewJointMotionState(
       nextState.quaternion = { ...joint.quaternion };
     }
     if (nextState.angle !== undefined || nextState.quaternion) {
-      motions[joint.name] = nextState;
+      motions[jointId] = nextState;
     }
   });
 
@@ -229,6 +243,25 @@ export function FilePreviewWindow({
     () => buildFilePreviewJointMotionState(previewRobot),
     [previewRobot],
   );
+  const previewWorkspace = useMemo(
+    () => previewRobot
+      ? createSingleComponentWorkspace(createFilePreviewRobotData(previewRobot), {
+          componentId: 'preview_component',
+          sourceFile: file?.name ?? null,
+        })
+      : null,
+    [file?.name, previewRobot],
+  );
+  const previewSceneProjection = useMemo(
+    () => previewWorkspace ? createAssemblySceneProjection(previewWorkspace) : null,
+    [previewWorkspace],
+  );
+  const previewScenePlacement = useMemo(
+    () => previewWorkspace && previewSceneProjection
+      ? createAssemblyScenePlacement(previewWorkspace, previewSceneProjection)
+      : null,
+    [previewSceneProjection, previewWorkspace],
+  );
 
   if (!file) {
     return null;
@@ -283,7 +316,13 @@ export function FilePreviewWindow({
       restoreTitle={t.collapse}
     >
       <div className="relative flex-1 min-h-0 bg-google-light-bg dark:bg-black">
-        {canRender3dPreview && previewState && previewRobot && previewLifecycleState ? (
+        {canRender3dPreview &&
+        previewState &&
+        previewRobot &&
+        previewLifecycleState &&
+        previewWorkspace &&
+        previewSceneProjection &&
+        previewScenePlacement ? (
           <React.Suspense
             fallback={
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-text-tertiary">
@@ -294,8 +333,9 @@ export function FilePreviewWindow({
           >
             <LazyUnifiedViewer
               key={previewState.fileName}
-              robot={previewRobot}
-              editorRobot={previewRobot}
+              workspace={previewWorkspace}
+              sceneProjection={previewSceneProjection}
+              scenePlacement={previewScenePlacement}
               mode="editor"
               onSelect={() => {}}
               onUpdate={() => {}}
@@ -313,7 +353,7 @@ export function FilePreviewWindow({
               viewerSourceFormat={previewViewerConfig?.viewerSourceFormat}
               sourceFilePath={previewViewerConfig?.sourceFilePath ?? file.name}
               sourceFile={previewViewerConfig?.sourceFile ?? file}
-              selection={previewRobot.selection}
+              selection={null}
               modelInteractionEnabled={false}
               isMeshPreview={file.format === 'mesh'}
               documentLoadState={previewLifecycleState}

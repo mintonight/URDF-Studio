@@ -1,106 +1,24 @@
 import { useCallback, type MutableRefObject } from 'react';
 
 import { analyzeAssemblyConnectivity } from '@/core/robot';
-import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
-import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
-import { markUnsavedChangesBaselineSaved } from '@/app/utils/unsavedChangesBaseline';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import type { RobotData, RobotFile } from '@/types';
+
+import type { ProModeRoundtripSession } from '../appLayoutTypes';
 import {
   createGeneratedWorkspaceUrdfFile,
+  createWorkspaceGeneratedRobotSnapshot,
   isGeneratedWorkspaceUrdfFileName,
   resolveWorkspaceGeneratedUrdfRobotData,
   shouldPromptGenerateWorkspaceUrdfOnStructureSwitch,
-  shouldReseedSingleComponentAssemblyFromActiveFile,
 } from './workspaceSourceSyncUtils';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState';
-import { useAssetsStore, useRobotStore } from '@/store';
-import type {
-  AssemblyComponent,
-  AssemblyTransform,
-  RenderableBounds,
-  RobotData,
-  RobotFile,
-  UrdfJoint,
-  UrdfLink,
-  UsdPreparedExportCache,
-} from '@/types';
-
-export interface ProModeRoundtripSession {
-  baselineSnapshot: string;
-  generatedFileName: string | null;
-}
-
-interface ResolveUsdAssemblySeedRobotDataOptions {
-  activeFile: RobotFile | null;
-  selectedFile: RobotFile | null;
-  currentRobotData: RobotData | null;
-  getUsdPreparedExportCache: (
-    fileName: string,
-  ) => { robotData?: RobotData | null } | null | undefined;
-}
-
-interface ResolveUsdAssemblySeedRobotDataResult {
-  preResolvedRobotData: RobotData | null;
-  preparedCache: UsdPreparedExportCache | null;
-  requiresRobotReload: boolean;
-}
-
-function hasUsableRobotData(robotData: RobotData | null | undefined): robotData is RobotData {
-  return Boolean(
-    robotData?.rootLinkId &&
-    robotData.links &&
-    typeof robotData.links === 'object' &&
-    Object.keys(robotData.links).length > 0,
-  );
-}
-
-export function resolveUsdAssemblySeedRobotData({
-  activeFile,
-  selectedFile,
-  currentRobotData,
-  getUsdPreparedExportCache,
-}: ResolveUsdAssemblySeedRobotDataOptions): ResolveUsdAssemblySeedRobotDataResult {
-  if (activeFile?.format !== 'usd') {
-    return {
-      preResolvedRobotData: null,
-      preparedCache: null,
-      requiresRobotReload: false,
-    };
-  }
-
-  const cachedRobotData = getUsdPreparedExportCache(activeFile.name)?.robotData ?? null;
-  if (hasUsableRobotData(cachedRobotData)) {
-    return {
-      preResolvedRobotData: cachedRobotData,
-      preparedCache: null,
-      requiresRobotReload: false,
-    };
-  }
-
-  if (
-    selectedFile?.format === 'usd' &&
-    selectedFile.name === activeFile.name &&
-    hasUsableRobotData(currentRobotData)
-  ) {
-    return {
-      preResolvedRobotData: currentRobotData,
-      preparedCache: null,
-      requiresRobotReload: false,
-    };
-  }
-
-  return {
-    preResolvedRobotData: null,
-    preparedCache: null,
-    requiresRobotReload: true,
-  };
-}
 
 interface UseWorkspaceModeTransitionsTranslations {
   generateWorkspaceUrdfDisconnected: string;
   generateWorkspaceUrdfUnavailable: string;
   generateWorkspaceUrdfSuccess: string;
-  addedComponent: string;
 }
 
 interface UseWorkspaceModeTransitionsParams {
@@ -112,97 +30,27 @@ interface UseWorkspaceModeTransitionsParams {
   getUsdPreparedExportCache: (
     fileName: string,
   ) => { robotData?: RobotData | null } | null | undefined;
-  robotName: string;
-  robotLinks: Record<string, UrdfLink>;
-  robotJoints: Record<string, UrdfJoint>;
-  rootLinkId: string;
-  robotMaterials: RobotData['materials'];
-  closedLoopConstraints: RobotData['closedLoopConstraints'];
-  setRobot: (
-    data: RobotData,
-    options?: { resetHistory?: boolean; skipHistory?: boolean; label?: string },
-  ) => void;
-  setSelection: (selection: { type: null; id: null }) => void;
   showToast: (message: string, type?: 'info' | 'success' | 'error') => void;
   t: UseWorkspaceModeTransitionsTranslations;
   handleClosePreview: () => void;
-  prepareAssemblyComponentForInsert: (
-    file: RobotFile,
-    options?: {
-      existingComponentIds?: Iterable<string>;
-      existingComponentNames?: Iterable<string>;
-      preResolvedRobotData?: RobotData | null;
-    },
-  ) => Promise<unknown>;
-  activateInsertedAssemblyComponent: (component: AssemblyComponent) => void;
-  addComponent: (
-    file: RobotFile,
-    context?: {
-      availableFiles?: RobotFile[];
-      assets?: Record<string, string>;
-      allFileContents?: Record<string, string>;
-      preResolvedRobotData?: RobotData | null;
-      queueAutoGround?: boolean;
-      preparedComponent?: {
-        componentId: string;
-        displayName: string;
-        robotData: RobotData;
-        renderableBounds?: RenderableBounds | null;
-        suggestedTransform?: AssemblyTransform | null;
-      } | null;
-    },
-  ) => AssemblyComponent | null;
-  initAssembly: (name: string) => void;
-  onLoadRobot: (file: RobotFile) => void;
-  pendingUsdAssemblyFileRef: MutableRefObject<RobotFile | null>;
   proModeRoundtripSessionRef: MutableRefObject<ProModeRoundtripSession | null>;
 }
 
 export function useWorkspaceModeTransitions({
   previewFile,
   selectedFile,
-  availableFiles,
-  allFileContents,
-  assets,
-  getUsdPreparedExportCache,
-  robotName,
-  robotLinks,
-  robotJoints,
-  rootLinkId,
-  robotMaterials,
-  closedLoopConstraints,
-  setRobot,
-  setSelection,
   showToast,
   t,
   handleClosePreview,
-  prepareAssemblyComponentForInsert,
-  activateInsertedAssemblyComponent,
-  addComponent,
-  initAssembly,
-  onLoadRobot,
-  pendingUsdAssemblyFileRef,
   proModeRoundtripSessionRef,
 }: UseWorkspaceModeTransitionsParams) {
   const updateProModeRoundtripBaseline = useCallback(
     (generatedFileName: string | null) => {
-      const nextAssemblyState = useRobotStore.getState().assemblyState;
-      const mergedRobotData = nextAssemblyState
-        ? buildExportableAssemblyRobotData(nextAssemblyState)
-        : null;
-      if (!mergedRobotData) {
-        proModeRoundtripSessionRef.current = null;
-        return false;
-      }
-
+      const workspace = useWorkspaceStore.getState().workspace;
       proModeRoundtripSessionRef.current = {
-        baselineSnapshot: createRobotSemanticSnapshot({
-          ...mergedRobotData,
-          selection: { type: null, id: null },
-        }),
+        baselineSnapshot: createWorkspaceGeneratedRobotSnapshot(workspace),
         generatedFileName,
       };
-
       return true;
     },
     [proModeRoundtripSessionRef],
@@ -216,109 +64,57 @@ export function useWorkspaceModeTransitions({
 
   const generateWorkspaceUrdfFromProMode = useCallback(
     (options: { switchToStructure?: boolean } = {}) => {
-      const { switchToStructure = false } = options;
-      const robotStoreState = useRobotStore.getState();
-      const currentAssemblyState = robotStoreState.assemblyState ?? null;
-      const connectivity = analyzeAssemblyConnectivity(currentAssemblyState);
-      const activeFile = previewFile ?? selectedFile;
-
+      const workspace = useWorkspaceStore.getState().workspace;
+      const connectivity = analyzeAssemblyConnectivity(workspace);
       if (connectivity.hasDisconnectedComponents) {
         showToast(t.generateWorkspaceUrdfDisconnected, 'info');
         return false;
       }
 
       const mergedRobotData = resolveWorkspaceGeneratedUrdfRobotData({
-        assemblyState: currentAssemblyState,
-        activeFile,
-        availableFiles,
-        assets,
-        allFileContents,
-        usdRobotData:
-          activeFile?.format === 'usd'
-            ? (getUsdPreparedExportCache(activeFile.name)?.robotData ?? null)
-            : null,
+        assemblyState: workspace,
       });
-
-      if (!mergedRobotData) {
-        showToast(t.generateWorkspaceUrdfUnavailable, 'info');
-        return false;
-      }
 
       const assetsState = useAssetsStore.getState();
       const session = proModeRoundtripSessionRef.current;
-      const { file, robot, snapshot } = createGeneratedWorkspaceUrdfFile({
-        assemblyName:
-          robotStoreState.assemblyState?.name ||
-          mergedRobotData.name ||
-          robotName ||
-          'workspace',
+      const { file, snapshot } = createGeneratedWorkspaceUrdfFile({
+        assemblyName: workspace.name,
         mergedRobotData,
         availableFiles: assetsState.availableFiles,
         preferredFileName: session?.generatedFileName,
       });
-
       const generatedState = buildGeneratedWorkspaceFileState({
         availableFiles: assetsState.availableFiles,
         allFileContents: assetsState.allFileContents,
         file,
       });
-
       assetsState.setAvailableFiles(generatedState.nextAvailableFiles);
       assetsState.setAllFileContents(generatedState.nextAllFileContents);
       assetsState.setSelectedFile(generatedState.nextSelectedFile);
-      assetsState.setOriginalUrdfContent(file.content);
-      assetsState.setOriginalFileFormat('urdf');
       assetsState.setDocumentLoadState({
         status: 'ready',
         fileName: file.name,
         format: 'urdf',
         error: null,
-        phase: null,
-        message: null,
+        phase: 'ready',
+        progressMode: 'percent',
         progressPercent: 100,
-        loadedCount: null,
-        totalCount: null,
       });
-
-      setRobot(robot, {
-        resetHistory: true,
-        label: 'Generate workspace URDF',
-      });
-      setSelection({ type: null, id: null });
       handleClosePreview();
 
-      if (switchToStructure) {
-        proModeRoundtripSessionRef.current = null;
-      } else {
-        proModeRoundtripSessionRef.current = {
-          baselineSnapshot: snapshot,
-          generatedFileName: file.name,
-        };
-      }
-
+      proModeRoundtripSessionRef.current = options.switchToStructure
+        ? null
+        : { baselineSnapshot: snapshot, generatedFileName: file.name };
       showToast(
-        t.generateWorkspaceUrdfSuccess.replace('{name}', file.name.split('/').pop() || file.name),
+        t.generateWorkspaceUrdfSuccess.replace(
+          '{name}',
+          file.name.split('/').pop() || file.name,
+        ),
         'success',
       );
       return true;
     },
-    [
-      allFileContents,
-      assets,
-      availableFiles,
-      getUsdPreparedExportCache,
-      handleClosePreview,
-      previewFile,
-      proModeRoundtripSessionRef,
-      robotName,
-      selectedFile,
-      setRobot,
-      setSelection,
-      showToast,
-      t.generateWorkspaceUrdfDisconnected,
-      t.generateWorkspaceUrdfSuccess,
-      t.generateWorkspaceUrdfUnavailable,
-    ],
+    [handleClosePreview, proModeRoundtripSessionRef, showToast, t],
   );
 
   const handleRequestSwitchTreeEditorToStructure = useCallback(
@@ -328,118 +124,29 @@ export function useWorkspaceModeTransitions({
           ? 'switched'
           : 'blocked';
       }
-
-      const session = proModeRoundtripSessionRef.current;
-      if (!session) {
+      if (intent === 'skip-generate' || !proModeRoundtripSessionRef.current) {
         return switchTreeEditorToStructure();
       }
 
-      const activeWorkspaceSourceFile = previewFile ?? selectedFile;
-      const currentWorkspaceSourceSnapshot = createRobotSemanticSnapshot({
-        name: robotName,
-        links: robotLinks,
-        joints: robotJoints,
-        rootLinkId,
-        materials: robotMaterials,
-        closedLoopConstraints,
-      });
-      const latestAssemblyState = useRobotStore.getState().assemblyState ?? null;
-      if (intent === 'skip-generate') {
-        return switchTreeEditorToStructure();
-      }
-
+      const workspace = useWorkspaceStore.getState().workspace;
       return shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({
-        assemblyState: latestAssemblyState,
-        activeFile: activeWorkspaceSourceFile,
-        sourceSnapshot: currentWorkspaceSourceSnapshot,
-        sourceRobotData:
-          activeWorkspaceSourceFile?.format === 'usd'
-            ? (getUsdPreparedExportCache(activeWorkspaceSourceFile.name)?.robotData ?? null)
-            : null,
-        baselineSnapshot: session.baselineSnapshot,
+        assemblyState: workspace,
+        baselineSnapshot: proModeRoundtripSessionRef.current.baselineSnapshot,
       })
-        ? ('needs-generate-confirm' as const)
+        ? 'needs-generate-confirm' as const
         : switchTreeEditorToStructure();
     },
-    [
-      closedLoopConstraints,
-      generateWorkspaceUrdfFromProMode,
-      getUsdPreparedExportCache,
-      previewFile,
-      proModeRoundtripSessionRef,
-      robotJoints,
-      robotLinks,
-      robotMaterials,
-      robotName,
-      rootLinkId,
-      selectedFile,
-      switchTreeEditorToStructure,
-    ],
+    [generateWorkspaceUrdfFromProMode, proModeRoundtripSessionRef, switchTreeEditorToStructure],
   );
 
   const handleSwitchTreeEditorToProMode = useCallback(() => {
     const activeFile = previewFile ?? selectedFile;
-    const currentAssemblyState = useRobotStore.getState().assemblyState ?? null;
-    const activeGeneratedFileName = isGeneratedWorkspaceUrdfFileName(activeFile?.name)
-      ? (activeFile?.name ?? null)
-      : null;
-
-    const shouldReseedAssembly = shouldReseedSingleComponentAssemblyFromActiveFile({
-      assemblyState: currentAssemblyState,
-      activeFile,
-    });
-
-    if (!shouldReseedAssembly) {
-      updateProModeRoundtripBaseline(activeGeneratedFileName);
-      return;
-    }
-
-    proModeRoundtripSessionRef.current = null;
-
-    if (!activeFile) {
-      return;
-    }
-
-    if (!currentAssemblyState || Object.keys(currentAssemblyState.components).length === 0) {
-      initAssembly(currentAssemblyState?.name || robotName || 'assembly');
-    }
-
-    const immediateComponent = addComponent(activeFile, {
-      availableFiles,
-      assets,
-      allFileContents,
-      preResolvedRobotData:
-        activeFile.format === 'usd'
-          ? (getUsdPreparedExportCache(activeFile.name)?.robotData ?? null)
-          : null,
-      queueAutoGround: false,
-    });
-
-    if (!immediateComponent) {
-      scheduleFailFastInDev(
-        'AppLayout:handleSwitchTreeEditorToProMode',
-        new Error(`Failed to immediately seed Professional mode with "${activeFile.name}".`),
-      );
-      return;
-    }
-
-    activateInsertedAssemblyComponent(immediateComponent);
-    updateProModeRoundtripBaseline(activeGeneratedFileName);
-    markUnsavedChangesBaselineSaved('assembly');
-  }, [
-    activateInsertedAssemblyComponent,
-    addComponent,
-    allFileContents,
-    assets,
-    availableFiles,
-    getUsdPreparedExportCache,
-    initAssembly,
-    previewFile,
-    proModeRoundtripSessionRef,
-    robotName,
-    selectedFile,
-    updateProModeRoundtripBaseline,
-  ]);
+    updateProModeRoundtripBaseline(
+      isGeneratedWorkspaceUrdfFileName(activeFile?.name)
+        ? activeFile?.name ?? null
+        : null,
+    );
+  }, [previewFile, selectedFile, updateProModeRoundtripBaseline]);
 
   return {
     updateProModeRoundtripBaseline,

@@ -4,8 +4,11 @@ import {
   loadBridgeCreateModalModule,
   loadCollisionOptimizationDialogModule,
 } from '@/app/utils/overlayLoaders';
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
-import type { BridgeJoint, RobotData, RobotFile } from '@/types';
+import type {
+  CommitResolvedRobotLoadOutcome,
+  WorkspaceLoadIntent,
+} from '@/app/utils/commitResolvedRobotLoad';
+import type { BridgeJoint, RobotFile } from '@/types';
 
 interface UseWorkspaceOverlayActionsTranslations {
   addedComponent: string;
@@ -16,16 +19,10 @@ interface UseWorkspaceOverlayActionsTranslations {
 }
 
 interface UseWorkspaceOverlayActionsParams {
-  getUsdPreparedExportCache: (
-    fileName: string,
-  ) => { robotData?: RobotData | null } | null | undefined;
-  onLoadRobot: (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => void;
-  ensureWorkspaceSeededForAdd?: (file: RobotFile) => void;
-  setPendingUsdAssemblyFile: (file: RobotFile | null) => void;
-  insertAssemblyComponentIntoWorkspace: (
+  onLoadRobot: (
     file: RobotFile,
-    options?: { preResolvedRobotData?: RobotData | null },
-  ) => Promise<{ name: string }>;
+    options?: { intent?: WorkspaceLoadIntent },
+  ) => Promise<CommitResolvedRobotLoadOutcome | null> | CommitResolvedRobotLoadOutcome | null;
   showAssemblyComponentPreparationOverlay: (
     file: RobotFile,
     stage: 'prepare' | 'add' | 'ground',
@@ -48,11 +45,7 @@ interface UseWorkspaceOverlayActionsParams {
 }
 
 export function useWorkspaceOverlayActions({
-  getUsdPreparedExportCache,
   onLoadRobot,
-  ensureWorkspaceSeededForAdd,
-  setPendingUsdAssemblyFile,
-  insertAssemblyComponentIntoWorkspace,
   showAssemblyComponentPreparationOverlay,
   clearAssemblyComponentPreparationOverlay,
   showToast,
@@ -65,44 +58,28 @@ export function useWorkspaceOverlayActions({
 }: UseWorkspaceOverlayActionsParams) {
   const handleAddComponent = useCallback(
     (file: RobotFile) => {
-      const preResolvedRobotData =
-        file.format === 'usd' ? (getUsdPreparedExportCache(file.name)?.robotData ?? null) : null;
-
-      if (file.format === 'usd' && !preResolvedRobotData) {
-        ensureWorkspaceSeededForAdd?.(file);
-        showAssemblyComponentPreparationOverlay(file, 'prepare');
-        setPendingUsdAssemblyFile(file);
-        onLoadRobot(file, { preserveAssemblyState: true });
-        return;
-      }
-
-      ensureWorkspaceSeededForAdd?.(file);
-      void insertAssemblyComponentIntoWorkspace(file, {
-        preResolvedRobotData,
-      })
-        .then((component) => {
-          showToast(t.addedComponent.replace('{name}', component.name), 'success');
-        })
-        .catch((error) => {
-          scheduleFailFastInDev(
-            'AppLayout:handleAddComponent',
-            error instanceof Error
-              ? error
-              : new Error(`Failed to resolve assembly component "${file.name}".`),
-          );
-          showToast(`Failed to add assembly component: ${file.name}`, 'info');
-        })
-        .finally(() => {
+      showAssemblyComponentPreparationOverlay(file, 'prepare');
+      void Promise.resolve(onLoadRobot(file, { intent: 'append' }))
+        .then((outcome) => {
+          if (outcome?.status === 'hydration-pending') {
+            return;
+          }
           clearAssemblyComponentPreparationOverlay();
+          if (outcome?.status === 'committed') {
+            showToast(
+              t.addedComponent.replace('{name}', outcome.component.name),
+              'success',
+            );
+          }
+        })
+        .catch(() => {
+          clearAssemblyComponentPreparationOverlay();
+          showToast(`Failed to add assembly component: ${file.name}`, 'info');
         });
     },
     [
       clearAssemblyComponentPreparationOverlay,
-      ensureWorkspaceSeededForAdd,
-      getUsdPreparedExportCache,
-      insertAssemblyComponentIntoWorkspace,
       onLoadRobot,
-      setPendingUsdAssemblyFile,
       showAssemblyComponentPreparationOverlay,
       showToast,
       t,

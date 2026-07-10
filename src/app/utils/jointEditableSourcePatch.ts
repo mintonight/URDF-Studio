@@ -1,11 +1,17 @@
 import { MAX_PROPERTY_DECIMALS, formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
-import { JointType, type UrdfJoint } from '@/types';
+import { JointType, type UrdfJoint, type UrdfLink } from '@/types';
 
 interface JointLimitSourcePatchOptions {
   sourceContent: string;
   jointName: string;
   jointType: UrdfJoint['type'];
   limit: NonNullable<UrdfJoint['limit']>;
+}
+
+interface LinkInertialSourcePatchOptions {
+  sourceContent: string;
+  linkName: string;
+  inertial: NonNullable<UrdfLink['inertial']>;
 }
 
 interface XmlElementOccurrence {
@@ -222,6 +228,20 @@ function formatScalar(value: number): string {
   return formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS) || '0';
 }
 
+function formatVectorValues(values: number[]): string {
+  return values.map(formatScalar).join(' ');
+}
+
+function formatInertialXyz(inertial: NonNullable<UrdfLink['inertial']>): string {
+  const xyz = inertial.origin?.xyz;
+  return formatVectorValues([xyz?.x ?? 0, xyz?.y ?? 0, xyz?.z ?? 0]);
+}
+
+function formatInertialRpy(inertial: NonNullable<UrdfLink['inertial']>): string {
+  const rpy = inertial.origin?.rpy;
+  return formatVectorValues([rpy?.r ?? 0, rpy?.p ?? 0, rpy?.y ?? 0]);
+}
+
 function replaceOrRemoveXmlAttribute(
   rawTag: string,
   attributeName: string,
@@ -298,6 +318,101 @@ function buildNewUrdfLimitTag(
     attributes.push(`velocity="${formatScalar(limit.velocity)}"`);
   }
   return `<limit ${attributes.join(' ')} />`;
+}
+
+function buildUrdfInertialOriginTag(
+  inertial: NonNullable<UrdfLink['inertial']>,
+): string {
+  return `<origin xyz="${formatInertialXyz(inertial)}" rpy="${formatInertialRpy(
+    inertial,
+  )}" />`;
+}
+
+function buildUrdfInertialMassTag(
+  inertial: NonNullable<UrdfLink['inertial']>,
+): string {
+  return `<mass value="${formatScalar(inertial.mass)}" />`;
+}
+
+function buildUrdfInertialInertiaTag(
+  inertial: NonNullable<UrdfLink['inertial']>,
+): string {
+  const inertia = inertial.inertia;
+  return [
+    '<inertia',
+    `ixx="${formatScalar(inertia.ixx)}"`,
+    `ixy="${formatScalar(inertia.ixy)}"`,
+    `ixz="${formatScalar(inertia.ixz)}"`,
+    `iyy="${formatScalar(inertia.iyy)}"`,
+    `iyz="${formatScalar(inertia.iyz)}"`,
+    `izz="${formatScalar(inertia.izz)}"`,
+    '/>',
+  ].join(' ');
+}
+
+function buildUrdfInertialBlock(
+  sourceContent: string,
+  inertialIndent: string,
+  inertial: NonNullable<UrdfLink['inertial']>,
+): string {
+  const newline = getPreferredNewline(sourceContent);
+  const childIndent = `${inertialIndent}${DEFAULT_INDENT_UNIT}`;
+  return [
+    `${inertialIndent}<inertial>`,
+    `${childIndent}${buildUrdfInertialOriginTag(inertial)}`,
+    `${childIndent}${buildUrdfInertialMassTag(inertial)}`,
+    `${childIndent}${buildUrdfInertialInertiaTag(inertial)}`,
+    `${inertialIndent}</inertial>`,
+  ].join(newline);
+}
+
+function patchUrdfInertialBlock(
+  sourceContent: string,
+  inertial: NonNullable<UrdfLink['inertial']>,
+): string {
+  let nextContent = sourceContent;
+  let inertialOccurrence = findFirstXmlElement(nextContent, 'inertial');
+  if (!inertialOccurrence) {
+    return nextContent;
+  }
+
+  if (inertialOccurrence.selfClosing) {
+    const inertialIndent = getIndentAt(nextContent, inertialOccurrence.start);
+    return (
+      nextContent.slice(0, inertialOccurrence.start) +
+      buildUrdfInertialBlock(nextContent, inertialIndent, inertial) +
+      nextContent.slice(inertialOccurrence.end)
+    );
+  }
+
+  nextContent = replaceOrInsertDirectXmlChildElement(
+    nextContent,
+    inertialOccurrence,
+    'origin',
+    buildUrdfInertialOriginTag(inertial),
+  );
+  inertialOccurrence = findFirstXmlElement(nextContent, 'inertial');
+  if (!inertialOccurrence) {
+    return nextContent;
+  }
+
+  nextContent = replaceOrInsertDirectXmlChildElement(
+    nextContent,
+    inertialOccurrence,
+    'mass',
+    buildUrdfInertialMassTag(inertial),
+  );
+  inertialOccurrence = findFirstXmlElement(nextContent, 'inertial');
+  if (!inertialOccurrence) {
+    return nextContent;
+  }
+
+  return replaceOrInsertDirectXmlChildElement(
+    nextContent,
+    inertialOccurrence,
+    'inertia',
+    buildUrdfInertialInertiaTag(inertial),
+  );
 }
 
 function shouldEmitSdfPositionLimits(jointType: UrdfJoint['type']): boolean {
@@ -458,6 +573,41 @@ function removeXmlElementOccurrence(
   return sourceContent.slice(0, occurrence.start) + sourceContent.slice(occurrence.end);
 }
 
+function replaceOrInsertDirectXmlChildElement(
+  sourceContent: string,
+  parentOccurrence: XmlElementOccurrence,
+  childTagName: string,
+  nextChildTag: string,
+): string {
+  const childOccurrence = findFirstDirectXmlChildElement(
+    sourceContent,
+    parentOccurrence,
+    childTagName,
+  );
+  if (childOccurrence) {
+    return (
+      sourceContent.slice(0, childOccurrence.start) +
+      nextChildTag +
+      sourceContent.slice(childOccurrence.end)
+    );
+  }
+
+  if (parentOccurrence.selfClosing) {
+    return sourceContent;
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  const closeLineStart = getLineStart(sourceContent, parentOccurrence.closeStart);
+  const closeIndent = sourceContent.slice(closeLineStart, parentOccurrence.closeStart);
+  const childIndent = `${closeIndent}${DEFAULT_INDENT_UNIT}`;
+
+  return (
+    sourceContent.slice(0, closeLineStart) +
+    `${childIndent}${nextChildTag}${newline}` +
+    sourceContent.slice(closeLineStart)
+  );
+}
+
 function insertSdfLimitEntriesBeforeClose(
   sourceContent: string,
   limitOccurrence: XmlElementOccurrence,
@@ -588,6 +738,69 @@ export function patchUrdfJointLimitInSource({
     sourceContent.slice(0, closeLineStart) +
     `${childIndent}${buildNewUrdfLimitTag(jointType, limit)}${newline}${closeIndent}` +
     sourceContent.slice(jointOccurrence.closeStart)
+  );
+}
+
+export function patchUrdfLinkInertialInSource({
+  sourceContent,
+  linkName,
+  inertial,
+}: LinkInertialSourcePatchOptions): string {
+  const linkOccurrence = findNamedXmlElementByTagNames(
+    sourceContent,
+    ['link', 'xacro:link'],
+    linkName,
+  );
+  if (!linkOccurrence) {
+    throw new Error(`Failed to locate URDF/Xacro <link name="${linkName}">.`);
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  if (linkOccurrence.selfClosing) {
+    const linkIndent = getIndentAt(sourceContent, linkOccurrence.start);
+    const inertialIndent = `${linkIndent}${DEFAULT_INDENT_UNIT}`;
+    const expandedLinkTag = linkOccurrence.rawOpenTag.replace(/\s*\/\s*>$/, '>');
+    return (
+      sourceContent.slice(0, linkOccurrence.start) +
+      `${expandedLinkTag}${newline}${buildUrdfInertialBlock(
+        sourceContent,
+        inertialIndent,
+        inertial,
+      )}${newline}${linkIndent}</link>` +
+      sourceContent.slice(linkOccurrence.end)
+    );
+  }
+
+  const linkContent = sourceContent.slice(linkOccurrence.start, linkOccurrence.end);
+  const inertialOccurrence = findFirstDirectXmlChildElement(linkContent, {
+    ...linkOccurrence,
+    start: 0,
+    openEnd: linkOccurrence.openEnd - linkOccurrence.start,
+    closeStart: linkOccurrence.closeStart - linkOccurrence.start,
+    end: linkOccurrence.end - linkOccurrence.start,
+  }, 'inertial');
+
+  if (inertialOccurrence) {
+    const inertialStart = linkOccurrence.start + inertialOccurrence.start;
+    const inertialEnd = linkOccurrence.start + inertialOccurrence.end;
+    const nextInertialBlock = patchUrdfInertialBlock(
+      sourceContent.slice(inertialStart, inertialEnd),
+      inertial,
+    );
+    return (
+      sourceContent.slice(0, inertialStart) +
+      nextInertialBlock +
+      sourceContent.slice(inertialEnd)
+    );
+  }
+
+  const closeLineStart = getLineStart(sourceContent, linkOccurrence.closeStart);
+  const closeIndent = sourceContent.slice(closeLineStart, linkOccurrence.closeStart);
+  const inertialIndent = `${closeIndent}${DEFAULT_INDENT_UNIT}`;
+  return (
+    sourceContent.slice(0, closeLineStart) +
+    `${buildUrdfInertialBlock(sourceContent, inertialIndent, inertial)}${newline}${closeIndent}` +
+    sourceContent.slice(linkOccurrence.closeStart)
   );
 }
 

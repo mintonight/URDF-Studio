@@ -8,8 +8,6 @@ import { DEFAULT_MOTOR_LIBRARY } from '@/shared/data/motorLibrary';
 import { mergeMotorLibraryEntries } from '@/shared/data/motorLibraryMerge';
 import {
   useAssetsStore,
-  useRobotStore,
-  useSelectionStore,
   useUIStore,
 } from '@/store';
 import type { ProjectImportResult } from '@/features/file-io';
@@ -21,7 +19,8 @@ import {
   isSupportedArchiveImportFile,
   isRobotImportCandidatePath,
 } from '@/shared/utils/robotFileSupport';
-import { buildImportedRobotStoreState } from './projectRobotStateUtils';
+import { commitImportedProject } from '../utils/commitImportedProject';
+import { commitResolvedRobotLoad } from '../utils/commitResolvedRobotLoad';
 import {
   prepareImportPayloadWithWorker,
   hydrateDeferredImportAssetsWithWorker,
@@ -74,11 +73,12 @@ class StaleImportRequestError extends Error {
 }
 
 interface UseFileImportOptions {
-  onLoadRobot?: (file: RobotFile) => void;
+  onLoadRobot?: (file: RobotFile) => unknown | Promise<unknown>;
   onShowToast?: (message: string, type?: 'info' | 'success') => void;
   onImportPreparationStateChange?: (state: ImportPreparationOverlayState | null) => void;
   onProjectImported?: (selectedFile: RobotFile | null) => void;
   projectImporter?: (file: File, lang?: keyof typeof translations) => Promise<ProjectImportResult>;
+  prepareImportPayload?: typeof prepareImportPayloadWithWorker;
 }
 
 function normalizeImportSourcePath(path: string): string {
@@ -191,6 +191,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
     onImportPreparationStateChange,
     onProjectImported,
     projectImporter,
+    prepareImportPayload = prepareImportPayloadWithWorker,
   } = options;
   const importGenerationRef = useRef(0);
 
@@ -216,10 +217,19 @@ export function useFileImport(options: UseFileImportOptions = {}) {
       });
 
       if (
-        (importResult.status === 'ready' || importResult.status === 'needs_hydration') &&
-        onLoadRobot
+        importResult.status === 'ready' || importResult.status === 'needs_hydration'
       ) {
-        onLoadRobot(file);
+        if (onLoadRobot) {
+          await onLoadRobot(file);
+        } else {
+          commitResolvedRobotLoad({
+            currentAppMode: useUIStore.getState().appMode,
+            file,
+            importResult,
+            markWorkspaceBaselineSaved: markUnsavedChangesBaselineSaved,
+            setAppMode: useUIStore.getState().setAppMode,
+          });
+        }
       }
 
       return importResult;
@@ -242,7 +252,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
       };
       const uiState = useUIStore.getState();
       const assetsState = useAssetsStore.getState();
-      const selectionState = useSelectionStore.getState();
       const t = translations[uiState.lang];
       const rawInputFiles = Array.from(files);
       const projectInputFiles = rawInputFiles.filter((file) =>
@@ -296,48 +305,15 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               return importProjectWithWorker(file, lang);
             });
           const result = await importProject(projectInputFile, uiState.lang);
-          const { assets: newAssetUrls, availableFiles: newFiles } = result;
-          createdBlobUrls.push(...Object.values(newAssetUrls));
+          createdBlobUrls.push(...Object.values(result.assets.assetUrls));
           throwIfStaleImport();
 
+          const restoredSelectedFile = commitImportedProject(result, {
+            markWorkspaceBaselineSaved: markUnsavedChangesBaselineSaved,
+          });
           importStateMutated = true;
           clearPreparedUsdStageOpenCache();
-          assetsState.clearAssets();
-          assetsState.addAssets(newAssetUrls);
-          assetsState.setAvailableFiles(newFiles);
-          assetsState.setAllFileContents(result.allFileContents);
-          assetsState.setMotorLibrary(result.motorLibrary);
-          assetsState.setOriginalUrdfContent(result.originalUrdfContent);
-          assetsState.setOriginalFileFormat(result.originalFileFormat);
-          useAssetsStore.setState({
-            usdSceneSnapshots: {},
-            usdPreparedExportCaches: result.usdPreparedExportCaches,
-          });
-          selectionState.setSelection({ type: null, id: null });
-
-          const restoredSelectedFile = result.selectedFileName
-            ? (newFiles.find((file) => file.name === result.selectedFileName) ?? null)
-            : null;
-          assetsState.setSelectedFile(restoredSelectedFile);
           onProjectImported?.(restoredSelectedFile);
-
-          useRobotStore.setState(
-            buildImportedRobotStoreState(
-              result.robotState,
-              result.robotHistory,
-              result.robotActivity,
-            ),
-          );
-
-          useRobotStore.setState({
-            assemblyState: result.assemblyState,
-            components: result.assemblyState?.components ?? {},
-            bridges: result.assemblyState?.bridges ?? {},
-            workspaceTransform: result.assemblyState?.transform,
-            activeComponentId: Object.keys(result.assemblyState?.components ?? {})[0] ?? null,
-          });
-
-          markUnsavedChangesBaselineSaved('all');
 
           return { status: 'completed' };
         }
@@ -360,7 +336,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               );
             }
           : undefined;
-        const preparedImportPayload: PreparedImportPayload = await prepareImportPayloadWithWorker({
+        const preparedImportPayload: PreparedImportPayload = await prepareImportPayload({
           files: inputFiles,
           existingPaths: existingImportPaths,
           preResolvePreferredImport: false,
@@ -680,7 +656,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             if (!standaloneImportAssetWarning || canProceedDespiteStandaloneAssetWarning) {
               if (!liveMerge.hadExistingAvailableFiles) {
                 throwIfStaleImport();
-                clearImportPreparationOverlay();
                 prewarmUsdSelectionInBackground(
                   fileForStandaloneImportOpen,
                   liveMerge.mergedFiles,
@@ -688,7 +663,8 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                 );
                 throwIfStaleImport();
                 if (onLoadRobot) {
-                  onLoadRobot(fileForStandaloneImportOpen);
+                  await onLoadRobot(fileForStandaloneImportOpen);
+                  throwIfStaleImport();
                 } else {
                   await loadRobot(
                     fileForStandaloneImportOpen,
@@ -700,7 +676,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                 }
               } else if (!liveMerge.hadSelectedFile) {
                 throwIfStaleImport();
-                clearImportPreparationOverlay();
                 prewarmUsdSelectionInBackground(
                   fileForStandaloneImportOpen,
                   liveMerge.mergedFiles,
@@ -708,7 +683,8 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                 );
                 throwIfStaleImport();
                 if (onLoadRobot) {
-                  onLoadRobot(fileForStandaloneImportOpen);
+                  await onLoadRobot(fileForStandaloneImportOpen);
+                  throwIfStaleImport();
                 } else {
                   await loadRobot(
                     fileForStandaloneImportOpen,
@@ -773,6 +749,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
       onProjectImported,
       onShowToast,
       projectImporter,
+      prepareImportPayload,
     ],
   );
 

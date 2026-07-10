@@ -1,12 +1,11 @@
 import { useCallback, useState } from 'react';
-import type { InteractionSelection } from '@/types';
+import type { WorkspaceSelection } from '@/types';
 import type { ViewOptions } from '@/store/uiStore';
 import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
-import { clearIkDragHelperSelection } from '../utils/ikDragSession';
 
 interface UseIkDragPanelActionsParams {
-  selection: InteractionSelection;
-  setSelection: (selection: InteractionSelection) => void;
+  selection: WorkspaceSelection;
+  setSelection: (selection: WorkspaceSelection) => void;
   setViewOption: <K extends keyof ViewOptions>(key: K, value: ViewOptions[K]) => void;
 }
 
@@ -29,8 +28,8 @@ export function useIkDragPanelActions({
 
       setViewOption('showIkHandles', false);
       setIsIkToolPanelOpen(false);
-      const clearedSelection = clearIkDragHelperSelection(selection);
-      if (clearedSelection) {
+      if (selection?.helperKind === 'ik-handle') {
+        const { helperKind: _helperKind, ...clearedSelection } = selection;
         setSelection(clearedSelection);
       }
     },

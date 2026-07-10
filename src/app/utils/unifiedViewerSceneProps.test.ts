@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 
 import type { ViewerController, ViewerProps } from '@/features/editor';
 import type { ViewerResourceScope } from '@/features/editor';
-import type { AssemblyState, RobotState } from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, type AssemblyState, type RobotState } from '@/types';
+import { createAssemblyScenePlacement, createAssemblySceneProjection } from '@/core/robot';
 import {
   buildUnifiedViewerSceneProps,
   EMPTY_VIEWER_SELECTION,
-  type UnifiedViewerSceneAssemblyInput,
+  type UnifiedViewerSceneWorkspaceInput,
   type UnifiedViewerSceneDocumentInput,
   type UnifiedViewerSceneInteractionInput,
 } from './unifiedViewerSceneProps';
@@ -25,8 +26,19 @@ function createRobotStub(): RobotState {
   return {
     name: 'go2',
     rootLinkId: 'base_link',
-    links: { base_link: {} as RobotState['links'][string] },
-    joints: { hip_joint: {} as RobotState['joints'][string] },
+    links: {
+      base_link: { ...structuredClone(DEFAULT_LINK), id: 'base_link', name: 'base_link' },
+      tip_link: { ...structuredClone(DEFAULT_LINK), id: 'tip_link', name: 'tip_link' },
+    },
+    joints: {
+      hip_joint: {
+        ...structuredClone(DEFAULT_JOINT),
+        id: 'hip_joint',
+        name: 'hip_joint',
+        parentLinkId: 'base_link',
+        childLinkId: 'tip_link',
+      },
+    },
     selection: { type: null, id: null },
   };
 }
@@ -40,14 +52,38 @@ function createScopeStub(): ViewerResourceScope {
 }
 
 function createAssemblyStateStub(): AssemblyState {
+  const { selection: _selection, ...robot } = createRobotStub();
   return {
     name: 'workspace',
     transform: {
       position: { x: 0, y: 0, z: 0 },
       rotation: { r: 0, p: 0, y: 0 },
     },
-    components: {},
+    components: {
+      comp_alpha: {
+        id: 'comp_alpha',
+        name: 'Alpha',
+        sourceFile: 'alpha.urdf',
+        robot,
+        transform: {
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { r: 0, p: 0, y: 0 },
+        },
+        visible: true,
+      },
+    },
     bridges: {},
+  };
+}
+
+function createWorkspaceInput(): UnifiedViewerSceneWorkspaceInput {
+  const workspace = createAssemblyStateStub();
+  const sceneProjection = createAssemblySceneProjection(workspace);
+  return {
+    workspace,
+    sceneProjection,
+    scenePlacement: createAssemblyScenePlacement(workspace, sceneProjection),
+    workspaceSelection: null,
   };
 }
 
@@ -55,12 +91,12 @@ function createSceneArgs({
   controller = createControllerStub(),
   document,
   interaction,
-  assembly,
+  workspace,
 }: {
   controller?: ViewerController;
   document?: Partial<UnifiedViewerSceneDocumentInput>;
   interaction?: Partial<UnifiedViewerSceneInteractionInput>;
-  assembly?: Partial<UnifiedViewerSceneAssemblyInput>;
+  workspace?: Partial<UnifiedViewerSceneWorkspaceInput>;
 } = {}): Parameters<typeof buildUnifiedViewerSceneProps>[0] {
   return {
     controller,
@@ -77,7 +113,10 @@ function createSceneArgs({
       robot: createRobotStub(),
       ...interaction,
     },
-    assembly,
+    workspace: {
+      ...createWorkspaceInput(),
+      ...workspace,
+    },
   };
 }
 
@@ -107,9 +146,8 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
       isMeshPreview: true,
       viewerReloadKey: 9,
     },
-    assembly: {
-      assemblyState: createAssemblyStateStub(),
-      assemblySelection: { type: 'component', id: 'comp_alpha' },
+    workspace: {
+      workspaceSelection: { entity: { type: 'component', componentId: 'comp_alpha' } },
       onAssemblyTransform,
       onComponentTransform,
       onBridgeTransform,
@@ -119,6 +157,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.mode, 'editor');
   assert.equal(sceneProps.selection, selection);
   assert.equal(sceneProps.hoveredSelection, hoveredSelection);
+  assert.equal(sceneProps.interactionEnabled, true);
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
@@ -129,7 +168,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.focusTarget, 'base_link');
   assert.equal(sceneProps.isMeshPreview, true);
   assert.equal(sceneProps.runtimeInstanceKey, 9);
-  assert.equal(sceneProps.assemblySelection?.id, 'comp_alpha');
+  assert.equal(sceneProps.workspaceSelection?.entity.type, 'component');
   assert.equal(sceneProps.onAssemblyTransform, onAssemblyTransform);
   assert.equal(sceneProps.onComponentTransform, onComponentTransform);
   assert.equal(sceneProps.onBridgeTransform, onBridgeTransform);
@@ -152,6 +191,7 @@ test('buildUnifiedViewerSceneProps forwards snapshot display overrides without c
 
   assert.equal(sceneProps.showCollision, false);
   assert.equal(sceneProps.showCollisionAlwaysOnTop, false);
+  assert.equal(sceneProps.interactionEnabled, false);
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
 });
@@ -201,9 +241,8 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
       isMeshPreview: true,
       viewerReloadKey: 3,
     },
-    assembly: {
-      assemblyState: createAssemblyStateStub(),
-      assemblySelection: { type: 'assembly', id: 'workspace' },
+    workspace: {
+      workspaceSelection: { entity: { type: 'assembly' } },
       onAssemblyTransform,
     },
   }));
@@ -211,6 +250,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   assert.equal(sceneProps.mode, 'editor');
   assert.deepEqual(sceneProps.selection, EMPTY_VIEWER_SELECTION);
   assert.equal(sceneProps.hoveredSelection, undefined);
+  assert.equal(sceneProps.interactionEnabled, false);
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
@@ -218,12 +258,15 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   assert.equal(sceneProps.allowUrdfXmlFallback, true);
   assert.equal(sceneProps.robotLinks, undefined);
   assert.equal(sceneProps.robotJoints, undefined);
-  assert.equal(sceneProps.focusTarget, undefined);
+  assert.equal(sceneProps.focusTarget, 'base_link');
   assert.equal(sceneProps.onCollisionTransformPreview, undefined);
   assert.equal(sceneProps.onCollisionTransform, undefined);
   assert.equal(sceneProps.isMeshPreview, false);
   assert.equal(sceneProps.runtimeInstanceKey, 3);
-  assert.equal(sceneProps.assemblySelection, undefined);
+  assert.equal(sceneProps.workspaceSelection, null);
+  assert.equal(sceneProps.workspace, null);
+  assert.equal(sceneProps.sceneProjection, null);
+  assert.equal(sceneProps.scenePlacement, null);
   assert.equal(sceneProps.onAssemblyTransform, undefined);
 });
 
@@ -250,6 +293,7 @@ test('buildUnifiedViewerSceneProps disables hover interaction for inactive retai
 
   assert.equal(sceneProps.selection, selection);
   assert.equal(sceneProps.hoveredSelection, hoveredSelection);
+  assert.equal(sceneProps.interactionEnabled, false);
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
@@ -287,12 +331,13 @@ test('buildUnifiedViewerSceneProps disables model interaction for standalone rea
 
   assert.deepEqual(sceneProps.selection, EMPTY_VIEWER_SELECTION);
   assert.equal(sceneProps.hoveredSelection, undefined);
+  assert.equal(sceneProps.interactionEnabled, false);
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
   assert.equal(sceneProps.onUpdate, undefined);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
   assert.equal(sceneProps.robotJoints?.hip_joint !== undefined, true);
-  assert.equal(sceneProps.focusTarget, undefined);
+  assert.equal(sceneProps.focusTarget, 'base_link');
   assert.equal(sceneProps.isMeshPreview, true);
 });

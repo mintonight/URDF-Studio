@@ -28,21 +28,12 @@ export function useLibraryRobotLoadRequest({
       file: RobotFile,
       intent: LibraryRobotLoadIntent,
     ): Promise<LibraryRobotLoadResult> => {
-      if (selectedFile?.name === file.name) {
-        return 'loaded';
-      }
-
       const loadAction = resolveLibraryRobotLoadAction({
         selectedFileName: selectedFile?.name,
-        targetFileName: file.name,
         shouldPreviewCurrentState: shouldPreviewLibraryRobotLoad,
         hasSimpleModeSourceEdits,
         intent,
       });
-
-      if (loadAction === 'already-loaded') {
-        return 'loaded';
-      }
 
       if (loadAction === 'preview') {
         handlePreviewFileWithFeedback(file);
@@ -50,8 +41,8 @@ export function useLibraryRobotLoadRequest({
       }
 
       if (loadAction === 'load') {
-        onLoadRobot(file);
-        return 'loaded';
+        const outcome = await onLoadRobot(file);
+        return outcome ? 'loaded' : 'blocked';
       }
 
       if (loadAction === 'needs-preview-or-discard-confirm') {

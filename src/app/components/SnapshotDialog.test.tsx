@@ -285,7 +285,7 @@ test('SnapshotDialog opens wide enough for the interactive preview canvas', asyn
   }
 });
 
-test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid label', async () => {
+test('SnapshotDialog defaults the grid toggle to off with the visible Grid label', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -321,8 +321,8 @@ test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid l
     assert.ok(gridSwitch, 'snapshot dialog should render the grid switch');
     assert.equal(
       gridSwitch?.getAttribute('aria-checked'),
-      'true',
-      'grid should be visible by default when the dialog opens',
+      'false',
+      'grid should be hidden by default when the dialog opens',
     );
     assert.equal(
       gridSwitch?.getAttribute('aria-label'),
@@ -334,6 +334,36 @@ test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid l
       /\bjustify-start\b/,
       'grid switch row should align the control to the left edge of its field',
     );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog does not render depth-of-field controls', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+        }),
+      );
+    });
+
+    assert.equal(container.textContent?.includes('DoF'), false);
+    assert.equal(container.textContent?.includes('Depth of Field'), false);
   } finally {
     await act(async () => {
       root.unmount();
@@ -395,6 +425,64 @@ test('SnapshotDialog exposes aspect ratio choices and submits the selected prese
       /4K · 1:1 · PNG · 2x/,
       'capture summary should include the selected aspect ratio',
     );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog shows export progress and keeps the original dialog mounted while capturing', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  let cancelled = false;
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: true,
+          captureProgress: { phase: 'rendering', progress: 0.42 },
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          onCancelCapture: () => {
+            cancelled = true;
+          },
+        }),
+      );
+    });
+
+    const progressOverlay = container.querySelector('[data-testid="snapshot-export-progress"]');
+    assert.ok(progressOverlay, 'snapshot dialog should render export progress while capturing');
+    assert.match(
+      progressOverlay?.textContent ?? '',
+      /Rendering the high-resolution image/,
+      'progress overlay should describe the active export phase',
+    );
+
+    const progressBar = container.querySelector('[role="progressbar"]');
+    assert.equal(progressBar?.getAttribute('aria-valuenow'), '42');
+    assert.ok(
+      container.querySelector('[data-testid="snapshot-preview-card"]'),
+      'snapshot dialog should keep the original preview/settings content mounted under the progress overlay',
+    );
+
+    const cancelButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Cancel',
+    ) as HTMLButtonElement | undefined;
+    assert.ok(cancelButton, 'snapshot dialog should expose a cancel button while exporting');
+
+    await act(async () => {
+      cancelButton.click();
+    });
+
+    assert.equal(cancelled, true);
   } finally {
     await act(async () => {
       root.unmount();

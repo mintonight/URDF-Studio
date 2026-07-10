@@ -7,7 +7,8 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { DEFAULT_LINK, JointType, type RobotData, type UrdfJoint } from '@/types';
-import { useRobotStore } from '@/store';
+import { createSingleComponentWorkspace } from '@/core/robot';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionBridge';
 
 import { useUnsavedChangesPrompt } from './useUnsavedChangesPrompt.ts';
@@ -149,12 +150,18 @@ function createRobotData(): RobotData {
 
 function resetStoresToBaseline() {
   setRegressionBeforeUnloadPromptSuppressed(false);
-  useRobotStore.setState({
-    assemblyState: null,
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-  useRobotStore.getState().resetRobot(createRobotData());
+  const current = useWorkspaceStore.getState();
+  if (current.transaction) {
+    current.cancelWorkspaceTransaction(current.transaction.id);
+  }
+  current.flushPendingJointMotion({ skipHistory: true });
+  current.replaceWorkspace(
+    createSingleComponentWorkspace(createRobotData(), {
+      componentId: 'component_demo',
+      sourceFile: 'demo.urdf',
+    }),
+    { resetHistory: true },
+  );
 }
 
 function renderHook() {
@@ -195,7 +202,7 @@ function dispatchBeforeUnload(): boolean {
   return window.dispatchEvent(event);
 }
 
-test('useUnsavedChangesPrompt only warns for persistent robot edits', async () => {
+test('useUnsavedChangesPrompt only warns for persistent canonical workspace edits', async () => {
   const domEnvironment = installDomEnvironment();
   resetStoresToBaseline();
 
@@ -206,29 +213,48 @@ test('useUnsavedChangesPrompt only warns for persistent robot edits', async () =
     assert.equal(dispatchBeforeUnload(), true);
 
     flushSync(() => {
-      useRobotStore.getState().setJointAngle('joint_1', 0.5);
+      useWorkspaceStore.getState().setComponentVisibility('component_demo', false);
+    });
+    assert.equal(rendered.hook.hasUnsavedChanges, true);
+    flushSync(() => {
+      useWorkspaceStore.getState().undo();
     });
     assert.equal(rendered.hook.hasUnsavedChanges, false);
 
     flushSync(() => {
-      useRobotStore.getState().setAllLinksVisibility(false);
+      useWorkspaceStore.getState().setJointMotion(
+        { type: 'joint', componentId: 'component_demo', entityId: 'joint_1' },
+        0.5,
+      );
+      useWorkspaceStore
+        .getState()
+        .flushPendingJointMotion({ label: 'Commit joint pose' });
+    });
+    assert.equal(rendered.hook.hasUnsavedChanges, true);
+    flushSync(() => {
+      useWorkspaceStore.getState().undo();
     });
     assert.equal(rendered.hook.hasUnsavedChanges, false);
 
     flushSync(() => {
-      const currentLink = useRobotStore.getState().links.tool_link;
-      useRobotStore.getState().updateLink('tool_link', {
+      const currentLink = useWorkspaceStore.getState().workspace.components[
+        'component_demo'
+      ]!.robot.links.tool_link!;
+      useWorkspaceStore.getState().updateLink(
+        { type: 'link', componentId: 'component_demo', entityId: 'tool_link' },
+        {
         collision: {
           ...currentLink.collision,
           dimensions: { x: 1.5, y: 0.4, z: 0.2 },
         },
-      });
+        },
+      );
     });
     assert.equal(rendered.hook.hasUnsavedChanges, true);
     assert.equal(dispatchBeforeUnload(), false);
 
     flushSync(() => {
-      rendered.hook.markCurrentStateSaved('robot');
+      rendered.hook.markCurrentStateSaved();
     });
     assert.equal(rendered.hook.hasUnsavedChanges, false);
     assert.equal(dispatchBeforeUnload(), true);
@@ -250,13 +276,18 @@ test('useUnsavedChangesPrompt can suppress beforeunload warnings for regression 
 
   try {
     flushSync(() => {
-      const currentLink = useRobotStore.getState().links.tool_link;
-      useRobotStore.getState().updateLink('tool_link', {
+      const currentLink = useWorkspaceStore.getState().workspace.components[
+        'component_demo'
+      ]!.robot.links.tool_link!;
+      useWorkspaceStore.getState().updateLink(
+        { type: 'link', componentId: 'component_demo', entityId: 'tool_link' },
+        {
         collision: {
           ...currentLink.collision,
           dimensions: { x: 1.25, y: 0.5, z: 0.3 },
         },
-      });
+        },
+      );
     });
 
     assert.equal(rendered.hook.hasUnsavedChanges, true);

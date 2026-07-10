@@ -10,7 +10,11 @@ import { JSDOM } from 'jsdom';
 
 import { useFileExport } from './useFileExport.ts';
 import { disposeRobotImportWorker } from './robotImportWorkerBridge.ts';
-import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
+import { useAssetsStore, useUIStore } from '@/store';
+import {
+  installExportTestRobot,
+  resetExportTestWorkspace,
+} from './file-export/exportTestWorkspace.ts';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
@@ -156,12 +160,6 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useRobotStore.setState({
-    assemblyState: null,
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-
   useAssetsStore.setState({
     assets: {},
     availableFiles: [],
@@ -176,11 +174,10 @@ function resetStoresToBaseline() {
     },
     allFileContents: {},
     motorLibrary: {},
-    originalUrdfContent: '',
-    originalFileFormat: null,
+    componentSourceDrafts: {},
   });
 
-  useRobotStore.getState().resetRobot();
+  resetExportTestWorkspace();
 }
 
 function installDownloadMocks() {
@@ -404,7 +401,7 @@ test('useFileExport packages the current robot as a Gazebo-style SDF zip', async
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
 
-  useRobotStore.getState().setRobot({
+  installExportTestRobot({
     name: 'demo_sdf_export',
     rootLinkId: 'base_link',
     links: {
@@ -460,10 +457,6 @@ test('useFileExport packages the current robot as a Gazebo-style SDF zip', async
         },
       },
     },
-  }, {
-    skipHistory: true,
-    resetHistory: true,
-    label: 'Load SDF export test robot',
   });
 
   const downloadMocks = installDownloadMocks();
@@ -514,11 +507,7 @@ test('useFileExport preserves imported MJCF visual colors when exporting the cur
   assert.equal(robot.links.Trunk.visual.color, '#c2c2c2');
   assert.equal(robot.links.H1.visual.color, '#666666');
 
-  useRobotStore.getState().setRobot(robot, {
-    skipHistory: true,
-    resetHistory: true,
-    label: 'Load booster_t1 MJCF export test robot',
-  });
+  installExportTestRobot(robot);
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();

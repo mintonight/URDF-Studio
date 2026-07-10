@@ -20,19 +20,22 @@ import { usePluginLaunch } from './hooks/usePluginLaunch';
 import { useRegressionDebugApi } from './hooks/useRegressionDebugApi';
 import { resolveRobotFileDataWithWorker } from './hooks/robotImportWorkerBridge';
 import {
-  buildRobotLoadSupportContextKey,
   preserveDocumentLoadProgressForSameFile,
   shouldReuseResolvedMjcfViewerRuntime,
   shouldCommitResolvedRobotSelection,
-  shouldSkipRedundantRobotReload,
 } from './utils/documentLoadFlow';
 import { peekPreResolvedRobotImport } from './utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from './utils/usdSelectionPrewarm';
 import { scheduleUsdRuntimeStartupIdlePrewarm } from './utils/usdRuntimeStartupPrewarm';
 import { scheduleSourceCodeEditorStartupIdlePrewarm } from './utils/sourceCodeEditorStartupPrewarm';
-import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
+import {
+  cancelPendingUsdWorkspaceLoad,
+  commitResolvedRobotLoad,
+  getPendingUsdWorkspaceLoad,
+  type CommitResolvedRobotLoadOutcome,
+  type WorkspaceLoadIntent,
+} from './utils/commitResolvedRobotLoad';
 import { resolveUsdViewerRoundtripSelection } from './utils/usdViewerRoundtripSelection';
-import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
 import { resolveExportErrorMessage } from './utils/exportErrorMessage';
 import {
   mapRobotImportProgressToDocumentLoadPercent,
@@ -44,12 +47,7 @@ import {
   canProceedWithStandaloneImportAssetWarning,
   collectStandaloneImportSupportAssetPaths,
 } from './utils/importPackageAssetReferences';
-import {
-  useRobotStore,
-  useUIStore,
-  useSelectionStore,
-  useAssetsStore,
-} from '@/store';
+import { useUIStore, useAssetsStore } from '@/store';
 import type { InspectionReport, RobotFile, RobotState } from '@/types';
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
@@ -89,8 +87,8 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const loadRobotByNameRef = useRef<
     | ((
         file: RobotFile,
-        options?: { forceReload?: boolean; preserveAssemblyState?: boolean },
-      ) => Promise<void> | void)
+        options?: { forceReload?: boolean; intent?: WorkspaceLoadIntent },
+      ) => Promise<CommitResolvedRobotLoadOutcome | null> | CommitResolvedRobotLoadOutcome | null)
     | null
   >(null);
   const loadRequestIdRef = useRef(0);
@@ -99,7 +97,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const [shouldRenderAIConversationModal, setShouldRenderAIConversationModal] = useState(false);
   const [aiConversationLaunchContext, setAIConversationLaunchContext] =
     useState<AIConversationLaunchContext | null>(null);
-  const lastLoadSupportContextKeyRef = useRef<string | null>(null);
   const [exportDialogTarget, setExportDialogTarget] = useState<ExportTarget>({
     type: 'current',
   });
@@ -120,25 +117,10 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       isSettingsOpen: state.isSettingsOpen,
     })),
   );
-  const setAssembly = useRobotStore((state) => state.setAssembly);
   const t = translations[lang];
 
-  // Selection Store
-  const setSelection = useSelectionStore((state) => state.setSelection);
-
   // Assets Store
-  const { setOriginalUrdfContent, setOriginalFileFormat, setSelectedFile, setDocumentLoadState } =
-    useAssetsStore(
-      useShallow((state) => ({
-        setOriginalUrdfContent: state.setOriginalUrdfContent,
-        setOriginalFileFormat: state.setOriginalFileFormat,
-        setSelectedFile: state.setSelectedFile,
-        setDocumentLoadState: state.setDocumentLoadState,
-      })),
-    );
-
-  // Robot Store
-  const setRobot = useRobotStore((state) => state.setRobot);
+  const setDocumentLoadState = useAssetsStore((state) => state.setDocumentLoadState);
 
   const {
     toast,
@@ -227,37 +209,26 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const loadRobotFile = useCallback(
     async (
       requestedFile: RobotFile,
-      options?: { forceReload?: boolean; preserveAssemblyState?: boolean },
+      options?: { forceReload?: boolean; intent?: WorkspaceLoadIntent },
     ) => {
+      if ((options?.intent ?? 'replace') === 'replace') {
+        const pendingUsdLoad = getPendingUsdWorkspaceLoad();
+        if (pendingUsdLoad) {
+          cancelPendingUsdWorkspaceLoad(pendingUsdLoad.operationId, {
+            restoreDocumentSession: true,
+          });
+        }
+      }
       const liveAssetsState = useAssetsStore.getState();
+      const previousDocumentLoadState = structuredClone(
+        liveAssetsState.documentLoadState,
+      );
       const file = resolveUsdViewerRoundtripSelection(
         requestedFile,
         liveAssetsState.availableFiles,
       );
       const currentSelectedFile = liveAssetsState.selectedFile;
-      const nextLoadSupportContextKey = buildRobotLoadSupportContextKey({
-        availableFiles: liveAssetsState.availableFiles,
-        assets: liveAssetsState.assets,
-        allFileContents: liveAssetsState.allFileContents,
-      });
       const preResolvedImportResult = peekPreResolvedRobotImport(file);
-      if (
-        shouldSkipRedundantRobotReload({
-          forceReload: options?.forceReload,
-          currentSelectedFile,
-          currentDocumentLoadState: liveAssetsState.documentLoadState,
-          nextFile: file,
-          previousLoadSupportContextKey: lastLoadSupportContextKeyRef.current,
-          nextLoadSupportContextKey,
-        })
-      ) {
-        const currentAppMode = useUIStore.getState().appMode;
-        const nextAppMode = resolveAppModeAfterRobotContentChange(currentAppMode);
-        if (nextAppMode !== currentAppMode) {
-          setAppMode(nextAppMode);
-        }
-        return;
-      }
 
       const standaloneImportAssetWarning =
         preResolvedImportResult?.status === 'ready'
@@ -290,7 +261,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             format: file.format,
             error: message,
           });
-          return;
+          return null;
         }
       }
 
@@ -343,32 +314,22 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       if (preResolvedImportResult) {
         await waitForNextPaint();
         if (requestId !== loadRequestIdRef.current) {
-          return;
+          return null;
         }
 
-        if (shouldCommitResolvedRobotSelection(preResolvedImportResult)) {
-          lastLoadSupportContextKeyRef.current = nextLoadSupportContextKey;
-          commitResolvedRobotLoad({
-            assets: liveAssetsState.assets,
-            allFileContents: liveAssetsState.allFileContents,
-            availableFiles: liveAssetsState.availableFiles,
-            currentAssemblyState: useRobotStore.getState().assemblyState,
-            currentAppMode: useUIStore.getState().appMode,
-            file,
-            importResult: preResolvedImportResult,
-            markRobotBaselineSaved: () => markUnsavedChangesBaselineSaved('robot'),
-            onViewerReload: () => setViewerReloadKey((value) => value + 1),
-            preserveAssemblyState: options?.preserveAssemblyState,
-            reloadViewer: shouldReloadViewer,
-            setAppMode,
-            setAssembly,
-            setOriginalFileFormat,
-            setOriginalUrdfContent,
-            setRobot,
-            setSelectedFile,
-            setSelection,
-          });
-        }
+        const loadOutcome = shouldCommitResolvedRobotSelection(preResolvedImportResult)
+          ? commitResolvedRobotLoad({
+              currentAppMode: useUIStore.getState().appMode,
+              file,
+              importResult: preResolvedImportResult,
+              intent: options?.intent,
+              markWorkspaceBaselineSaved: markUnsavedChangesBaselineSaved,
+              onViewerReload: () => setViewerReloadKey((value) => value + 1),
+              previousDocumentLoadState,
+              reloadViewer: shouldReloadViewer,
+              setAppMode,
+            })
+          : null;
         applyResolvedRobotImport(file, preResolvedImportResult);
         if (
           !shouldReloadViewer &&
@@ -388,7 +349,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             totalCount: null,
           });
         }
-        return;
+        return loadOutcome;
       }
 
       const importResultPromise = resolveRobotFileDataWithWorker(
@@ -454,7 +415,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         importResult = await importResultPromise;
       } catch (error) {
         if (requestId !== loadRequestIdRef.current) {
-          return;
+          return null;
         }
 
         const message =
@@ -468,36 +429,26 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           error: message,
         });
         showToast(message, 'info');
-        return;
+        return null;
       }
 
       if (requestId !== loadRequestIdRef.current) {
-        return;
+        return null;
       }
 
-      if (shouldCommitResolvedRobotSelection(importResult)) {
-        lastLoadSupportContextKeyRef.current = nextLoadSupportContextKey;
-        commitResolvedRobotLoad({
-          assets: liveAssetsState.assets,
-          allFileContents: liveAssetsState.allFileContents,
-          availableFiles: liveAssetsState.availableFiles,
-          currentAssemblyState: useRobotStore.getState().assemblyState,
-          currentAppMode: useUIStore.getState().appMode,
-          file,
-          importResult,
-          markRobotBaselineSaved: () => markUnsavedChangesBaselineSaved('robot'),
-          onViewerReload: () => setViewerReloadKey((value) => value + 1),
-          preserveAssemblyState: options?.preserveAssemblyState,
-          reloadViewer: shouldReloadViewer,
-          setAppMode,
-          setAssembly,
-          setOriginalFileFormat,
-          setOriginalUrdfContent,
-          setRobot,
-          setSelectedFile,
-          setSelection,
-        });
-      }
+      const loadOutcome = shouldCommitResolvedRobotSelection(importResult)
+        ? commitResolvedRobotLoad({
+            currentAppMode: useUIStore.getState().appMode,
+            file,
+            importResult,
+            intent: options?.intent,
+            markWorkspaceBaselineSaved: markUnsavedChangesBaselineSaved,
+            onViewerReload: () => setViewerReloadKey((value) => value + 1),
+            previousDocumentLoadState,
+            reloadViewer: shouldReloadViewer,
+            setAppMode,
+          })
+        : null;
       applyResolvedRobotImport(file, importResult);
       if (!shouldReloadViewer && importResult.status === 'ready' && file.format === 'mjcf') {
         setDocumentLoadState({
@@ -513,17 +464,12 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           totalCount: null,
         });
       }
+      return loadOutcome;
     },
     [
       applyResolvedRobotImport,
       setDocumentLoadState,
       setAppMode,
-      setAssembly,
-      setOriginalFileFormat,
-      setOriginalUrdfContent,
-      setRobot,
-      setSelectedFile,
-      setSelection,
       setViewerReloadKey,
       showToast,
       t,
@@ -531,8 +477,8 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   );
 
   const handleLoadRobot = useCallback(
-    (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => {
-      loadRobotFile(file, options);
+    (file: RobotFile, options?: { intent?: WorkspaceLoadIntent }) => {
+      return loadRobotFile(file, options);
     },
     [loadRobotFile],
   );

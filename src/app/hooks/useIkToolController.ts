@@ -1,8 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { resolveDirectManipulableLinkIkJointIds } from '@/core/robot';
 import { resolveIkToolSelectionState } from '../utils/ikToolSelectionState';
-import type { RobotData } from '@/types';
-import type { InteractionSelection } from '@/types';
+import type { RobotData, WorkspaceSelection } from '@/types';
 
 export interface IkToolLinkOption {
   value: string;
@@ -11,12 +10,10 @@ export interface IkToolLinkOption {
 
 interface UseIkToolControllerParams {
   ikDragActive: boolean;
-  previewContextRobot: RobotData;
-  robotLinks: RobotData['links'];
-  robotJoints: RobotData['joints'];
-  rootLinkId: string | null;
-  selection: InteractionSelection | null;
-  setSelection: (selection: InteractionSelection) => void;
+  componentId: string;
+  robot: RobotData;
+  selection: WorkspaceSelection;
+  setSelection: (selection: WorkspaceSelection) => void;
 }
 
 interface ResolveIkToolLinkOptionsParams {
@@ -70,32 +67,45 @@ export function resolveIkToolLinkOptions({
 
 export function useIkToolController({
   ikDragActive,
-  previewContextRobot,
-  robotLinks,
-  robotJoints,
-  rootLinkId,
+  componentId,
+  robot,
   selection,
   setSelection,
 }: UseIkToolControllerParams) {
+  const localSelection = useMemo(() => {
+    const ref = selection?.entity;
+    if (!ref || !('componentId' in ref) || ref.componentId !== componentId) {
+      return { type: null, id: null } as const;
+    }
+    if (ref.type !== 'link' && ref.type !== 'joint' && ref.type !== 'tendon') {
+      return { type: null, id: null } as const;
+    }
+    return {
+      type: ref.type,
+      id: ref.entityId,
+      subType: selection.subType,
+      helperKind: selection.helperKind,
+    };
+  }, [componentId, selection]);
   const ikToolSelectionState = useMemo(
     () =>
       resolveIkToolSelectionState({
-        selection,
+        selection: localSelection,
         ikDragActive,
-        robotLinks: previewContextRobot.links,
-        robotJoints,
-        rootLinkId,
+        robotLinks: robot.links,
+        robotJoints: robot.joints,
+        rootLinkId: robot.rootLinkId,
       }),
-    [ikDragActive, previewContextRobot.links, robotJoints, rootLinkId, selection],
+    [ikDragActive, localSelection, robot],
   );
   const ikLinkOptions = useMemo(
     () =>
       resolveIkToolLinkOptions({
-        robotLinks: previewContextRobot.links,
-        robotJoints,
-        rootLinkId,
+        robotLinks: robot.links,
+        robotJoints: robot.joints,
+        rootLinkId: robot.rootLinkId,
       }),
-    [previewContextRobot.links, robotJoints, rootLinkId],
+    [robot],
   );
   const selectableIkLinkIds = useMemo(
     () => new Set(ikLinkOptions.map((option) => option.value)),
@@ -108,22 +118,20 @@ export function useIkToolController({
     }
 
     return (
-      previewContextRobot.links[selectedIkLinkId]?.name ??
-      robotLinks[selectedIkLinkId]?.name ??
+      robot.links[selectedIkLinkId]?.name ??
       selectedIkLinkId
     );
-  }, [previewContextRobot.links, robotLinks, selectedIkLinkId]);
+  }, [robot.links, selectedIkLinkId]);
   const currentIkLinkLabel = useMemo(() => {
     if (!ikToolSelectionState.currentLinkId) {
       return null;
     }
 
     return (
-      previewContextRobot.links[ikToolSelectionState.currentLinkId]?.name ??
-      robotLinks[ikToolSelectionState.currentLinkId]?.name ??
+      robot.links[ikToolSelectionState.currentLinkId]?.name ??
       ikToolSelectionState.currentLinkId
     );
-  }, [ikToolSelectionState.currentLinkId, previewContextRobot.links, robotLinks]);
+  }, [ikToolSelectionState.currentLinkId, robot.links]);
   const selectIkLink = useCallback(
     (linkId: string) => {
       if (!selectableIkLinkIds.has(linkId)) {
@@ -131,12 +139,11 @@ export function useIkToolController({
       }
 
       setSelection({
-        type: 'link',
-        id: linkId,
+        entity: { type: 'link', componentId, entityId: linkId },
         helperKind: 'ik-handle',
       });
     },
-    [selectableIkLinkIds, setSelection],
+    [componentId, selectableIkLinkIds, setSelection],
   );
 
   return {

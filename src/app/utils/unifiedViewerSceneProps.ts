@@ -6,8 +6,8 @@ import {
   type ViewerSceneBaseProps,
 } from '@/features/editor';
 import type { ViewerResourceScope } from '@/features/editor';
-import type { AssemblyState, AssemblyTransform, RobotData, RobotFile } from '@/types';
-import type { AssemblySelection } from '@/store/assemblySelectionStore';
+import type { AssemblyState, RobotData, RobotFile, WorkspaceSelection } from '@/types';
+import type { AssemblyScenePlacement, AssemblySceneProjection } from '@/core/robot';
 
 export const EMPTY_VIEWER_SELECTION = {
   type: null,
@@ -36,6 +36,7 @@ export interface UnifiedViewerSceneInteractionInput {
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
   onUpdate?: ViewerProps['onUpdate'];
+  onJointMotionCommit?: ViewerProps['onJointMotionCommit'];
   robot: RobotData;
   showCollision?: boolean;
   showCollisionAlwaysOnTop?: boolean;
@@ -47,33 +48,28 @@ export interface UnifiedViewerSceneInteractionInput {
   viewerReloadKey?: number;
 }
 
-export interface UnifiedViewerSceneAssemblyInput {
-  assemblyState?: AssemblyState | null;
-  assemblySelection?: AssemblySelection;
+export interface UnifiedViewerSceneWorkspaceInput {
+  workspace?: AssemblyState | null;
+  sceneProjection?: AssemblySceneProjection | null;
+  scenePlacement?: AssemblyScenePlacement | null;
+  workspaceSelection?: WorkspaceSelection;
   onAssemblyTransform?: ViewerProps['onAssemblyTransform'];
   onComponentTransform?: ViewerProps['onComponentTransform'];
   onBridgeTransform?: ViewerProps['onBridgeTransform'];
-  sourceSceneAssemblyComponentId?: string | null;
-  sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
-  showSourceSceneAssemblyComponentControls?: boolean;
-  onSourceSceneAssemblyComponentTransform?: (
-    componentId: string,
-    transform: AssemblyTransform,
-  ) => void;
 }
 
 interface BuildUnifiedViewerScenePropsArgs {
   controller: ViewerController;
   document: UnifiedViewerSceneDocumentInput;
   interaction: UnifiedViewerSceneInteractionInput;
-  assembly?: UnifiedViewerSceneAssemblyInput;
+  workspace?: UnifiedViewerSceneWorkspaceInput;
 }
 
 export function buildUnifiedViewerSceneProps({
   controller,
   document,
   interaction,
-  assembly = {},
+  workspace: workspaceInput = {},
 }: BuildUnifiedViewerScenePropsArgs): ViewerSceneBaseProps {
   const {
     viewerResourceScope,
@@ -96,6 +92,7 @@ export function buildUnifiedViewerSceneProps({
     onHover,
     onMeshSelect,
     onUpdate,
+    onJointMotionCommit,
     robot,
     showCollision,
     showCollisionAlwaysOnTop,
@@ -107,16 +104,14 @@ export function buildUnifiedViewerSceneProps({
     viewerReloadKey = 0,
   } = interaction;
   const {
-    assemblyState,
-    assemblySelection,
+    workspace,
+    sceneProjection,
+    scenePlacement,
+    workspaceSelection,
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
-    sourceSceneAssemblyComponentId,
-    sourceSceneAssemblyComponentTransform,
-    showSourceSceneAssemblyComponentControls = false,
-    onSourceSceneAssemblyComponentTransform,
-  } = assembly;
+  } = workspaceInput;
   const blocksReadOnlyModelInteraction = hasActivePreview || !modelInteractionEnabled;
   const previewBlocksInteraction = blocksReadOnlyModelInteraction || !active;
   const shouldRenderFromStructuredRobotState = !hasActivePreview;
@@ -138,16 +133,18 @@ export function buildUnifiedViewerSceneProps({
     mode: hasActivePreview ? 'editor' : mode,
     selection: blocksReadOnlyModelInteraction ? EMPTY_VIEWER_SELECTION : selection,
     hoveredSelection: blocksReadOnlyModelInteraction ? undefined : hoveredSelection,
+    interactionEnabled: !previewBlocksInteraction,
     hoverSelectionEnabled: !previewBlocksInteraction,
     onHover: previewBlocksInteraction ? undefined : onHover,
     onMeshSelect: previewBlocksInteraction ? undefined : onMeshSelect,
     onUpdate: blocksReadOnlyModelInteraction ? undefined : onUpdate,
+    onJointMotionCommit: blocksReadOnlyModelInteraction ? undefined : onJointMotionCommit,
     robotLinks: shouldRenderFromStructuredRobotState ? robot.links : undefined,
     robotJoints: shouldRenderFromStructuredRobotState ? robot.joints : undefined,
     robotData: shouldRenderFromStructuredRobotState ? robot : null,
     showCollision,
     showCollisionAlwaysOnTop,
-    focusTarget: blocksReadOnlyModelInteraction ? undefined : focusTarget,
+    focusTarget,
     onCollisionTransformPreview: blocksReadOnlyModelInteraction
       ? undefined
       : onCollisionTransformPreview,
@@ -155,22 +152,12 @@ export function buildUnifiedViewerSceneProps({
     isMeshPreview: hasActivePreview ? false : isMeshPreview,
     ikDragActive: blocksReadOnlyModelInteraction ? false : ikDragActive,
     runtimeInstanceKey: viewerReloadKey,
-    assemblyState: blocksReadOnlyModelInteraction ? null : assemblyState,
-    assemblySelection: blocksReadOnlyModelInteraction ? undefined : assemblySelection,
+    workspace: blocksReadOnlyModelInteraction ? null : (workspace ?? null),
+    sceneProjection: blocksReadOnlyModelInteraction ? null : (sceneProjection ?? null),
+    scenePlacement: blocksReadOnlyModelInteraction ? null : (scenePlacement ?? null),
+    workspaceSelection: blocksReadOnlyModelInteraction ? null : workspaceSelection,
     onAssemblyTransform: blocksReadOnlyModelInteraction ? undefined : onAssemblyTransform,
     onComponentTransform: blocksReadOnlyModelInteraction ? undefined : onComponentTransform,
     onBridgeTransform: blocksReadOnlyModelInteraction ? undefined : onBridgeTransform,
-    sourceSceneAssemblyComponentId: blocksReadOnlyModelInteraction
-      ? null
-      : sourceSceneAssemblyComponentId,
-    sourceSceneAssemblyComponentTransform: blocksReadOnlyModelInteraction
-      ? null
-      : sourceSceneAssemblyComponentTransform,
-    showSourceSceneAssemblyComponentControls: blocksReadOnlyModelInteraction
-      ? false
-      : showSourceSceneAssemblyComponentControls,
-    onSourceSceneAssemblyComponentTransform: blocksReadOnlyModelInteraction
-      ? undefined
-      : onSourceSceneAssemblyComponentTransform,
   });
 }

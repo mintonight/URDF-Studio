@@ -1,303 +1,49 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import React from 'react';
-import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
-import { JSDOM } from 'jsdom';
-import { DEFAULT_LINK } from '@/types/constants';
-import { useRobotStore } from '@/store';
-import type {
-  AssemblyState,
-  RobotData,
-  RobotFile,
-  UsdPreparedExportCache,
-} from '@/types';
+import React, { createRef } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
-import {
-  resolveUsdAssemblySeedRobotData,
-  useWorkspaceModeTransitions,
-} from './useWorkspaceModeTransitions.ts';
+import { createDefaultWorkspace } from '@/core/robot';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 
-function installDomEnvironment() {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-    url: 'http://localhost/',
-    pretendToBeVisual: true,
-  });
+import type { ProModeRoundtripSession } from '../appLayoutTypes';
+import { useWorkspaceModeTransitions } from './useWorkspaceModeTransitions.ts';
 
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    writable: true,
-    value: dom.window,
-  });
-  Object.defineProperty(globalThis, 'document', {
-    configurable: true,
-    writable: true,
-    value: dom.window.document,
-  });
-  Object.defineProperty(globalThis, 'DOMParser', {
-    configurable: true,
-    writable: true,
-    value: dom.window.DOMParser,
-  });
-  Object.defineProperty(globalThis, 'XMLSerializer', {
-    configurable: true,
-    writable: true,
-    value: dom.window.XMLSerializer,
-  });
-
-  return dom;
-}
-
-function renderWorkspaceModeTransitionsHook(
-  options: Partial<Parameters<typeof useWorkspaceModeTransitions>[0]> = {},
-) {
-  let hookValue: ReturnType<typeof useWorkspaceModeTransitions> | null = null as ReturnType<typeof useWorkspaceModeTransitions> | null;
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-
-  const activeFile =
-    options.previewFile ?? options.selectedFile ?? createUrdfFile('robots/new.urdf');
-  const robotData = createRobotData('new');
+test('mode switching derives from workspace projection without reseeding or mutating workspace', () => {
+  const workspace = createDefaultWorkspace('canonical');
+  useWorkspaceStore.getState().replaceWorkspace(workspace, { resetHistory: true });
+  const snapshotBefore = structuredClone(useWorkspaceStore.getState().workspace);
+  const sessionRef = createRef<ProModeRoundtripSession | null>();
+  sessionRef.current = null;
+  let hookValue: ReturnType<typeof useWorkspaceModeTransitions> | null = null;
 
   function Probe() {
     hookValue = useWorkspaceModeTransitions({
-      previewFile: activeFile,
+      previewFile: null,
       selectedFile: null,
-      availableFiles: [activeFile],
+      availableFiles: [],
       allFileContents: {},
       assets: {},
       getUsdPreparedExportCache: () => null,
-      robotName: robotData.name,
-      robotLinks: robotData.links,
-      robotJoints: robotData.joints,
-      rootLinkId: robotData.rootLinkId,
-      robotMaterials: robotData.materials,
-      closedLoopConstraints: robotData.closedLoopConstraints,
-      setRobot: () => {},
-      setSelection: () => {},
       showToast: () => {},
       t: {
         generateWorkspaceUrdfDisconnected: 'disconnected',
         generateWorkspaceUrdfUnavailable: 'unavailable',
-        generateWorkspaceUrdfSuccess: 'success',
-        addedComponent: 'added',
+        generateWorkspaceUrdfSuccess: 'generated {name}',
       },
       handleClosePreview: () => {},
-      prepareAssemblyComponentForInsert: () => new Promise(() => {}),
-      activateInsertedAssemblyComponent: () => {},
-      addComponent: useRobotStore.getState().addComponent,
-      initAssembly: useRobotStore.getState().initAssembly,
-      onLoadRobot: () => {},
-      pendingUsdAssemblyFileRef: { current: null },
-      proModeRoundtripSessionRef: { current: null },
-      ...options,
+      proModeRoundtripSessionRef: sessionRef,
     });
     return null;
   }
-
-  const root = createRoot(container);
-  flushSync(() => {
-    root.render(React.createElement(Probe));
-  });
-
-  assert.ok(hookValue, 'hook should render');
+  renderToStaticMarkup(React.createElement(Probe));
+  assert.ok(hookValue);
   const hook = hookValue as ReturnType<typeof useWorkspaceModeTransitions>;
+  hook.handleSwitchTreeEditorToProMode();
 
-  return {
-    hook,
-    cleanup() {
-      flushSync(() => {
-        root.unmount();
-      });
-      container.remove();
-    },
-  };
-}
-
-function resetAssemblyStore() {
-  useRobotStore.setState({
-    assemblyState: null,
-    assemblyRevision: 0,
-    pendingAutoGroundComponentIds: [],
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-}
-
-function createUrdfFile(name: string): RobotFile {
-  return {
-    name,
-    format: 'urdf',
-    content: '<robot name="demo"><link name="base_link" /></robot>',
-  };
-}
-
-function createSingleComponentAssembly(sourceFile: string): AssemblyState {
-  return {
-    name: 'assembly',
-    components: {
-      comp_old: {
-        id: 'comp_old',
-        name: 'old',
-        sourceFile,
-        robot: createRobotData('old'),
-        visible: true,
-      },
-    },
-    bridges: {},
-  };
-}
-
-function createUsdFile(name = 'unitree_model/Go2W/usd/go2w.usd'): RobotFile {
-  return {
-    name,
-    format: 'usd',
-    content: '',
-  };
-}
-
-function createRobotData(name: string): RobotData {
-  return {
-    name,
-    rootLinkId: 'base_link',
-    links: {
-      base_link: {
-        ...DEFAULT_LINK,
-        id: 'base_link',
-        name: 'base_link',
-      },
-    },
-    joints: {},
-  };
-}
-
-function createPreparedCache(fileName: string, robotData: RobotData): UsdPreparedExportCache {
-  return {
-    stageSourcePath: fileName,
-    robotData,
-    meshFiles: {},
-  };
-}
-
-test('resolveUsdAssemblySeedRobotData prefers prepared export cache for usd assembly seeding', () => {
-  const activeFile = createUsdFile();
-  const cachedRobotData = createRobotData('cached-go2w');
-
-  const result = resolveUsdAssemblySeedRobotData({
-    activeFile,
-    selectedFile: activeFile,
-    currentRobotData: createRobotData('live-go2w'),
-    getUsdPreparedExportCache: (fileName) => {
-      assert.equal(fileName, activeFile.name);
-      return createPreparedCache(fileName, cachedRobotData);
-    },
-  });
-
-  assert.equal(result.preResolvedRobotData, cachedRobotData);
-  assert.equal(result.preparedCache, null);
-  assert.equal(result.requiresRobotReload, false);
-});
-
-test('resolveUsdAssemblySeedRobotData reuses currently loaded usd robot data when cache is missing', () => {
-  const activeFile = createUsdFile();
-  const liveRobotData = createRobotData('live-go2w');
-
-  const result = resolveUsdAssemblySeedRobotData({
-    activeFile,
-    selectedFile: activeFile,
-    currentRobotData: liveRobotData,
-    getUsdPreparedExportCache: () => null,
-  });
-
-  assert.equal(result.preResolvedRobotData, liveRobotData);
-  assert.equal(result.preparedCache, null);
-  assert.equal(result.requiresRobotReload, false);
-});
-
-test('resolveUsdAssemblySeedRobotData requests reload instead of reading live usd scene snapshot fallback', () => {
-  const activeFile = createUsdFile();
-  let snapshotCalls = 0;
-
-  const options = {
-    activeFile,
-    selectedFile: createUsdFile('unitree_model/Go2/usd/go2.usd'),
-    currentRobotData: null,
-    getUsdPreparedExportCache: () => null,
-    getCurrentSceneSnapshot: () => {
-      snapshotCalls += 1;
-      assert.fail('scene snapshot fallback should not run for usd assembly seeding');
-    },
-  };
-
-  const result = resolveUsdAssemblySeedRobotData(options);
-
-  assert.equal(snapshotCalls, 0);
-  assert.equal(result.preResolvedRobotData, null);
-  assert.equal(result.preparedCache, null);
-  assert.equal(result.requiresRobotReload, true);
-});
-
-test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable seed data exists', () => {
-  const activeFile = createUsdFile();
-
-  const options = {
-    activeFile,
-    selectedFile: createUsdFile('unitree_model/Go2/usd/go2.usd'),
-    currentRobotData: {
-      name: 'invalid-live',
-      rootLinkId: '',
-      links: {},
-      joints: {},
-    },
-    getUsdPreparedExportCache: () => ({
-      robotData: {
-        name: 'invalid-cache',
-        rootLinkId: '',
-        links: {},
-        joints: {},
-      },
-    }),
-    getCurrentSceneSnapshot: () => {
-      assert.fail('scene snapshot fallback should not run when no usable seed data exists');
-    },
-  };
-
-  const result = resolveUsdAssemblySeedRobotData(options);
-
-  assert.equal(result.preResolvedRobotData, null);
-  assert.equal(result.preparedCache, null);
-  assert.equal(result.requiresRobotReload, true);
-});
-
-test('handleSwitchTreeEditorToProMode appends the active preview file instead of resetting an existing assembly', () => {
-  const dom = installDomEnvironment();
-  resetAssemblyStore();
-  useRobotStore.setState({
-    assemblyState: createSingleComponentAssembly('robots/old.urdf'),
-    assemblyRevision: 1,
-  });
-
-  const nextFile = createUrdfFile('robots/new.urdf');
-  const rendered = renderWorkspaceModeTransitionsHook({
-    previewFile: nextFile,
-    selectedFile: createUrdfFile('robots/selected.urdf'),
-  });
-
-  try {
-    flushSync(() => {
-      rendered.hook.handleSwitchTreeEditorToProMode();
-    });
-
-    const assemblyState = useRobotStore.getState().assemblyState;
-    assert.ok(assemblyState, 'assembly should stay initialized while new component prepares');
-    const components = Object.values(assemblyState.components);
-    assert.equal(components.length, 2);
-    assert.ok(components.some((component) => component.sourceFile === 'robots/old.urdf'));
-    assert.ok(components.some((component) => component.sourceFile === nextFile.name));
-  } finally {
-    rendered.cleanup();
-    dom.window.close();
-    resetAssemblyStore();
-  }
+  const committedSession = sessionRef.current as ProModeRoundtripSession | null;
+  assert.ok(committedSession?.baselineSnapshot);
+  assert.deepEqual(useWorkspaceStore.getState().workspace, snapshotBefore);
+  assert.equal(useWorkspaceStore.getState().history.past.length, 0);
 });

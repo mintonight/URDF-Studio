@@ -35,7 +35,7 @@ export function useSourceCodeEditorDocuments(
         onDownload: document.readOnly
           ? undefined
           : () => {
-              markUnsavedChangesBaselineSaved('robot');
+              markUnsavedChangesBaselineSaved();
             },
       })),
     [handleCodeChange, sourceCodeDocuments],

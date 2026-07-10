@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { useAppLayoutEffects } from './useAppLayoutEffects.ts';
+import { createDefaultWorkspace } from '@/core/robot';
 
 type FakeEntry = FileSystemEntry & {
   children?: FakeEntry[];
@@ -36,6 +37,7 @@ function installDomEnvironment() {
   const originalHTMLElement = globalThis.HTMLElement;
   const originalSVGElement = globalThis.SVGElement;
   const originalNode = globalThis.Node;
+  const originalLocalStorage = globalThis.localStorage;
 
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/',
@@ -71,6 +73,11 @@ function installDomEnvironment() {
     writable: true,
     value: dom.window.Node,
   });
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: dom.window.localStorage,
+  });
 
   return {
     dom,
@@ -82,6 +89,7 @@ function installDomEnvironment() {
       restoreGlobalProperty('HTMLElement', originalHTMLElement);
       restoreGlobalProperty('SVGElement', originalSVGElement);
       restoreGlobalProperty('Node', originalNode);
+      restoreGlobalProperty('localStorage', originalLocalStorage);
     },
   };
 }
@@ -154,8 +162,8 @@ function renderProbe(options: {
 
   function Probe() {
     const layoutEffects = useAppLayoutEffects({
-      robot: { links: {}, joints: {}, inspectionContext: undefined },
-      selection: { type: null, id: null },
+      workspace: createDefaultWorkspace('drop-test'),
+      selection: null,
       clearSelection: () => {},
       onFileDrop: options.onFileDrop,
       onDropError: options.onDropError ?? (() => {}),
@@ -188,7 +196,7 @@ function renderProbe(options: {
 
 async function waitForCondition(condition: () => boolean) {
   const start = Date.now();
-  while (Date.now() - start < 1000) {
+  while (Date.now() - start < 5000) {
     if (condition()) {
       return;
     }

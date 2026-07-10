@@ -1,87 +1,55 @@
 import { useCallback, useMemo } from 'react';
 import { GeometryType } from '@/types';
 import type { TranslationKeys } from '@/shared/i18n';
-import type { AssemblyState, RobotData } from '@/types';
+import type { AssemblyState, EntityRef, RobotData, WorkspaceSelection } from '@/types';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { beginCoordinatedWorkspaceTransaction } from '@/app/utils/pendingHistory';
 import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
 } from '@/features/property-editor';
 
-interface SelectionPayload {
-  type: 'link';
-  id: string;
-  subType: 'collision';
-  objectIndex?: number;
-}
-
 interface UseCollisionOptimizationWorkflowParams {
-  assemblyState: AssemblyState | null;
-  robotName: string;
-  robotLinks: RobotData['links'];
-  robotJoints: RobotData['joints'];
-  rootLinkId: string;
-  robotMaterials: RobotData['materials'];
-  setRobot: (data: RobotData) => void;
-  updateComponentRobot: (
-    componentId: string,
-    partialRobot: Partial<RobotData>,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  focusOn: (id: string) => void;
-  pulseSelection: (selection: SelectionPayload) => void;
-  setSelection: (selection: SelectionPayload) => void;
+  assemblyState: AssemblyState;
+  focusOn: (ref: EntityRef) => void;
+  pulseSelection: (selection: WorkspaceSelection) => void;
+  setSelection: (selection: WorkspaceSelection) => void;
   showToast: (message: string, type?: 'info' | 'success') => void;
   t: TranslationKeys;
 }
 
 export function useCollisionOptimizationWorkflow({
   assemblyState,
-  robotName,
-  robotLinks,
-  robotJoints,
-  rootLinkId,
-  robotMaterials,
-  setRobot,
-  updateComponentRobot,
   focusOn,
   pulseSelection,
   setSelection,
   showToast,
   t,
 }: UseCollisionOptimizationWorkflowParams) {
-  const collisionOptimizationSource = useMemo<CollisionOptimizationSource>(() => {
-    if (assemblyState) {
-      return {
-        kind: 'assembly',
-        assembly: assemblyState,
-      };
-    }
-
-    return {
-      kind: 'robot',
-      robot: {
-        name: robotName,
-        links: robotLinks,
-        joints: robotJoints,
-        rootLinkId,
-        materials: robotMaterials,
-      },
-    };
-  }, [assemblyState, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId]);
+  const collisionOptimizationSource = useMemo<CollisionOptimizationSource>(() => ({
+    kind: 'assembly',
+    assembly: assemblyState,
+  }), [assemblyState]);
 
   const handlePreviewCollisionOptimizationTarget = useCallback(
     (target: CollisionTargetRef) => {
-      const nextSelection = {
+      if (!target.componentId) return;
+      const ref = {
         type: 'link' as const,
-        id: target.linkId,
+        componentId: target.componentId,
+        entityId: target.linkId,
+      };
+      const nextSelection = {
+        entity: ref,
         subType: 'collision' as const,
         objectIndex: target.objectIndex,
       };
 
       setSelection(nextSelection);
       pulseSelection(nextSelection);
-      focusOn(target.linkId);
+      focusOn(ref);
     },
     [focusOn, pulseSelection, setSelection],
   );
@@ -97,34 +65,49 @@ export function useCollisionOptimizationWorkflow({
         '@/features/property-editor/collision_optimization'
       );
 
-      if (assemblyState) {
-        const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();
-        operations.forEach((operation) => {
-          if (!operation.componentId) return;
-          const bucket = operationsByComponent.get(operation.componentId) ?? [];
-          bucket.push(operation);
-          operationsByComponent.set(operation.componentId, bucket);
-        });
+      const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();
+      operations.forEach((operation) => {
+        if (!operation.componentId) return;
+        const bucket = operationsByComponent.get(operation.componentId) ?? [];
+        bucket.push(operation);
+        operationsByComponent.set(operation.componentId, bucket);
+      });
 
-        operationsByComponent.forEach((componentOperations, componentId) => {
-          const component = assemblyState.components[componentId];
-          if (!component) return;
+      const currentWorkspace = useWorkspaceStore.getState().workspace;
+      const replacements = Array.from(operationsByComponent, ([componentId, componentOperations]) => {
+        const component = currentWorkspace.components[componentId];
+        if (!component) return null;
+        return [componentId, {
+          ...component.robot,
+          links: applyCollisionOptimizationOperationsToLinks(
+            component.robot.links,
+            componentOperations,
+          ),
+        }] as const;
+      }).filter((entry): entry is readonly [string, RobotData] => entry !== null);
 
-          updateComponentRobot(componentId, {
-            links: applyCollisionOptimizationOperationsToLinks(
-              component.robot.links,
-              componentOperations,
-            ),
+      if (replacements.length > 0) {
+        const operationId = beginCoordinatedWorkspaceTransaction('Optimize collisions');
+        try {
+          replacements.forEach(([componentId, robot]) => {
+            const replaced = useWorkspaceStore.getState().replaceComponentRobot(
+              componentId,
+              robot,
+              { operationId, label: 'Optimize collisions' },
+            );
+            if (!replaced) {
+              throw new Error(`Failed to optimize collisions for component "${componentId}".`);
+            }
           });
-        });
-      } else {
-        setRobot({
-          name: robotName,
-          links: applyCollisionOptimizationOperationsToLinks(robotLinks, operations),
-          joints: robotJoints,
-          rootLinkId,
-          materials: robotMaterials,
-        });
+          if (!useWorkspaceStore.getState().commitWorkspaceTransaction(operationId)) {
+            throw new Error('Failed to commit collision optimization.');
+          }
+        } catch (error) {
+          useWorkspaceStore.getState().cancelWorkspaceTransaction(operationId);
+          throw error;
+        }
+        const assets = useAssetsStore.getState();
+        replacements.forEach(([componentId]) => assets.removeComponentSourceDraft(componentId));
       }
 
       const meshConvertedCount = operations.filter((operation) =>
@@ -140,15 +123,7 @@ export function useCollisionOptimizationWorkflow({
       showToast(message, 'success');
     },
     [
-      assemblyState,
-      robotJoints,
-      robotMaterials,
-      robotName,
-      rootLinkId,
-      setRobot,
       showToast,
-      robotLinks,
-      updateComponentRobot,
       t,
     ],
   );

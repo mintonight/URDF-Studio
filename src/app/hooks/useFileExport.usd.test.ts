@@ -9,7 +9,14 @@ import JSZip from 'jszip';
 
 import { useFileExport } from './useFileExport.ts';
 import { disposeUsdBinaryArchiveWorker } from '../utils/usdBinaryArchiveWorkerBridge.ts';
-import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
+import { useAssetsStore, useUIStore } from '@/store';
+import {
+  installExportTestRobot,
+  installExportTestWorkspace,
+  resetExportTestWorkspace,
+} from './file-export/exportTestWorkspace.ts';
+import { createSingleComponentWorkspace } from '@/core/robot';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import {
   GeometryType,
   type RobotFile,
@@ -169,12 +176,6 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useRobotStore.setState({
-    assemblyState: null,
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-
   useAssetsStore.setState({
     assets: {},
     availableFiles: [],
@@ -189,11 +190,10 @@ function resetStoresToBaseline() {
     },
     allFileContents: {},
     motorLibrary: {},
-    originalUrdfContent: '',
-    originalFileFormat: null,
+    componentSourceDrafts: {},
   });
 
-  useRobotStore.getState().resetRobot();
+  resetExportTestWorkspace();
 }
 
 function installDownloadMocks() {
@@ -626,7 +626,7 @@ test('useFileExport routes USD exports through usd export worker and binary arch
         createPreparedUsdExportCache('/robots/demo/demo.usd'),
       );
 
-    useRobotStore.getState().setRobot(createCurrentRobot());
+    installExportTestRobot(createCurrentRobot());
 
     const rendered = renderHook();
     const progressEvents: ExportProgressState[] = [];
@@ -652,7 +652,7 @@ test('useFileExport routes USD exports through usd export worker and binary arch
       assert.ok(progressEvents.some((event) => event.currentStep === 4));
       assert.ok(downloadMocks.clicked);
       assert.ok(downloadMocks.appendedAnchor);
-      assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usd.zip');
+      assert.equal(downloadMocks.appendedAnchor?.download, 'demo_usd.zip');
       assert.ok(downloadMocks.capturedBlob);
 
       const archive = await JSZip.loadAsync(await readBlobArrayBuffer(downloadMocks.capturedBlob));
@@ -708,7 +708,7 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
         createPreparedUsdExportCache('/robots/demo/demo.usd'),
       );
 
-    useRobotStore.getState().setRobot(createCurrentRobot());
+    installExportTestRobot(createCurrentRobot());
 
     const rendered = renderHook();
 
@@ -726,7 +726,7 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
       assert.equal(workerMocks.usdExportRequestCount, 1);
       assert.equal(workerMocks.usdBinaryRequestCount, 0);
       assert.ok(downloadMocks.clicked);
-      assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usda.zip');
+      assert.equal(downloadMocks.appendedAnchor?.download, 'demo_usda.zip');
       assert.ok(downloadMocks.capturedBlob);
     } finally {
       rendered.cleanup();
@@ -781,7 +781,7 @@ test('useFileExport prefers prepared USD bundle export over the viewer runtime e
           createPreparedUsdExportCache('/robots/demo/demo.usd'),
         );
 
-      useRobotStore.getState().setRobot(createCurrentRobot());
+      installExportTestRobot(createCurrentRobot());
 
       const rendered = renderHook();
 
@@ -799,7 +799,7 @@ test('useFileExport prefers prepared USD bundle export over the viewer runtime e
         assert.equal(workerMocks.usdBinaryRequestCount, 1);
         assert.equal(liveStageExport.callCount, 0);
         assert.ok(downloadMocks.clicked);
-        assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usd.zip');
+        assert.equal(downloadMocks.appendedAnchor?.download, 'demo_usd.zip');
         assert.ok(downloadMocks.capturedBlob);
       } finally {
         rendered.cleanup();
@@ -851,7 +851,7 @@ test('useFileExport rejects current USD export when only the viewer runtime expo
         error: null,
       });
 
-      useRobotStore.getState().setRobot(createCurrentRobot());
+      installExportTestRobot(createCurrentRobot());
 
       const rendered = renderHook();
 
@@ -872,6 +872,121 @@ test('useFileExport rejects current USD export when only the viewer runtime expo
       }
     } finally {
       liveStageExport.restore();
+    }
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    workerMocks.restore();
+    downloadMocks.restore();
+    domEnvironment.restore();
+  }
+});
+
+test('missing USD prepared cache does not block canonical URDF projection export', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const downloadMocks = installDownloadMocks();
+  try {
+    const selectedFile: RobotFile = {
+      name: 'robots/demo/demo.usd',
+      format: 'usd',
+      content: '#usda 1.0\n',
+    };
+    useAssetsStore.getState().setAvailableFiles([selectedFile]);
+    useAssetsStore.getState().setSelectedFile(selectedFile);
+    installExportTestRobot(createCurrentRobot());
+    const rendered = renderHook();
+    try {
+      const config = createUsdExportConfig();
+      config.format = 'urdf';
+      const result = await rendered.hook.handleExportWithConfig(config);
+      assert.deepEqual(result, { partial: false, warnings: [], issues: [] });
+      assert.equal(downloadMocks.clicked, true);
+      assert.equal(downloadMocks.appendedAnchor?.download, 'demo_urdf.zip');
+    } finally {
+      rendered.cleanup();
+    }
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    downloadMocks.restore();
+    domEnvironment.restore();
+  }
+});
+
+test('hidden USD component without cache does not block visible workspace USD export', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const downloadMocks = installDownloadMocks();
+  const workerMocks = installUsdExportPipelineWorkerMock();
+  try {
+    const visibleFile: RobotFile = {
+      name: 'robots/visible.urdf',
+      format: 'urdf',
+      content: '<robot name="visible"><link name="base_link" /></robot>',
+    };
+    const hiddenUsdFile: RobotFile = {
+      name: 'robots/hidden.usd',
+      format: 'usd',
+      content: '#usda 1.0\n',
+    };
+    useAssetsStore.getState().setAvailableFiles([visibleFile, hiddenUsdFile]);
+    useAssetsStore.getState().setSelectedFile(visibleFile);
+    installExportTestRobot(createCurrentRobot());
+    const workspace = structuredClone(useWorkspaceStore.getState().workspace);
+    workspace.components.hidden = createSingleComponentWorkspace(
+      createPreparedUsdExportCache(hiddenUsdFile.name).robotData,
+      {
+        componentId: 'hidden',
+        sourceFile: hiddenUsdFile.name,
+        visible: false,
+      },
+    ).components.hidden;
+    installExportTestWorkspace(workspace);
+
+    const rendered = renderHook();
+    try {
+      const result = await rendered.hook.handleExportWithConfig(createUsdExportConfig());
+      assert.deepEqual(result, { partial: false, warnings: [], issues: [] });
+      assert.equal(workerMocks.usdExportRequestCount, 1);
+      assert.equal(downloadMocks.clicked, true);
+    } finally {
+      rendered.cleanup();
+    }
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    workerMocks.restore();
+    downloadMocks.restore();
+    domEnvironment.restore();
+  }
+});
+
+test('library USD export uses its own prepared cache independent of current workspace', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const downloadMocks = installDownloadMocks();
+  const workerMocks = installUsdExportPipelineWorkerMock();
+  try {
+    const libraryFile: RobotFile = {
+      name: 'library/standalone.usd',
+      format: 'usd',
+      content: '#usda 1.0\n',
+    };
+    useAssetsStore.getState().setAvailableFiles([libraryFile]);
+    useAssetsStore.getState().setUsdPreparedExportCache(
+      libraryFile.name,
+      createPreparedUsdExportCache(libraryFile.name),
+    );
+    installExportTestRobot(createCurrentRobot());
+    const rendered = renderHook();
+    try {
+      const result = await rendered.hook.handleExportWithConfig(
+        createUsdExportConfig(),
+        { type: 'library-file', file: libraryFile },
+      );
+      assert.deepEqual(result, { partial: false, warnings: [], issues: [] });
+      assert.equal(workerMocks.usdExportRequestCount, 1);
+      assert.equal(downloadMocks.appendedAnchor?.download, 'standalone_usd.zip');
+    } finally {
+      rendered.cleanup();
     }
   } finally {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -917,7 +1032,7 @@ test('useFileExport fails fast before starting workers when USD worker export en
         createPreparedUsdExportCache('/robots/demo/demo.usd', 'meshes/base_link.fbx'),
       );
 
-    useRobotStore.getState().setRobot(createCurrentRobot('meshes/base_link.fbx'));
+    installExportTestRobot(createCurrentRobot('meshes/base_link.fbx'));
 
     const rendered = renderHook();
 

@@ -1,7 +1,6 @@
 interface ImportLimitEntry {
   path: string;
   size: number;
-  budgetSize?: number;
 }
 
 type ImportLimitFileInput = File | { file: File; relativePath?: string };
@@ -40,7 +39,7 @@ export function assertImportEntriesWithinLimits(
 
   let totalBytes = 0;
   for (const entry of entries) {
-    totalBytes += entry.budgetSize ?? entry.size;
+    totalBytes += entry.size;
     if (entry.size > MAX_IMPORT_SINGLE_FILE_BYTES) {
       throw new Error(
         `${label} file "${entry.path}" is too large (${entry.size} bytes). `

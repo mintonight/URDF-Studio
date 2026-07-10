@@ -20,21 +20,6 @@ interface RobotImportResultLike {
   reason?: string;
 }
 
-interface RobotLoadSupportContextKeyInput {
-  availableFiles: Array<Pick<RobotFile, 'name' | 'format'>>;
-  assets: Record<string, string>;
-  allFileContents: Record<string, string>;
-}
-
-interface ShouldSkipRedundantRobotReloadInput {
-  forceReload?: boolean;
-  currentSelectedFile: Pick<RobotFile, 'name' | 'format' | 'content' | 'blobUrl'> | null;
-  currentDocumentLoadState: DocumentLoadStateLike;
-  nextFile: Pick<RobotFile, 'name' | 'format' | 'content' | 'blobUrl'>;
-  previousLoadSupportContextKey: string | null;
-  nextLoadSupportContextKey: string;
-}
-
 interface StaleViewerDocumentLoadEventInput {
   isPreviewing: boolean;
   activeDocumentFileName: string | null;
@@ -68,74 +53,6 @@ interface ShouldReuseResolvedMjcfViewerRuntimeInput {
   nextFile: Pick<RobotFile, 'name' | 'format' | 'content'>;
   currentResolvedSource: ResolvedMjcfViewerSourceLike | null;
   nextResolvedSource: ResolvedMjcfViewerSourceLike | null;
-}
-
-function hashStringList(values: string[]): string {
-  let hash = 0x811c9dc5;
-
-  for (const value of values) {
-    for (let index = 0; index < value.length; index += 1) {
-      hash ^= value.charCodeAt(index);
-      hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-
-    hash ^= 0x1f;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-
-  return hash.toString(16).padStart(8, '0');
-}
-
-export function buildRobotLoadSupportContextKey({
-  availableFiles,
-  assets,
-  allFileContents,
-}: RobotLoadSupportContextKeyInput): string {
-  const fileEntries = availableFiles
-    .map((file) => `${file.format}:${file.name}`)
-    .sort((left, right) => left.localeCompare(right));
-  const assetKeys = Object.keys(assets).sort((left, right) => left.localeCompare(right));
-  const textKeys = Object.keys(allFileContents).sort((left, right) => left.localeCompare(right));
-
-  return [
-    `files:${fileEntries.length}:${hashStringList(fileEntries)}`,
-    `assets:${assetKeys.length}:${hashStringList(assetKeys)}`,
-    `text:${textKeys.length}:${hashStringList(textKeys)}`,
-  ].join('|');
-}
-
-export function shouldSkipRedundantRobotReload({
-  forceReload = false,
-  currentSelectedFile,
-  currentDocumentLoadState,
-  nextFile,
-  previousLoadSupportContextKey,
-  nextLoadSupportContextKey,
-}: ShouldSkipRedundantRobotReloadInput): boolean {
-  if (forceReload || !currentSelectedFile) {
-    return false;
-  }
-
-  const sameFile =
-    currentSelectedFile.name === nextFile.name &&
-    currentSelectedFile.format === nextFile.format &&
-    currentSelectedFile.content === nextFile.content &&
-    currentSelectedFile.blobUrl === nextFile.blobUrl;
-
-  if (!sameFile) {
-    return false;
-  }
-
-  const currentFileLoadErrored =
-    currentDocumentLoadState.status === 'error' &&
-    currentDocumentLoadState.fileName === currentSelectedFile.name &&
-    (currentDocumentLoadState.format ?? null) === (currentSelectedFile.format ?? null);
-
-  if (currentFileLoadErrored) {
-    return false;
-  }
-
-  return previousLoadSupportContextKey === nextLoadSupportContextKey;
 }
 
 export function shouldCommitResolvedRobotSelection(

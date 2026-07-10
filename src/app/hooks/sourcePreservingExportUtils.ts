@@ -1,6 +1,6 @@
 import { parseEditableRobotSource } from '@/app/utils/parseEditableRobotSource';
 import type { RobotFile, RobotState } from '@/types';
-import { createRobotSourceSnapshot } from './workspaceSourceSyncUtils';
+import { createRobotSourceSnapshot } from './workspace-source-sync/robot_source_snapshot';
 
 export type SourcePreservingExportFormat = Extract<
   RobotFile['format'],

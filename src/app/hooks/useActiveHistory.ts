@@ -1,26 +1,27 @@
 import { useMemo } from 'react';
-import { useCanRedo, useCanUndo, useRobotStore } from '@/store';
+
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { flushPendingHistory } from '../utils/pendingHistory';
 
 export function useActiveHistory() {
-  const robotUndo = useRobotStore((state) => state.undo);
-  const robotRedo = useRobotStore((state) => state.redo);
-  const robotCanUndo = useCanUndo();
-  const robotCanRedo = useCanRedo();
+  const undoWorkspace = useWorkspaceStore((state) => state.undo);
+  const redoWorkspace = useWorkspaceStore((state) => state.redo);
+  const canUndo = useWorkspaceStore((state) => state.canUndo());
+  const canRedo = useWorkspaceStore((state) => state.canRedo());
 
   return useMemo(
     () => ({
       undo: () => {
         flushPendingHistory();
-        robotUndo();
+        undoWorkspace();
       },
       redo: () => {
         flushPendingHistory();
-        robotRedo();
+        redoWorkspace();
       },
-      canUndo: robotCanUndo,
-      canRedo: robotCanRedo,
+      canUndo,
+      canRedo,
     }),
-    [robotCanRedo, robotCanUndo, robotRedo, robotUndo],
+    [canRedo, canUndo, redoWorkspace, undoWorkspace],
   );
 }

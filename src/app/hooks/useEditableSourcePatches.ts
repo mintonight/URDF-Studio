@@ -1,15 +1,16 @@
 import { useCallback } from 'react';
 
-import type { RobotFile, UrdfJoint, UrdfLink } from '@/types';
-
+import type { ComponentSourceDraft, UrdfJoint, UrdfLink } from '@/types';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import {
   buildEditableSourcePatchState,
   resolveEditablePatchTarget,
-  type EditableSourcePatchStateResult,
 } from './editableSourcePatchState';
 import {
   patchSdfJointLimitInSource,
   patchSdfModelNameInSource,
+  patchUrdfLinkInertialInSource,
   patchUrdfJointLimitInSource,
   patchUrdfRobotNameInSource,
 } from '../utils/jointEditableSourcePatch';
@@ -19,6 +20,7 @@ import {
   canPatchMJCFEditableSource,
   patchMJCFJointLimitInSource,
   patchMJCFRootModelNameInSource,
+  patchMJCFBodyInertialInSource,
   removeMJCFBodyCollisionGeomFromSource,
   removeMJCFBodyFromSource,
   renameMJCFEntitiesInSource,
@@ -26,409 +28,236 @@ import {
   type MJCFRenameOperation,
 } from '../utils/mjcfEditableSourcePatch';
 
-interface EditableSourceState {
-  selectedFile: RobotFile | null;
-  availableFiles: RobotFile[];
-  allFileContents: Record<string, string>;
-}
-
-interface EditableSourceSetters {
-  setSelectedFile: (file: RobotFile) => void;
-  setAvailableFiles: (files: RobotFile[]) => void;
-  setAllFileContents: (contents: Record<string, string>) => void;
-}
-
-interface UseEditableSourcePatchesParams extends EditableSourceState, EditableSourceSetters {
+interface UseEditableSourcePatchesParams {
   showToast: (message: string, type?: 'info' | 'success' | 'error') => void;
 }
 
-function applyEditableSourcePatchState(
-  result: EditableSourcePatchStateResult<RobotFile>,
-  currentState: EditableSourceState,
-  setters: EditableSourceSetters,
-) {
-  if (result.nextSelectedFile !== currentState.selectedFile && result.nextSelectedFile) {
-    setters.setSelectedFile(result.nextSelectedFile);
-  }
-
-  if (result.nextAvailableFiles !== currentState.availableFiles) {
-    setters.setAvailableFiles(result.nextAvailableFiles);
-  }
-
-  if (result.nextAllFileContents !== currentState.allFileContents) {
-    setters.setAllFileContents(result.nextAllFileContents);
-  }
+interface ComponentSourceTarget {
+  componentId: string;
+  expectedRobotSnapshotHash: string;
 }
 
-export function useEditableSourcePatches({
-  selectedFile,
-  availableFiles,
-  allFileContents,
-  setSelectedFile,
-  setAvailableFiles,
-  setAllFileContents,
-  showToast,
-}: UseEditableSourcePatchesParams) {
-  const commitNextContent = useCallback(
-    ({ sourceFileName, nextContent }: { sourceFileName?: string | null; nextContent: string }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
+type DraftPatcher = (draft: ComponentSourceDraft) => string | null;
 
-      if (!targetFileName || !targetFile) {
-        return false;
-      }
+function asPatchableSourceFile(draft: ComponentSourceDraft) {
+  return {
+    name: `component-draft/${draft.componentId}`,
+    format: draft.format,
+    content: draft.content,
+  };
+}
 
-      const patchState = buildEditableSourcePatchState({
-        selectedFile,
-        availableFiles,
-        allFileContents,
-        targetFile,
-        nextContent,
-      });
+/** Patch or invalidate exactly one component draft; library templates are never mutated. */
+export function applyComponentEditableSourcePatch({
+  componentId,
+  expectedRobotSnapshotHash,
+  patch,
+}: ComponentSourceTarget & { patch: DraftPatcher }): boolean {
+  const assets = useAssetsStore.getState();
+  const resolved = resolveEditablePatchTarget({
+    workspace: useWorkspaceStore.getState().workspace,
+    drafts: assets.componentSourceDrafts,
+    componentId,
+    expectedRobotSnapshotHash,
+  });
+  if (resolved.status === 'invalid') {
+    if (resolved.reason !== 'draft-missing') {
+      assets.removeComponentSourceDraft(componentId);
+    }
+    return false;
+  }
 
-      applyEditableSourcePatchState(
-        patchState,
-        { selectedFile, availableFiles, allFileContents },
-        { setSelectedFile, setAvailableFiles, setAllFileContents },
-      );
-      return true;
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-    ],
-  );
+  const nextContent = patch(resolved.draft);
+  if (nextContent === null) {
+    assets.removeComponentSourceDraft(componentId);
+    return false;
+  }
+  assets.setComponentSourceDraft(buildEditableSourcePatchState({
+    draft: resolved.draft,
+    nextContent,
+    currentRobotSnapshotHash: resolved.currentRobotSnapshotHash,
+  }));
+  return true;
+}
 
-  const patchEditableSourceAddChild = useCallback(
-    ({
-      sourceFileName,
-      parentLinkName,
-      linkName,
+export function useEditableSourcePatches({ showToast }: UseEditableSourcePatchesParams) {
+  const runPatch = useCallback((
+    target: ComponentSourceTarget,
+    patch: DraftPatcher,
+    errorLabel: string,
+  ) => {
+    try {
+      return applyComponentEditableSourcePatch({ ...target, patch });
+    } catch (error) {
+      useAssetsStore.getState().removeComponentSourceDraft(target.componentId);
+      console.error(errorLabel, error);
+      showToast(errorLabel, 'info');
+      return false;
+    }
+  }, [showToast]);
+
+  const patchEditableSourceAddChild = useCallback(({
+    parentLinkName,
+    linkName,
+    joint,
+    ...target
+  }: ComponentSourceTarget & {
+    parentLinkName: string;
+    linkName: string;
+    joint: UrdfJoint;
+  }) => runPatch(target, (draft) => {
+    const file = asPatchableSourceFile(draft);
+    if (!canPatchMJCFEditableSource(file)) return null;
+    return appendMJCFChildBodyToSource({
+      sourceContent: draft.content,
+      parentBodyName: parentLinkName,
+      childBodyName: linkName,
       joint,
-    }: {
-      sourceFileName?: string | null;
-      parentLinkName: string;
-      linkName: string;
-      joint: UrdfJoint;
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
+    });
+  }, `Failed to patch component source after adding ${linkName}`), [runPatch]);
 
-      try {
-        const nextContent = appendMJCFChildBodyToSource({
-          sourceContent: targetFile.content,
-          parentBodyName: parentLinkName,
-          childBodyName: linkName,
-          joint,
-        });
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after adding child body to "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
+  const patchEditableSourceDeleteSubtree = useCallback(({
+    linkName,
+    ...target
+  }: ComponentSourceTarget & { linkName: string }) => runPatch(target, (draft) => {
+    if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+    return removeMJCFBodyFromSource(draft.content, linkName);
+  }, `Failed to patch component source after deleting ${linkName}`), [runPatch]);
 
-  const patchEditableSourceDeleteSubtree = useCallback(
-    ({ sourceFileName, linkName }: { sourceFileName?: string | null; linkName: string }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = removeMJCFBodyFromSource(targetFile.content, linkName);
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after deleting subtree "${linkName}" from "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
-
-  const patchEditableSourceAddCollisionBody = useCallback(
-    ({
-      sourceFileName,
-      linkName,
+  const patchEditableSourceAddCollisionBody = useCallback(({
+    linkName,
+    geometry,
+    ...target
+  }: ComponentSourceTarget & {
+    linkName: string;
+    geometry: UrdfLink['collision'];
+  }) => runPatch(target, (draft) => {
+    if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+    return appendMJCFBodyCollisionGeomToSource({
+      sourceContent: draft.content,
+      bodyName: linkName,
       geometry,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      geometry: UrdfLink['collision'];
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
+    });
+  }, `Failed to patch collision source for ${linkName}`), [runPatch]);
 
-      try {
-        const nextContent = appendMJCFBodyCollisionGeomToSource({
-          sourceContent: targetFile.content,
-          bodyName: linkName,
-          geometry,
-        });
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after adding collision geom to "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
+  const patchEditableSourceDeleteCollisionBody = useCallback(({
+    linkName,
+    objectIndex,
+    ...target
+  }: ComponentSourceTarget & { linkName: string; objectIndex: number }) => runPatch(
+    target,
+    (draft) => {
+      if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+      return removeMJCFBodyCollisionGeomFromSource(draft.content, linkName, objectIndex);
     },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
+    `Failed to delete collision source for ${linkName}`,
+  ), [runPatch]);
 
-  const patchEditableSourceDeleteCollisionBody = useCallback(
-    ({
-      sourceFileName,
-      linkName,
-      objectIndex,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      objectIndex: number;
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = removeMJCFBodyCollisionGeomFromSource(
-          targetFile.content,
-          linkName,
-          objectIndex,
-        );
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after deleting collision geom from "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
-
-  const patchEditableSourceUpdateCollisionBody = useCallback(
-    ({
-      sourceFileName,
+  const patchEditableSourceUpdateCollisionBody = useCallback(({
+    linkName,
+    objectIndex,
+    geometry,
+    ...target
+  }: ComponentSourceTarget & {
+    linkName: string;
+    objectIndex: number;
+    geometry: UrdfLink['collision'];
+  }) => runPatch(target, (draft) => {
+    if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+    return updateMJCFBodyCollisionGeomInSource(
+      draft.content,
       linkName,
       objectIndex,
       geometry,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      objectIndex: number;
-      geometry: UrdfLink['collision'];
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
+    );
+  }, `Failed to update collision source for ${linkName}`), [runPatch]);
 
-      try {
-        const nextContent = updateMJCFBodyCollisionGeomInSource(
-          targetFile.content,
-          linkName,
-          objectIndex,
-          geometry,
-        );
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after updating collision geom in "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
+  const patchEditableSourceRobotName = useCallback(({
+    name,
+    ...target
+  }: ComponentSourceTarget & { name: string }) => runPatch(target, (draft) => {
+    if (draft.format === 'urdf' || draft.format === 'xacro') {
+      return patchUrdfRobotNameInSource(draft.content, name);
+    }
+    if (draft.format === 'sdf') return patchSdfModelNameInSource(draft.content, name);
+    if (canPatchMJCFEditableSource(asPatchableSourceFile(draft))) {
+      return patchMJCFRootModelNameInSource(draft.content, name);
+    }
+    return null;
+  }, `Failed to patch component robot name to ${name}`), [runPatch]);
 
-  const patchEditableSourceRobotName = useCallback(
-    ({
-      sourceFileName,
-      name,
-    }: {
-      sourceFileName?: string | null;
-      name: string;
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (!targetFileName || !targetFile) {
-        return;
-      }
-
-      try {
-        if (targetFile.format === 'urdf' || targetFile.format === 'xacro') {
-          const nextContent = patchUrdfRobotNameInSource(targetFile.content, name);
-          commitNextContent({ sourceFileName: targetFileName, nextContent });
-          return;
-        }
-
-        if (targetFile.format === 'sdf') {
-          const nextContent = patchSdfModelNameInSource(targetFile.content, name);
-          commitNextContent({ sourceFileName: targetFileName, nextContent });
-          return;
-        }
-
-        if (canPatchMJCFEditableSource(targetFile)) {
-          const nextContent = patchMJCFRootModelNameInSource(targetFile.content, name);
-          commitNextContent({ sourceFileName: targetFileName, nextContent });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch robot name in editable source "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch robot name in ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
-
-  const patchEditableSourceRenameEntities = useCallback(
-    ({
-      sourceFileName,
-      operations,
-    }: {
-      sourceFileName?: string | null;
-      operations: MJCFRenameOperation[];
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
+  const patchEditableSourceRenameEntities = useCallback(({
+    operations,
+    ...target
+  }: ComponentSourceTarget & { operations: MJCFRenameOperation[] }) => runPatch(
+    target,
+    (draft) => {
       if (
-        !targetFileName ||
-        !operations.length ||
-        !targetFile ||
-        !canPatchMJCFEditableSource(targetFile)
-      ) {
-        return;
-      }
-
-      try {
-        const nextContent = renameMJCFEntitiesInSource(targetFile.content, operations);
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after renaming entities in "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
+        operations.length === 0
+        || !canPatchMJCFEditableSource(asPatchableSourceFile(draft))
+      ) return null;
+      return renameMJCFEntitiesInSource(draft.content, operations);
     },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
+    'Failed to rename entities in component source',
+  ), [runPatch]);
 
-  const patchEditableSourceUpdateJointLimit = useCallback(
-    ({
-      sourceFileName,
+  const patchEditableSourceUpdateJointLimit = useCallback(({
+    jointName,
+    jointType,
+    limit,
+    ...target
+  }: ComponentSourceTarget & {
+    jointName: string;
+    jointType: UrdfJoint['type'];
+    limit: NonNullable<UrdfJoint['limit']>;
+  }) => runPatch(target, (draft) => {
+    if (draft.format === 'urdf' || draft.format === 'xacro') {
+      return patchUrdfJointLimitInSource({
+        sourceContent: draft.content,
+        jointName,
+        jointType,
+        limit,
+      });
+    }
+    if (draft.format === 'sdf') {
+      return patchSdfJointLimitInSource({
+        sourceContent: draft.content,
+        jointName,
+        jointType,
+        limit,
+      });
+    }
+    if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+    return patchMJCFJointLimitInSource({
+      sourceContent: draft.content,
       jointName,
       jointType,
       limit,
-    }: {
-      sourceFileName?: string | null;
-      jointName: string;
-      jointType: UrdfJoint['type'];
-      limit: NonNullable<UrdfJoint['limit']>;
-    }) => {
-      const { targetFileName, targetFile } = resolveEditablePatchTarget({
-        selectedFile,
-        availableFiles,
-        sourceFileName,
-      });
-      if (
-        !targetFileName ||
-        !targetFile ||
-        (
-          targetFile.format !== 'urdf' &&
-          targetFile.format !== 'xacro' &&
-          targetFile.format !== 'sdf' &&
-          !canPatchMJCFEditableSource(targetFile)
-        )
-      ) {
-        return;
-      }
+    });
+  }, `Failed to patch joint limit for ${jointName}`), [runPatch]);
 
-      try {
-        const nextContent =
-          targetFile.format === 'urdf' || targetFile.format === 'xacro'
-            ? patchUrdfJointLimitInSource({
-                sourceContent: targetFile.content,
-                jointName,
-                jointType,
-                limit,
-              })
-            : targetFile.format === 'sdf'
-              ? patchSdfJointLimitInSource({
-                  sourceContent: targetFile.content,
-                  jointName,
-                  jointType,
-                  limit,
-                })
-              : patchMJCFJointLimitInSource({
-                  sourceContent: targetFile.content,
-                  jointName,
-                  jointType,
-                  limit,
-                });
-        commitNextContent({ sourceFileName: targetFileName, nextContent });
-      } catch (error) {
-        console.error(
-          `Failed to patch editable joint limits for "${jointName}" in "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch joint limits in ${targetFileName}`, 'info');
-      }
-    },
-    [availableFiles, commitNextContent, selectedFile, showToast],
-  );
+  const patchEditableSourceUpdateLinkInertial = useCallback(({
+    linkName,
+    inertial,
+    ...target
+  }: ComponentSourceTarget & {
+    linkName: string;
+    inertial: NonNullable<UrdfLink['inertial']>;
+  }) => runPatch(target, (draft) => {
+    if (draft.format === 'urdf' || draft.format === 'xacro') {
+      return patchUrdfLinkInertialInSource({
+        sourceContent: draft.content,
+        linkName,
+        inertial,
+      });
+    }
+    if (!canPatchMJCFEditableSource(asPatchableSourceFile(draft))) return null;
+    return patchMJCFBodyInertialInSource({
+      sourceContent: draft.content,
+      bodyName: linkName,
+      inertial,
+    });
+  }, `Failed to patch inertial source for ${linkName}`), [runPatch]);
 
   return {
     patchEditableSourceAddChild,
@@ -437,6 +266,7 @@ export function useEditableSourcePatches({
     patchEditableSourceDeleteCollisionBody,
     patchEditableSourceUpdateCollisionBody,
     patchEditableSourceUpdateJointLimit,
+    patchEditableSourceUpdateLinkInertial,
     patchEditableSourceRobotName,
     patchEditableSourceRenameEntities,
   };

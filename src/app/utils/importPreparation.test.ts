@@ -1231,7 +1231,7 @@ test('prepareImportPayload budgets loose URDF and MJCF mesh assets as blob-backe
   );
 });
 
-test('prepareImportPayload still rejects loose text definitions over the total import budget', async () => {
+test('prepareImportPayload accepts loose text definitions without a total-size budget', async () => {
   const reportedLargeDefinitionBytes = 300 * 1024 * 1024;
   const files = [
     withReportedFileSize(
@@ -1244,14 +1244,15 @@ test('prepareImportPayload still rejects loose text definitions over the total i
     ),
   ];
 
-  await assert.rejects(
-    () =>
-      prepareImportPayload({
-        files,
-        existingPaths: [],
-        preResolvePreferredImport: false,
-      }),
-    /Import is too large/,
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.deepEqual(
+    result.robotFiles.map((file) => file.name).sort(),
+    ['robot/urdf/demo_a.urdf', 'robot/urdf/demo_b.urdf'],
   );
 });
 
@@ -2788,20 +2789,71 @@ test('prepareImportPayload drops unsupported loose files from the visible asset 
   assert.equal(result.preResolvedImports[0]?.fileName, 'robot/demo.urdf');
 });
 
-test('prepareImportPayload rejects loose imports with too many files before parsing', async () => {
-  const files = Array.from({ length: 2001 }, (_, index) =>
+test('prepareImportPayload accepts broad loose folder imports without a file-count cap', async () => {
+  const files = [
     createLooseFile(
-      `mesh-${index}.stl`,
-      '',
-      `robot/meshes/mesh-${index}.stl`,
+      'scene.xml',
+      `<mujoco model="demo">
+  <worldbody>
+    <body name="base" />
+  </worldbody>
+</mujoco>`,
+      'mujoco_menagerie-main/demo/scene.xml',
     ),
-  );
+    ...Array.from({ length: 2142 }, (_, index) =>
+      createLooseFile(
+        `mesh-${index}.stl`,
+        '',
+        `mujoco_menagerie-main/demo/assets/mesh-${index}.stl`,
+      ),
+    ),
+  ];
 
-  await assert.rejects(
-    prepareImportPayload({
-      files,
-      existingPaths: [],
-    }),
-    /Import contains too many files \(2001\)\. Maximum: 2000\./i,
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'mujoco_menagerie-main/demo/scene.xml');
+  assert.equal(result.assetFiles.length, 2142);
+  assert.equal(
+    result.robotFiles.some((file) => file.name === 'mujoco_menagerie-main/demo/scene.xml'),
+    true,
   );
+});
+
+test('prepareImportPayload accepts broad loose folder imports with unreferenced large OBJ assets', async () => {
+  const reportedObjBytes = 8 * 1024 * 1024;
+  const files = [
+    createLooseFile(
+      'scene.xml',
+      `<mujoco model="demo">
+  <worldbody>
+    <body name="base" />
+  </worldbody>
+</mujoco>`,
+      'mujoco_menagerie-main/demo/scene.xml',
+    ),
+    ...Array.from({ length: 70 }, (_, index) =>
+      withReportedFileSize(
+        createLooseFile(
+          `mesh-${index}.obj`,
+          '',
+          `mujoco_menagerie-main/other_robot/assets/mesh-${index}.obj`,
+        ),
+        reportedObjBytes,
+      ),
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'mujoco_menagerie-main/demo/scene.xml');
+  assert.equal(result.assetFiles.length, 70);
+  assert.equal(result.textFiles.length, 0);
 });

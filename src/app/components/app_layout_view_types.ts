@@ -10,11 +10,11 @@ import type { WorkspaceSidebars } from './workspace/WorkspaceSidebars';
 import type { WorkspaceViewerLayer } from './workspace/WorkspaceViewerLayer';
 import type { SnapshotPreviewSession } from './snapshot-preview/types';
 import type { AppLayoutProps } from '../appLayoutTypes';
-import type { PropertyEditorSelectionContext } from '../utils/propertyEditorSelectionContext';
 import type { ToolMode } from '@/features/editor';
 import type {
   SnapshotCaptureAction,
   SnapshotCaptureOptions,
+  SnapshotCaptureProgress,
   SnapshotPreviewAction,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import type { Language, TranslationKeys } from '@/shared/i18n';
@@ -90,15 +90,13 @@ export interface AppLayoutWorkspaceChromeProps {
 }
 
 export interface AppLayoutViewerSectionProps {
-  viewerRobot: ViewerProps['robot'];
-  editorRobot: ViewerProps['editorRobot'];
+  workspace: ViewerProps['workspace'];
+  sceneProjection: ViewerProps['sceneProjection'];
+  scenePlacement: ViewerProps['scenePlacement'];
   mergedAppMode: ViewerProps['mode'];
-  handleViewerSelectWithBridgePreview: ViewerProps['onSelect'];
-  handleViewerMeshSelectWithAssemblyClear: ViewerProps['onMeshSelect'];
-  handleHover: ViewerProps['onHover'] & PropertyEditorProps['onHover'];
-  handleUpdate: ViewerProps['onUpdate'] &
-    TreeEditorProps['onUpdate'] &
-    PropertyEditorProps['onUpdate'];
+  handleViewerSelect: ViewerProps['onSelect'];
+  handleHover: ViewerProps['onHover'];
+  handleUpdate: ViewerProps['onUpdate'];
   viewerAssets: ViewerProps['assets'];
   allFileContents: ViewerProps['allFileContents'];
   showVisual: TreeEditorProps['showVisual'];
@@ -118,17 +116,12 @@ export interface AppLayoutViewerSectionProps {
   >;
   jointAngleState: ViewerProps['jointAngleState'];
   jointMotionState: ViewerProps['jointMotionState'];
-  handleJointChange: ViewerProps['onJointChange'];
-  selection: AppLayoutOverlaysProps['selection'];
+  selection: ViewerProps['selection'];
   focusTarget: ViewerProps['focusTarget'];
   selectedFile: RobotFile | null;
   handleWorkspaceTransformPendingChange: ViewerProps['onTransformPendingChange'];
   handleCollisionTransformPreview: ViewerProps['onCollisionTransformPreview'];
   handleCollisionTransform: ViewerProps['onCollisionTransform'];
-  normalizedAssemblyState: AppLayoutOverlaysProps['assemblyState'];
-  shouldRenderAssembly: boolean;
-  assemblySelection: ViewerProps['assemblySelection'];
-  sourceSceneAssemblyComponentId: ViewerProps['sourceSceneAssemblyComponentId'];
   handleAssemblyTransform: ViewerProps['onAssemblyTransform'];
   handleComponentTransform: ViewerProps['onComponentTransform'];
   handleBridgeTransform: ViewerProps['onBridgeTransform'];
@@ -145,18 +138,17 @@ export interface AppLayoutViewerSectionProps {
 }
 
 export interface AppLayoutSidebarsProps {
-  previewContextRobot: TreeEditorProps['robot'];
-  handleSelectWithAssemblyClear: TreeEditorProps['onSelect'] & PropertyEditorProps['onSelect'];
-  handleSelectGeometryWithAssemblyClear: TreeEditorProps['onSelectGeometry'] &
+  workspace: TreeEditorProps['workspace'];
+  activeComponentId: TreeEditorProps['activeComponentId'];
+  selection: PropertyEditorProps['selection'];
+  handleSelect: TreeEditorProps['onSelect'] & PropertyEditorProps['onSelect'];
+  handleSelectGeometry: TreeEditorProps['onSelectGeometry'] &
     PropertyEditorProps['onSelectGeometry'];
   handleFocus: TreeEditorProps['onFocus'];
   handleAddChild: TreeEditorProps['onAddChild'];
   handleAddCollisionBody: TreeEditorProps['onAddCollisionBody'];
   handleDelete: TreeEditorProps['onDelete'];
-  handleNameChange: TreeEditorProps['onNameChange'];
-  handleUpdate: ViewerProps['onUpdate'] &
-    TreeEditorProps['onUpdate'] &
-    PropertyEditorProps['onUpdate'];
+  handleUpdate: TreeEditorProps['onUpdate'] & PropertyEditorProps['onUpdate'];
   showVisual: TreeEditorProps['showVisual'];
   handleSetShowVisual: TreeEditorProps['setShowVisual'];
   mergedAppMode: ViewerProps['mode'];
@@ -171,7 +163,6 @@ export interface AppLayoutSidebarsProps {
   handleRequestLoadRobot: TreeEditorProps['onRequestLoadRobot'];
   selectedFile: RobotFile | null;
   viewerSourceFilePath: ViewerProps['sourceFilePath'];
-  normalizedAssemblyState: AppLayoutOverlaysProps['assemblyState'];
   handleAddComponent: TreeEditorProps['onAddComponent'];
   handleDeleteLibraryFile: TreeEditorProps['onDeleteLibraryFile'];
   handleDeleteLibraryFolder: TreeEditorProps['onDeleteLibraryFolder'];
@@ -179,16 +170,11 @@ export interface AppLayoutSidebarsProps {
   handleDeleteAllLibraryFiles: TreeEditorProps['onDeleteAllLibraryFiles'];
   handleExportLibraryFile: TreeEditorProps['onExportLibraryFile'];
   handleCreateBridge: TreeEditorProps['onCreateBridge'];
-  removeComponent: TreeEditorProps['onRemoveComponent'];
-  removeBridge: TreeEditorProps['onRemoveBridge'];
-  handleRenameComponent: TreeEditorProps['onRenameComponent'];
-  handleSwitchTreeEditorToProMode: TreeEditorProps['onSwitchToProMode'];
-  handleRequestSwitchTreeEditorToStructure: TreeEditorProps['onRequestSwitchToStructure'];
   isPreviewingWorkspaceSource: boolean;
   viewConfig: AppLayoutProps['viewConfig'];
   setViewConfig: AppLayoutProps['setViewConfig'];
   handleJointPreview: TreeEditorProps['onJointAnglePreview'];
-  handleJointChange: ViewerProps['onJointChange'];
+  handleJointChange: TreeEditorProps['onJointAngleChange'];
   previewFile: FilePreviewWindowProps['file'];
   previewRobot: FilePreviewWindowProps['previewRobot'];
   filePreview: FilePreviewWindowProps['previewState'];
@@ -196,8 +182,7 @@ export interface AppLayoutSidebarsProps {
   allFileContents: ViewerProps['allFileContents'];
   documentLoadState: FilePreviewWindowProps['documentLoadState'];
   handleClosePreview: FilePreviewWindowProps['onClose'];
-  propertyEditorSelectionContext: PropertyEditorSelectionContext;
-  handleHover: ViewerProps['onHover'] & PropertyEditorProps['onHover'];
+  handleHover: TreeEditorProps['onHover'];
   handleUploadAsset: PropertyEditorProps['onUploadAsset'];
   motorLibrary: PropertyEditorProps['motorLibrary'];
   t: TranslationKeys;
@@ -206,11 +191,13 @@ export interface AppLayoutSidebarsProps {
 export interface AppLayoutSnapshotSectionProps {
   isOpen: boolean;
   isCapturing: boolean;
+  captureProgress: SnapshotCaptureProgress | null;
   lang: Language;
   previewSession: SnapshotPreviewSession | null;
   onPreviewCaptureActionChange: (action: SnapshotCaptureAction | null) => void;
   onClose: () => void;
   onCapture: (options: SnapshotCaptureOptions) => Promise<void>;
+  onCancelCapture: () => void;
   loadingLabel: string;
 }
 

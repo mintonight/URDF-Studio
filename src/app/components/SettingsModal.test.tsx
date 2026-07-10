@@ -184,7 +184,7 @@ test('SettingsModal removes drag listeners when unmounted mid-drag', async () =>
   }
 });
 
-test('SettingsModal moves to the front when activated', async () => {
+test('SettingsModal opens at the front and stays there when activated', async () => {
   const { dom, container, root } = createComponentRoot();
   const initialState = useUIStore.getState();
 
@@ -203,9 +203,9 @@ test('SettingsModal moves to the front when activated', async () => {
     assert.ok(panel, 'settings modal should render');
     assert.equal(panel.className.includes('z-[100]'), false);
     assert.ok(
-      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
-        useUIStore.getState().getManagedWindowZIndex('settings'),
-      'source code should start above settings in the default order',
+      useUIStore.getState().getManagedWindowZIndex('settings') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'an opened settings window should immediately move above source code',
     );
 
     await act(async () => {

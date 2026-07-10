@@ -125,7 +125,6 @@ export function AppLayoutOverlays({
             onClose={onCloseBridgeModal}
             onPreviewChange={onPreviewBridgeChange}
             onCreate={onCreateBridge}
-            assemblyState={assemblyState}
             lang={lang}
           />
         </Suspense>

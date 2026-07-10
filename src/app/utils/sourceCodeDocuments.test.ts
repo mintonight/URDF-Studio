@@ -1,498 +1,268 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
+import { parseURDF } from '@/core/parsers';
+import { createComponentSourceDraft, createSingleComponentWorkspace } from '@/core/robot';
 import {
-  DEFAULT_LINK,
   DEFAULT_JOINT,
+  DEFAULT_LINK,
   JointType,
   type AssemblyState,
+  type RobotData,
   type RobotFile,
 } from '@/types';
 import {
+  buildCanonicalWorkspaceSourceDocuments,
   buildSourceCodeDocuments,
-  buildWorkspaceAssemblySourceCodeDocuments,
 } from './sourceCodeDocuments.ts';
 
-test('buildSourceCodeDocuments adds xacro include tabs for related source files', () => {
-  const activeSourceFile: RobotFile = {
-    name: 'robots/demo_pkg/xacro/robot.xacro',
-    format: 'xacro',
-    content: `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
-  <!-- <xacro:include filename="ignored/commented.xacro" /> -->
-  <xacro:include ns="parts" filename="parts/link.xacro" />
-</robot>`,
-  };
+const dom = new JSDOM('<!doctype html><html><body></body></html>');
+globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 
-  const documents = buildSourceCodeDocuments({
-    activeSourceFile,
-    sourceCodeContent: activeSourceFile.content,
-    sourceCodeDocumentFlavor: 'xacro',
-    availableFiles: [activeSourceFile],
-    allFileContents: {
-      'robots/demo_pkg/xacro/parts/link.xacro': `<xacro:robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parts">
-  <xacro:include ns="gazebo" filename="../urdf/demo.gazebo" />
-</xacro:robot>`,
-      'robots/demo_pkg/urdf/demo.gazebo': `<gazebo reference="base_link">
-  <material>Gazebo/Orange</material>
-</gazebo>`,
-    },
-  });
-
-  assert.ok(documents);
-  assert.deepEqual(
-    documents.map((document) => ({
-      id: document.id,
-      fileName: document.fileName,
-      tabLabel: document.tabLabel,
-      filePath: document.filePath,
-      documentFlavor: document.documentFlavor,
-      validationEnabled: document.validationEnabled,
-      changeTarget: document.changeTarget,
-    })),
-    [
-      {
-        id: 'source:robots/demo_pkg/xacro/robot.xacro',
-        fileName: 'robot.xacro',
-        tabLabel: 'robot.xacro',
-        filePath: 'robots/demo_pkg/xacro/robot.xacro',
-        documentFlavor: 'xacro',
-        validationEnabled: undefined,
-        changeTarget: {
-          name: 'robots/demo_pkg/xacro/robot.xacro',
-          format: 'xacro',
-        },
-      },
-      {
-        id: 'source:robots/demo_pkg/xacro/parts/link.xacro',
-        fileName: 'link.xacro',
-        tabLabel: 'link.xacro',
-        filePath: 'robots/demo_pkg/xacro/parts/link.xacro',
-        documentFlavor: 'xacro',
-        validationEnabled: true,
-        changeTarget: {
-          name: 'robots/demo_pkg/xacro/parts/link.xacro',
-          format: 'xacro',
-        },
-      },
-      {
-        id: 'source:robots/demo_pkg/urdf/demo.gazebo',
-        fileName: 'demo.gazebo',
-        tabLabel: 'demo.gazebo',
-        filePath: 'robots/demo_pkg/urdf/demo.gazebo',
-        documentFlavor: 'xacro',
-        validationEnabled: false,
-        changeTarget: {
-          name: 'robots/demo_pkg/urdf/demo.gazebo',
-          format: null,
-        },
-      },
-    ],
-  );
-});
-
-test('buildSourceCodeDocuments adds mjcf include tabs only while the source stays include-driven', () => {
-  const activeSourceFile: RobotFile = {
-    name: 'robots/demo/scene.xml',
-    format: 'mjcf',
-    content: `<mujoco model="demo">
-  <!-- <include file="parts/commented.xml" /> -->
-  <include optional="true" file="parts/body.xml" />
-</mujoco>`,
-  };
-
-  const documents = buildSourceCodeDocuments({
-    activeSourceFile,
-    sourceCodeContent: activeSourceFile.content,
-    sourceCodeDocumentFlavor: 'mjcf',
-    availableFiles: [
-      activeSourceFile,
-      {
-        name: 'robots/demo/parts/body.xml',
-        format: 'mjcf',
-        content: '<mujoco model="body"><worldbody /></mujoco>',
-      },
-    ],
-    allFileContents: {},
-  });
-
-  assert.deepEqual(
-    documents.map((document) => document.filePath),
-    ['robots/demo/scene.xml', 'robots/demo/parts/body.xml'],
-  );
-
-  const generatedDocuments = buildSourceCodeDocuments({
-    activeSourceFile,
-    sourceCodeContent: '<mujoco model="generated"><worldbody /></mujoco>',
-    sourceCodeDocumentFlavor: 'mjcf',
-    availableFiles: [
-      activeSourceFile,
-      {
-        name: 'robots/demo/parts/body.xml',
-        format: 'mjcf',
-        content: '<mujoco model="body"><worldbody /></mujoco>',
-      },
-    ],
-    allFileContents: {},
-  });
-
-  assert.deepEqual(
-    generatedDocuments.map((document) => document.filePath),
-    ['robots/demo/scene.xml'],
-  );
-});
-
-test('buildSourceCodeDocuments keeps every tab read-only during preview sessions', () => {
-  const activeSourceFile: RobotFile = {
-    name: 'robots/demo_pkg/xacro/robot.xacro',
-    format: 'xacro',
-    content: `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
-  <xacro:include filename="parts/link.xacro" />
-</robot>`,
-  };
-
-  const documents = buildSourceCodeDocuments({
-    activeSourceFile,
-    sourceCodeContent: activeSourceFile.content,
-    sourceCodeDocumentFlavor: 'xacro',
-    availableFiles: [activeSourceFile],
-    allFileContents: {
-      'robots/demo_pkg/xacro/parts/link.xacro': '<robot name="parts" />',
-    },
-    forceReadOnly: true,
-  });
-
-  assert.equal(documents.length, 2);
-  assert.equal(
-    documents.every((document) => document.readOnly),
-    true,
-  );
-});
-
-test('buildSourceCodeDocuments adds USD composition tabs for referenced source layers', () => {
-  const activeSourceFile: RobotFile = {
-    name: 'unitree/h1_2_description/h1_2.usda',
-    format: 'usd',
-    content: `#usda 1.0
-def Xform "h1_2"
-{
-    variantSet "Physics" = {
-        "None" (
-            prepend references = @configuration/h1_2_base.usda@
-        ) {
-        }
-        "PhysX" (
-            prepend payload = @configuration/h1_2_physics.usda@
-        ) {
-        }
-    }
-    variantSet "Sensor" = {
-        "Sensors" (
-            prepend payload = @configuration/h1_2_sensor.usda@
-        ) {
-        }
-    }
-    variantSet "Robot" = {
-        "Robot" (
-            prepend payload = @configuration/h1_2_robot.usda@
-        ) {
-        }
-    }
-}`,
-  };
-
-  const documents = buildSourceCodeDocuments({
-    activeSourceFile,
-    sourceCodeContent: activeSourceFile.content,
-    sourceCodeDocumentFlavor: 'usd',
-    availableFiles: [
-      activeSourceFile,
-      {
-        name: 'unitree/h1_2_description/configuration/h1_2_base.usda',
-        format: 'usd',
-        content: '#usda 1.0\ndef Scope "visuals" {}',
-      },
-      {
-        name: 'unitree/h1_2_description/configuration/h1_2_physics.usda',
-        format: 'usd',
-        content: `#usda 1.0
-(
-    subLayers = [
-        @h1_2_base.usda@
-    ]
-)`,
-      },
-      {
-        name: 'unitree/h1_2_description/configuration/h1_2_sensor.usda',
-        format: 'usd',
-        content: '#usda 1.0\ndef Scope "sensors" {}',
-      },
-      {
-        name: 'unitree/h1_2_description/configuration/h1_2_robot.usda',
-        format: 'usd',
-        content: '#usda 1.0\ndef Scope "robot" {}',
-      },
-    ],
-    allFileContents: {},
-  });
-
-  assert.ok(documents);
-  assert.deepEqual(
-    documents.map((document) => ({
-      id: document.id,
-      fileName: document.fileName,
-      tabLabel: document.tabLabel,
-      filePath: document.filePath,
-      documentFlavor: document.documentFlavor,
-      readOnly: document.readOnly,
-      validationEnabled: document.validationEnabled,
-      content: document.content,
-    })),
-    [
-      {
-        id: 'source:unitree/h1_2_description/h1_2.usda',
-        fileName: 'h1_2.usda',
-        tabLabel: 'h1_2.usda',
-        filePath: 'unitree/h1_2_description/h1_2.usda',
-        documentFlavor: 'usd',
-        readOnly: true,
-        validationEnabled: undefined,
-        content: activeSourceFile.content,
-      },
-      {
-        id: 'source:unitree/h1_2_description/configuration/h1_2_base.usda',
-        fileName: 'h1_2_base.usda',
-        tabLabel: 'h1_2_base.usda',
-        filePath: 'unitree/h1_2_description/configuration/h1_2_base.usda',
-        documentFlavor: 'usd',
-        readOnly: true,
-        validationEnabled: true,
-        content: '#usda 1.0\ndef Scope "visuals" {}',
-      },
-      {
-        id: 'source:unitree/h1_2_description/configuration/h1_2_physics.usda',
-        fileName: 'h1_2_physics.usda',
-        tabLabel: 'h1_2_physics.usda',
-        filePath: 'unitree/h1_2_description/configuration/h1_2_physics.usda',
-        documentFlavor: 'usd',
-        readOnly: true,
-        validationEnabled: true,
-        content: `#usda 1.0
-(
-    subLayers = [
-        @h1_2_base.usda@
-    ]
-)`,
-      },
-      {
-        id: 'source:unitree/h1_2_description/configuration/h1_2_sensor.usda',
-        fileName: 'h1_2_sensor.usda',
-        tabLabel: 'h1_2_sensor.usda',
-        filePath: 'unitree/h1_2_description/configuration/h1_2_sensor.usda',
-        documentFlavor: 'usd',
-        readOnly: true,
-        validationEnabled: true,
-        content: '#usda 1.0\ndef Scope "sensors" {}',
-      },
-      {
-        id: 'source:unitree/h1_2_description/configuration/h1_2_robot.usda',
-        fileName: 'h1_2_robot.usda',
-        tabLabel: 'h1_2_robot.usda',
-        filePath: 'unitree/h1_2_description/configuration/h1_2_robot.usda',
-        documentFlavor: 'usd',
-        readOnly: true,
-        validationEnabled: true,
-        content: '#usda 1.0\ndef Scope "robot" {}',
-      },
-    ],
-  );
-});
-
-test('buildSourceCodeDocuments exposes an in-memory apply target for generated editable URDF', () => {
-  const documents = buildSourceCodeDocuments({
-    activeSourceFile: null,
-    sourceCodeContent: '<robot name="generated_robot"><link name="base_link" /></robot>',
-    sourceCodeDocumentFlavor: 'urdf',
-    availableFiles: [],
-    allFileContents: {},
-  });
-
-  assert.deepEqual(documents, [
-    {
-      id: 'source:robot',
-      fileName: 'robot.urdf',
-      tabLabel: 'robot.urdf',
-      filePath: null,
-      content: '<robot name="generated_robot"><link name="base_link" /></robot>',
-      documentFlavor: 'urdf',
-      readOnly: false,
-      changeTarget: {
-        name: 'robot.urdf',
-        format: 'urdf',
-        content: '<robot name="generated_robot"><link name="base_link" /></robot>',
-        persistContent: false,
-      },
-    },
-  ]);
-});
-
-function createWorkspaceAssemblyState(withBridge: boolean): AssemblyState {
+function robot(name: string): RobotData {
   return {
-    name: 't1_piper_workspace',
-    components: {
-      comp_t1: {
-        id: 'comp_t1',
-        name: 't1',
-        sourceFile: 'robots/t1.xml',
-        visible: true,
-        robot: {
-          name: 't1',
-          rootLinkId: 'comp_t1_Trunk',
-          links: {
-            comp_t1_Trunk: {
-              ...DEFAULT_LINK,
-              id: 'comp_t1_Trunk',
-              name: 'Trunk',
-            },
-            comp_t1_H2: {
-              ...DEFAULT_LINK,
-              id: 'comp_t1_H2',
-              name: 'H2',
-            },
-          },
-          joints: {
-            comp_t1_head: {
-              ...DEFAULT_JOINT,
-              id: 'comp_t1_head',
-              name: 't1_Head_pitch',
-              type: JointType.REVOLUTE,
-              parentLinkId: 'comp_t1_Trunk',
-              childLinkId: 'comp_t1_H2',
-            },
-          },
-        },
-      },
-      comp_piper: {
-        id: 'comp_piper',
-        name: 'piper',
-        sourceFile: 'robots/piper.xml',
-        visible: true,
-        robot: {
-          name: 'piper',
-          rootLinkId: 'comp_piper_base_link',
-          links: {
-            comp_piper_base_link: {
-              ...DEFAULT_LINK,
-              id: 'comp_piper_base_link',
-              name: 'piper',
-            },
-            comp_piper_link5: {
-              ...DEFAULT_LINK,
-              id: 'comp_piper_link5',
-              name: 'piper_link5',
-            },
-          },
-          joints: {
-            comp_piper_joint5: {
-              ...DEFAULT_JOINT,
-              id: 'comp_piper_joint5',
-              name: 'piper_joint5',
-              type: JointType.REVOLUTE,
-              parentLinkId: 'comp_piper_base_link',
-              childLinkId: 'comp_piper_link5',
-            },
-          },
-        },
-      },
-    },
-    bridges: withBridge
-      ? {
-          attach_piper_link5_to_t1_head: {
-            id: 'attach_piper_link5_to_t1_head',
-            name: 'attach_piper_link5_to_t1_head',
-            parentComponentId: 'comp_t1',
-            parentLinkId: 'comp_t1_H2',
-            childComponentId: 'comp_piper',
-            childLinkId: 'comp_piper_link5',
-            joint: {
-              ...DEFAULT_JOINT,
-              id: 'attach_piper_link5_to_t1_head',
-              name: 'attach_piper_link5_to_t1_head',
-              type: JointType.FIXED,
-              parentLinkId: 'comp_t1_H2',
-              childLinkId: 'comp_piper_link5',
-            },
-          },
-        }
-      : {},
+    name,
+    rootLinkId: 'base',
+    links: { base: { ...structuredClone(DEFAULT_LINK), id: 'base', name: 'base' } },
+    joints: {},
   };
 }
 
-test('buildWorkspaceAssemblySourceCodeDocuments shows merged URDF for a connected workspace bridge', () => {
-  const documents = buildWorkspaceAssemblySourceCodeDocuments({
-    assemblyState: createWorkspaceAssemblyState(true),
-    generatedMergedFileName: 'generated/t1_piper_workspace.generated.urdf',
-    generatedMergedContent:
-      '<robot name="t1_piper_workspace"><joint name="attach_piper_link5_to_t1_head" type="fixed" /></robot>',
+function sharedSourceWorkspace(): AssemblyState {
+  const workspace = createSingleComponentWorkspace(robot('left_robot'), {
+    componentId: 'left',
+    componentName: 'Left instance',
+    sourceFile: 'library/shared.xml',
+  });
+  workspace.components.right = createSingleComponentWorkspace(robot('right_robot'), {
+    componentId: 'right',
+    componentName: 'Right instance',
+    sourceFile: 'library/shared.xml',
+  }).components.right;
+  return workspace;
+}
+
+test('primary source apply target always carries explicit component ownership', () => {
+  const activeSourceFile: RobotFile = {
+    name: 'robots/arm.urdf',
+    format: 'urdf',
+    content: '<robot name="arm"/>',
+  };
+  const documents = buildSourceCodeDocuments({
+    componentId: 'arm-instance',
+    activeSourceFile,
+    sourceCodeContent: activeSourceFile.content,
+    sourceCodeDocumentFlavor: 'urdf',
+    availableFiles: [activeSourceFile],
+    allFileContents: {},
+  });
+
+  assert.deepEqual(documents[0].changeTarget, {
+    componentId: 'arm-instance',
+    name: 'robots/arm.urdf',
+    format: 'urdf',
+  });
+});
+
+test('related include documents are read-only and cannot route an unowned apply', () => {
+  const activeSourceFile: RobotFile = {
+    name: 'robots/scene.xml',
+    format: 'mjcf',
+    content: '<mujoco model="scene"><include file="body.xml"/></mujoco>',
+  };
+  const documents = buildSourceCodeDocuments({
+    componentId: 'scene-instance',
+    activeSourceFile,
+    sourceCodeContent: activeSourceFile.content,
+    sourceCodeDocumentFlavor: 'mjcf',
     availableFiles: [
-      { name: 'robots/t1.xml', format: 'mjcf', content: '<mujoco model="t1" />' },
-      { name: 'robots/piper.xml', format: 'mjcf', content: '<mujoco model="piper" />' },
+      activeSourceFile,
+      { name: 'robots/body.xml', format: 'mjcf', content: '<mujoco model="body"/>' },
     ],
     allFileContents: {},
   });
 
-  assert.deepEqual(documents, [
-    {
-      id: 'source:workspace-assembly',
-      fileName: 't1_piper_workspace.generated.urdf',
-      tabLabel: 't1_piper_workspace.generated.urdf',
-      filePath: null,
-      content:
-        '<robot name="t1_piper_workspace"><joint name="attach_piper_link5_to_t1_head" type="fixed" /></robot>',
-      documentFlavor: 'urdf',
-      readOnly: true,
-      validationEnabled: true,
-    },
-  ]);
+  assert.equal(documents.length, 2);
+  assert.equal(documents[1].readOnly, true);
+  assert.equal(documents[1].changeTarget, undefined);
 });
 
-test('buildWorkspaceAssemblySourceCodeDocuments shows component source tabs before bridges are created', () => {
-  const documents = buildWorkspaceAssemblySourceCodeDocuments({
-    assemblyState: createWorkspaceAssemblyState(false),
-    generatedMergedFileName: 'generated/t1_piper_workspace.generated.urdf',
-    generatedMergedContent: '<robot name="unused" />',
-    availableFiles: [
-      { name: 'robots/t1.xml', format: 'mjcf', content: '<mujoco model="t1" />' },
-      { name: 'robots/piper.xml', format: 'mjcf', content: '<mujoco model="piper" />' },
-    ],
-    allFileContents: {
-      'robots/piper.xml': '<mujoco model="piper_synced" />',
+test('canonical source contract routes a matching single-component draft explicitly', () => {
+  const workspace = createSingleComponentWorkspace(robot('arm'), {
+    componentId: 'arm-instance',
+    sourceFile: 'library/arm.urdf',
+  });
+  const content = '<robot name="arm-draft" />';
+  const result = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: 'arm-instance',
+    componentSourceDrafts: {
+      'arm-instance': createComponentSourceDraft({
+        componentId: 'arm-instance',
+        format: 'urdf',
+        content,
+        robot: workspace.components['arm-instance'].robot,
+      }),
     },
+    availableFiles: [{
+      name: 'library/arm.urdf',
+      format: 'urdf',
+      content: '<robot name="immutable-template" />',
+    }],
+    allFileContents: {},
   });
 
-  assert.ok(documents);
-  assert.deepEqual(
-    documents.map((document) => ({
-      fileName: document.fileName,
-      filePath: document.filePath,
-      content: document.content,
-      documentFlavor: document.documentFlavor,
-      readOnly: document.readOnly,
-    })),
-    [
-      {
-        fileName: 't1.xml',
-        filePath: 'robots/t1.xml',
-        content: '<mujoco model="t1" />',
-        documentFlavor: 'mjcf',
-        readOnly: false,
+  assert.equal(result.mode, 'component');
+  assert.equal(result.content, content);
+  assert.equal(result.directComponentDocument, result.documents[0]);
+  assert.equal(result.documents[0].readOnly, false);
+  assert.equal(result.documents[0].changeTarget?.componentId, 'arm-instance');
+});
+
+test('same-source component instances retain isolated direct draft resources', () => {
+  const workspace = sharedSourceWorkspace();
+  const drafts = {
+    left: createComponentSourceDraft({
+      componentId: 'left',
+      format: 'mjcf',
+      content: '<mujoco model="left_draft"/>',
+      robot: workspace.components.left.robot,
+    }),
+    right: createComponentSourceDraft({
+      componentId: 'right',
+      format: 'mjcf',
+      content: '<mujoco model="right_draft"/>',
+      robot: workspace.components.right.robot,
+    }),
+  };
+  const common = {
+    workspace,
+    componentSourceDrafts: drafts,
+    availableFiles: [{
+      name: 'library/shared.xml',
+      format: 'mjcf' as const,
+      content: '<mujoco model="immutable-template"/>',
+    }],
+    allFileContents: {},
+  };
+  const left = buildCanonicalWorkspaceSourceDocuments({
+    ...common,
+    activeComponentId: 'left',
+  });
+  const right = buildCanonicalWorkspaceSourceDocuments({
+    ...common,
+    activeComponentId: 'right',
+  });
+
+  assert.equal(left.mode, 'assembly');
+  assert.equal(left.documents[0].readOnly, true);
+  assert.equal(left.directComponentDocument?.content, '<mujoco model="left_draft"/>');
+  assert.equal(left.directComponentDocument?.changeTarget?.componentId, 'left');
+  assert.equal(right.directComponentDocument?.content, '<mujoco model="right_draft"/>');
+  assert.equal(right.directComponentDocument?.changeTarget?.componentId, 'right');
+});
+
+test('stale and missing single-component drafts generate read-only source without library fallback', () => {
+  const workspace = createSingleComponentWorkspace(robot('left_robot'), {
+    componentId: 'left',
+    sourceFile: 'library/shared.xml',
+  });
+  const staleDraft = createComponentSourceDraft({
+    componentId: 'left',
+    format: 'mjcf',
+    content: '<mujoco model="stale"/>',
+    robot: workspace.components.left.robot,
+  });
+  workspace.components.left.robot.name = 'semantic-edit';
+
+  const libraryTemplate = '<mujoco model="immutable-template" />';
+  const draftCases: Array<Record<string, typeof staleDraft>> = [{ left: staleDraft }, {}];
+  for (const componentSourceDrafts of draftCases) {
+    const result = buildCanonicalWorkspaceSourceDocuments({
+      workspace,
+      activeComponentId: 'left',
+      componentSourceDrafts,
+      availableFiles: [{
+        name: 'library/shared.xml',
+        format: 'mjcf',
+        content: libraryTemplate,
+      }],
+      allFileContents: {},
+    });
+    assert.equal(result.mode, 'component');
+    assert.equal(result.documents[0].readOnly, true);
+    assert.equal(result.directComponentDocument, null);
+    assert.notEqual(result.content, libraryTemplate);
+    assert.match(result.content, /semantic-edit/);
+  }
+});
+
+test('multi-component and bridged workspaces expose a transformed read-only projection', () => {
+  const workspace = sharedSourceWorkspace();
+  workspace.name = 'transformed_assembly';
+  workspace.transform.position.x = 5;
+  workspace.components.right.transform.position.x = 2;
+  workspace.bridges.mount = {
+    id: 'mount',
+    name: 'mount',
+    parentComponentId: 'left',
+    parentLinkId: 'base',
+    childComponentId: 'right',
+    childLinkId: 'base',
+    joint: {
+      ...structuredClone(DEFAULT_JOINT),
+      id: 'mount',
+      name: 'mount',
+      type: JointType.FIXED,
+      parentLinkId: 'base',
+      childLinkId: 'base',
+      origin: {
+        xyz: { x: 3, y: 0, z: 0 },
+        rpy: { r: 0, p: 0, y: 0 },
       },
-      {
-        fileName: 'piper.xml',
-        filePath: 'robots/piper.xml',
-        content: '<mujoco model="piper_synced" />',
-        documentFlavor: 'mjcf',
-        readOnly: false,
-      },
-    ],
-  );
+    },
+  };
+  const result = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: 'left',
+    componentSourceDrafts: {},
+    availableFiles: [],
+    allFileContents: {},
+  });
+  const parsed = parseURDF(result.content);
+  assert.ok(parsed);
+  assert.equal(result.mode, 'assembly');
+  assert.equal(result.documents[0].readOnly, true);
+  assert.ok(Object.values(parsed.joints).some((joint) => joint.origin.xyz.x === 5));
+  assert.ok(Object.values(parsed.joints).some((joint) => joint.origin.xyz.x === 3));
+});
+
+test('USD direct source resources remain read-only with an explicit format signal', () => {
+  const workspace = createSingleComponentWorkspace(robot('usd_robot'), {
+    componentId: 'usd-instance',
+    sourceFile: 'library/robot.usd',
+  });
+  const result = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: 'usd-instance',
+    componentSourceDrafts: {
+      'usd-instance': createComponentSourceDraft({
+        componentId: 'usd-instance',
+        format: 'usd',
+        content: '#usda 1.0',
+        robot: workspace.components['usd-instance'].robot,
+      }),
+    },
+    availableFiles: [{
+      name: 'library/robot.usd',
+      format: 'usd',
+      content: '#usda 1.0',
+    }],
+    allFileContents: {},
+  });
+  assert.equal(result.documentFlavor, 'usd');
+  assert.equal(result.directComponentDocument?.documentFlavor, 'usd');
+  assert.equal(result.directComponentDocument?.readOnly, true);
+  assert.equal(result.directComponentDocument?.changeTarget, undefined);
 });

@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { JointType } from '@/types';
 
 import {
+  patchUrdfLinkInertialInSource,
   patchSdfJointLimitInSource,
   patchSdfModelNameInSource,
   patchUrdfJointLimitInSource,
@@ -170,6 +171,74 @@ test('patchUrdfJointLimitInSource ignores commented limit elements', () => {
 
   assert.match(patched, /<!-- <limit lower="-9" upper="9" effort="1" velocity="1" \/> -->/);
   assert.match(patched, /<limit lower="-0\.5" upper="0\.8" effort="25" velocity="12" \/>/);
+});
+
+test('patchUrdfLinkInertialInSource updates only the targeted link inertial block', () => {
+  const source = `<robot name="demo">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1" />
+      <inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1" />
+    </inertial>
+  </link>
+  <link name="tool_link">
+    <inertial>
+      <origin xyz="9 9 9" rpy="0 0 0" />
+      <mass value="9" />
+      <inertia ixx="9" ixy="0" ixz="0" iyy="9" iyz="0" izz="9" />
+    </inertial>
+  </link>
+</robot>
+`;
+
+  const patched = patchUrdfLinkInertialInSource({
+    sourceContent: source,
+    linkName: 'base_link',
+    inertial: {
+      mass: 12.34,
+      origin: { xyz: { x: 0.1, y: -0.2, z: 0.3 }, rpy: { r: 0.4, p: -0.5, y: 0.6 } },
+      inertia: { ixx: 1.1, ixy: 0.01, ixz: 0.02, iyy: 2.2, iyz: 0.03, izz: 3.3 },
+    },
+  });
+
+  assert.match(
+    patched,
+    /<link name="base_link">[\s\S]*?<origin xyz="0\.1 -0\.2 0\.3" rpy="0\.4 -0\.5 0\.6" \/>/,
+  );
+  assert.match(patched, /<link name="base_link">[\s\S]*?<mass value="12\.34" \/>/);
+  assert.match(
+    patched,
+    /<link name="base_link">[\s\S]*?<inertia ixx="1\.1" ixy="0\.01" ixz="0\.02" iyy="2\.2" iyz="0\.03" izz="3\.3" \/>/,
+  );
+  assert.match(patched, /<link name="tool_link">[\s\S]*?<mass value="9" \/>/);
+});
+
+test('patchUrdfLinkInertialInSource expands self-closing links and patches Xacro text', () => {
+  const source = `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
+  <xacro:property name="mass_scale" value="1" />
+  <link name="base_link" />
+</robot>
+`;
+
+  const patched = patchUrdfLinkInertialInSource({
+    sourceContent: source,
+    linkName: 'base_link',
+    inertial: {
+      mass: 2.5,
+      origin: { xyz: { x: 0, y: 0, z: 0.12 }, rpy: { r: 0, p: 0, y: 0 } },
+      inertia: { ixx: 0.1, ixy: 0, ixz: 0, iyy: 0.2, iyz: 0, izz: 0.3 },
+    },
+  });
+
+  assert.match(patched, /<xacro:property name="mass_scale" value="1" \/>/);
+  assert.match(
+    patched,
+    /<link name="base_link">\s*<inertial>\s*<origin xyz="0 0 0\.12" rpy="0 0 0" \/>/,
+  );
+  assert.match(patched, /<mass value="2\.5" \/>/);
+  assert.match(patched, /<inertia ixx="0\.1" ixy="0" ixz="0" iyy="0\.2" iyz="0" izz="0\.3" \/>/);
+  assert.match(patched, /<\/inertial>\s*<\/link>/);
 });
 
 test('patchSdfModelNameInSource updates only the first model name', () => {

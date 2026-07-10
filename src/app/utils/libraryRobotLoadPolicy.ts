@@ -1,7 +1,6 @@
 export type LibraryRobotLoadIntent = 'direct' | 'preview' | 'discard';
 
 export type LibraryRobotLoadAction =
-  | 'already-loaded'
   | 'load'
   | 'needs-preview-or-discard-confirm'
   | 'preview'
@@ -9,7 +8,6 @@ export type LibraryRobotLoadAction =
 
 interface ResolveLibraryRobotLoadActionOptions {
   selectedFileName: string | null | undefined;
-  targetFileName: string;
   shouldPreviewCurrentState: boolean;
   hasSimpleModeSourceEdits: boolean;
   intent: LibraryRobotLoadIntent;
@@ -17,15 +15,10 @@ interface ResolveLibraryRobotLoadActionOptions {
 
 export function resolveLibraryRobotLoadAction({
   selectedFileName,
-  targetFileName,
   shouldPreviewCurrentState,
   hasSimpleModeSourceEdits,
   intent,
 }: ResolveLibraryRobotLoadActionOptions): LibraryRobotLoadAction {
-  if (selectedFileName === targetFileName) {
-    return 'already-loaded';
-  }
-
   if (intent === 'preview') {
     return 'preview';
   }
@@ -34,10 +27,10 @@ export function resolveLibraryRobotLoadAction({
     return 'preview';
   }
 
-  const shouldGuardLibrarySwitch =
+  const shouldGuardLibraryLoad =
     !shouldPreviewCurrentState && Boolean(selectedFileName) && hasSimpleModeSourceEdits;
 
-  if (!shouldGuardLibrarySwitch || intent === 'discard') {
+  if (!shouldGuardLibraryLoad || intent === 'discard') {
     return 'load';
   }
 

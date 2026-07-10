@@ -1,112 +1,40 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
+import { useCallback, useEffect, useState } from 'react';
 
-import { useRobotStore } from '@/store';
+import { registerUnsavedChangesBaselineMarker } from '@/app/utils/unsavedChangesBaseline';
 import {
   isRegressionBeforeUnloadPromptSuppressed,
   subscribeRegressionBeforeUnloadPromptSuppression,
 } from '@/shared/debug/regressionPromptSuppression';
-import { createAssemblyPersistenceSnapshot } from '@/shared/utils/assembly/semanticSnapshot';
-import { createRobotPersistenceSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import { createStableJsonSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 
-import {
-  registerUnsavedChangesBaselineMarker,
-  type UnsavedChangesSaveScope,
-} from '@/app/utils/unsavedChangesBaseline';
-
-interface UnsavedChangesBaseline {
-  robot: string;
-  assembly: string;
-}
-
-function getCurrentRobotPersistenceSnapshot(): string {
-  const state = useRobotStore.getState();
-  return createRobotPersistenceSnapshot({
-    name: state.name,
-    links: state.links,
-    joints: state.joints,
-    rootLinkId: state.rootLinkId,
-    materials: state.materials,
-    closedLoopConstraints: state.closedLoopConstraints,
-  });
-}
-
-function getCurrentAssemblyPersistenceSnapshot(): string {
-  return createAssemblyPersistenceSnapshot(useRobotStore.getState().assemblyState ?? null);
+function getCurrentWorkspaceSnapshot(): string {
+  return createStableJsonSnapshot(useWorkspaceStore.getState().workspace);
 }
 
 export function useUnsavedChangesPrompt() {
-  const {
-    robotName,
-    robotLinks,
-    robotJoints,
-    rootLinkId,
-    robotMaterials,
-    closedLoopConstraints,
-    assemblyState,
-  } = useRobotStore(
-      useShallow((state) => ({
-        robotName: state.name,
-        robotLinks: state.links,
-        robotJoints: state.joints,
-        rootLinkId: state.rootLinkId,
-        robotMaterials: state.materials,
-        closedLoopConstraints: state.closedLoopConstraints,
-        assemblyState: state.assemblyState,
-      })),
-    );
-
-  const currentRobotSnapshot = useMemo(
-    () =>
-      createRobotPersistenceSnapshot({
-        name: robotName,
-        links: robotLinks,
-        joints: robotJoints,
-        rootLinkId,
-        materials: robotMaterials,
-        closedLoopConstraints,
-      }),
-    [closedLoopConstraints, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId],
+  const currentSnapshot = useWorkspaceStore((state) =>
+    createStableJsonSnapshot(state.workspace),
   );
-  const currentAssemblySnapshot = useMemo(
-    () => createAssemblyPersistenceSnapshot(assemblyState ?? null),
-    [assemblyState],
-  );
-
-  const [baseline, setBaseline] = useState<UnsavedChangesBaseline>(() => ({
-    robot: currentRobotSnapshot,
-    assembly: currentAssemblySnapshot,
-  }));
+  const [baseline, setBaseline] = useState(currentSnapshot);
   const [beforeUnloadPromptSuppressed, setBeforeUnloadPromptSuppressed] = useState(() =>
     isRegressionBeforeUnloadPromptSuppressed(),
   );
 
-  const markCurrentStateSaved = useCallback((scope: UnsavedChangesSaveScope = 'all') => {
-    setBaseline((previousBaseline) => {
-      const nextBaseline = { ...previousBaseline };
-      if (scope === 'all' || scope === 'robot') {
-        nextBaseline.robot = getCurrentRobotPersistenceSnapshot();
-      }
-      if (scope === 'all' || scope === 'assembly') {
-        nextBaseline.assembly = getCurrentAssemblyPersistenceSnapshot();
-      }
-      return nextBaseline;
-    });
+  const markCurrentStateSaved = useCallback(() => {
+    setBaseline(getCurrentWorkspaceSnapshot());
   }, []);
-
-  const hasUnsavedChanges =
-    currentRobotSnapshot !== baseline.robot || currentAssemblySnapshot !== baseline.assembly;
+  const hasUnsavedChanges = currentSnapshot !== baseline;
 
   useEffect(() => {
     registerUnsavedChangesBaselineMarker(markCurrentStateSaved);
-    return () => {
-      registerUnsavedChangesBaselineMarker(null);
-    };
+    return () => registerUnsavedChangesBaselineMarker(null);
   }, [markCurrentStateSaved]);
 
-  useEffect(() => {
-    return subscribeRegressionBeforeUnloadPromptSuppression(setBeforeUnloadPromptSuppressed);
-  }, []);
+  useEffect(() =>
+    subscribeRegressionBeforeUnloadPromptSuppression(
+      setBeforeUnloadPromptSuppressed,
+    ), []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !hasUnsavedChanges || beforeUnloadPromptSuppressed) {
@@ -118,15 +46,9 @@ export function useUnsavedChangesPrompt() {
       event.returnValue = '';
       return '';
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [beforeUnloadPromptSuppressed, hasUnsavedChanges]);
 
-  return {
-    hasUnsavedChanges,
-    markCurrentStateSaved,
-  };
+  return { hasUnsavedChanges, markCurrentStateSaved };
 }

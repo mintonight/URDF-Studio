@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
 import type { DocumentLoadState } from '@/store/assetsStore';
-import { JointType, GeometryType } from '@/types';
+import { DEFAULT_LINK, JointType, GeometryType } from '@/types';
 import type { RobotFile, RobotState } from '@/types';
 
 import { FilePreviewWindow } from './FilePreviewWindow.tsx';
@@ -83,7 +83,13 @@ function createUsdFile(name: string): RobotFile {
 function createRobotState(name: string): RobotState {
   return {
     name,
-    links: {},
+    links: {
+      base_link: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base_link',
+        name: 'base_link',
+      },
+    },
     joints: {},
     rootLinkId: 'base_link',
     selection: { type: null, id: null },
@@ -230,8 +236,8 @@ test('buildFilePreviewJointMotionState forwards MJCF angle and quaternion pose s
   };
 
   assert.deepEqual(buildFilePreviewJointMotionState(previewRobot), {
-    'left-knee': { angle: -1.1997 },
-    'right-achilles-rod': {
+    knee: { angle: -1.1997 },
+    achilles: {
       quaternion: { x: 0, y: -0.014423187695796426, z: 0, w: 0.9786415639566073 },
     },
   });

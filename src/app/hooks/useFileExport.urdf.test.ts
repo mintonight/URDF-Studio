@@ -8,7 +8,13 @@ import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
 import { useFileExport, type ExportActionRequired } from './useFileExport.ts';
-import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
+import { useAssetsStore, useUIStore } from '@/store';
+import {
+  installExportTestRobot,
+  installExportTestWorkspace,
+  resetExportTestWorkspace,
+  updateExportTestWorkspace,
+} from './file-export/exportTestWorkspace.ts';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
@@ -19,6 +25,7 @@ import {
   type RobotFile,
 } from '@/types';
 import type { ExportDialogConfig } from '@/features/file-io';
+import { IDENTITY_ASSEMBLY_TRANSFORM } from '@/core/robot/assemblyTransforms';
 
 function restoreGlobalProperty<T extends keyof typeof globalThis>(
   key: T,
@@ -155,12 +162,6 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useRobotStore.setState({
-    assemblyState: null,
-    _history: { past: [], future: [] },
-    _activity: [],
-  });
-
   useAssetsStore.setState({
     assets: {},
     availableFiles: [],
@@ -175,11 +176,10 @@ function resetStoresToBaseline() {
     },
     allFileContents: {},
     motorLibrary: {},
-    originalUrdfContent: '',
-    originalFileFormat: null,
+    componentSourceDrafts: {},
   });
 
-  useRobotStore.getState().resetRobot();
+  resetExportTestWorkspace();
 }
 
 function installDownloadMocks() {
@@ -479,11 +479,13 @@ function createFaceTextureAssets(): Record<string, string> {
 function createAssemblyState(): AssemblyState {
   return {
     name: 'demo_workspace',
+    transform: structuredClone(IDENTITY_ASSEMBLY_TRANSFORM),
     components: {
       comp_left: {
         id: 'comp_left',
         name: 'left_arm',
         sourceFile: 'robots/left_arm.urdf',
+        transform: structuredClone(IDENTITY_ASSEMBLY_TRANSFORM),
         visible: true,
         robot: createRobotData('comp_left_base_link', 'left_arm'),
       },
@@ -491,6 +493,7 @@ function createAssemblyState(): AssemblyState {
         id: 'comp_right',
         name: 'right_arm',
         sourceFile: 'robots/right_arm.urdf',
+        transform: structuredClone(IDENTITY_ASSEMBLY_TRANSFORM),
         visible: false,
         robot: createRobotData('comp_right_base_link', 'right_arm'),
       },
@@ -521,34 +524,28 @@ function installDisconnectedWorkspaceAssembly() {
     [leftFile.name]: leftFile.content,
     [rightFile.name]: rightFile.content,
   });
-  useRobotStore.setState({
-    assemblyState: createAssemblyState(),
-  });
+  installExportTestWorkspace(createAssemblyState());
 }
 
 function installClosedLoopWorkspaceAssembly() {
   installDisconnectedWorkspaceAssembly();
 
-  useRobotStore.setState((state) => ({
-    assemblyState: state.assemblyState
-      ? {
-          ...state.assemblyState,
-          components: {
-            ...state.assemblyState.components,
-            comp_left: {
-              ...state.assemblyState.components.comp_left,
-              robot: createClosedLoopRobotData('left_arm'),
-            },
-          },
-        }
-      : null,
+  updateExportTestWorkspace((workspace) => ({
+    ...workspace,
+    components: {
+      ...workspace.components,
+      comp_left: {
+        ...workspace.components.comp_left,
+        robot: createClosedLoopRobotData('left_arm'),
+      },
+    },
   }));
 }
 
 test('useFileExport rejects URDF export when the current robot contains closed-loop constraints', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createClosedLoopRobotData('closed_loop_robot'));
+  installExportTestRobot(createClosedLoopRobotData('closed_loop_robot'));
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -571,7 +568,7 @@ test('useFileExport rejects URDF export when the current robot contains closed-l
 test('useFileExport rejects legacy handleExportURDF when the current robot contains closed-loop constraints', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createClosedLoopRobotData('closed_loop_robot'));
+  installExportTestRobot(createClosedLoopRobotData('closed_loop_robot'));
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -595,7 +592,7 @@ test('useFileExport rejects legacy handleExportURDF when the current robot conta
 test('useFileExport rejects legacy handleExport package when the current robot contains closed-loop constraints', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createClosedLoopRobotData('closed_loop_robot'));
+  installExportTestRobot(createClosedLoopRobotData('closed_loop_robot'));
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -690,7 +687,7 @@ test('useFileExport rejects URDF export when the current robot contains unsuppor
     parentLinkId: 'base_link',
     childLinkId: 'child_link',
   };
-  useRobotStore.getState().resetRobot(robot);
+  installExportTestRobot(robot);
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -720,7 +717,7 @@ test('useFileExport downgrades unsupported ellipsoid collisions during URDF expo
     type: GeometryType.ELLIPSOID,
     dimensions: { x: 0.2, y: 0.3, z: 0.4 },
   };
-  useRobotStore.getState().resetRobot(robot);
+  installExportTestRobot(robot);
 
   const downloadMocks = installDownloadMocks();
   const rendered = renderHook();
@@ -822,12 +819,10 @@ test('useFileExport still allows a single URDF export when workspace components 
   const domEnvironment = installDomEnvironment();
   installDisconnectedWorkspaceAssembly();
 
-  useRobotStore.setState((state) => ({
-    assemblyState: state.assemblyState
-      ? {
-          ...state.assemblyState,
-          bridges: {
-            bridge_main: {
+  updateExportTestWorkspace((workspace) => ({
+    ...workspace,
+    bridges: {
+      bridge_main: {
               id: 'bridge_main',
               name: 'bridge_main',
               parentComponentId: 'comp_left',
@@ -836,16 +831,14 @@ test('useFileExport still allows a single URDF export when workspace components 
               childLinkId: 'comp_right_base_link',
               joint: {
                 ...DEFAULT_JOINT,
-                id: 'bridge_main_joint',
+                id: 'bridge_main',
                 name: 'bridge_main_joint',
                 type: JointType.FIXED,
                 parentLinkId: 'comp_left_base_link',
                 childLinkId: 'comp_right_base_link',
               },
-            },
-          },
-        }
-      : null,
+      },
+    },
   }));
 
   const downloadMocks = installDownloadMocks();
@@ -860,7 +853,7 @@ test('useFileExport still allows a single URDF export when workspace components 
       true,
       'connected assembly should export a single URDF archive',
     );
-    assert.match(downloadMocks.appendedAnchor?.download ?? '', /left_arm_right_arm_urdf\.zip$/);
+    assert.match(downloadMocks.appendedAnchor?.download ?? '', /demo_workspace_urdf\.zip$/);
   } finally {
     rendered.cleanup();
     downloadMocks.restore();
@@ -872,7 +865,7 @@ test('useFileExport still allows a single URDF export when workspace components 
 test('useFileExport warns and flattens six-face box textures during URDF export', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createBoxFaceTextureRobotData('box_face_robot'));
+  installExportTestRobot(createBoxFaceTextureRobotData('box_face_robot'));
   useAssetsStore.setState({
     assets: createFaceTextureAssets(),
   });
@@ -918,7 +911,7 @@ test('useFileExport warns and flattens six-face box textures during URDF export'
 test('useFileExport warns and flattens six-face box textures during SDF export', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
-  useRobotStore.getState().resetRobot(createBoxFaceTextureRobotData('box_face_robot'));
+  installExportTestRobot(createBoxFaceTextureRobotData('box_face_robot'));
   useAssetsStore.setState({
     assets: createFaceTextureAssets(),
   });

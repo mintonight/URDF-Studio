@@ -1,339 +1,172 @@
 import { useCallback, useRef } from 'react';
-import { generateURDF } from '@/core/parsers';
-import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
-import { canGenerateUrdf } from '@/core/parsers/urdf/urdfExportSupport';
-import type { RobotData, RobotFile, RobotState } from '@/types';
-import type { SourceCodeEditorApplyRequest } from '@/features/code-editor';
-import { useAssetsStore, useRobotStore } from '@/store';
-import { applyEditableSourceIncrementalPatch } from '@/app/utils/editableSourceIncrementalPatch';
-import type { EditableSourceIncrementalPatchDiagnostics } from '@/app/utils/editableSourceIncrementalPatchDetection';
+
 import {
-  applyEditableSourceChangeWithWorker,
-  parseEditableRobotSourceWithWorker,
-} from './robotImportWorkerBridge';
+  createComponentSourceDraft,
+  createSourceSemanticRobotHash,
+  normalizeComponentRobot,
+} from '@/core/robot';
+import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
+import type {
+  ComponentSourceDraft,
+  ComponentSourceFormat,
+  RobotData,
+  RobotFile,
+  RobotState,
+} from '@/types';
+import type { SourceCodeEditorApplyRequest } from '@/features/code-editor';
+import { useAssetsStore } from '@/store/assetsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import type { SourceCodeDocumentChangeTarget } from '@/app/utils/sourceCodeDocuments';
-import { setRegressionEditableSourceApplyResult } from '@/shared/debug/regressionState';
+import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
+
+export interface PreparedComponentSourceApply {
+  componentId: string;
+  expectedWorkspaceRevision: number;
+  robot: RobotData;
+  draft: ComponentSourceDraft;
+}
+
+/** Synchronous CAS commit; validation failures mutate neither workspace nor drafts. */
+export function commitPreparedComponentSourceApply({
+  componentId,
+  expectedWorkspaceRevision,
+  robot,
+  draft,
+}: PreparedComponentSourceApply): boolean {
+  const normalizedRobot = normalizeComponentRobot(robot);
+  if (
+    draft.componentId !== componentId
+    || draft.robotSnapshotHash !== createSourceSemanticRobotHash(normalizedRobot)
+  ) {
+    return false;
+  }
+
+  const before = useWorkspaceStore.getState();
+  const component = before.workspace.components[componentId];
+  if (!component || before.revision !== expectedWorkspaceRevision) return false;
+
+  const robotChanged = createSourceSemanticRobotHash(component.robot) !== draft.robotSnapshotHash;
+  if (robotChanged) {
+    const replaced = before.replaceComponentRobotAtRevision(
+      componentId,
+      expectedWorkspaceRevision,
+      normalizedRobot,
+      { label: 'Apply component source' },
+    );
+    if (!replaced) return false;
+  } else if (useWorkspaceStore.getState().revision !== expectedWorkspaceRevision) {
+    return false;
+  }
+
+  useAssetsStore.getState().setComponentSourceDraft(draft);
+  return true;
+}
 
 interface UseEditableSourceCodeApplyOptions {
   allFileContents: Record<string, string>;
   availableFiles: RobotFile[];
-  selectedFile: RobotFile | null;
-  setAllFileContents: (contents: Record<string, string>) => void;
-  setAvailableFiles: (files: RobotFile[]) => void;
-  setOriginalUrdfContent: (content: string) => void;
-  setRobot: (
-    data: RobotData,
-    options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
-  ) => void;
-  setSelectedFile: (file: RobotFile | null) => void;
 }
 
-interface CommitEditableSourceApplyOptions {
-  newCode: string;
-  sourceFile: Pick<RobotFile, 'format' | 'name'>;
-  targetFileName: string;
-  nextState: RobotState;
-  syncSelectedEditableFileContent: (targetFileName: string, content: string) => void;
-  setOriginalUrdfContent: (content: string) => void;
-  setRobot: (
-    data: RobotData,
-    options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
-  ) => void;
+function toRobotData(state: RobotState): RobotData {
+  const { selection: _selection, ...robot } = state;
+  return robot;
 }
 
-interface ShouldAttemptEditableSourceIncrementalPatchOptions {
-  sourceFile: Pick<RobotFile, 'format' | 'name'>;
-  targetFileName: string;
-  closedLoopConstraints: RobotState['closedLoopConstraints'];
-}
-
-export function commitEditableSourceApply({
+function createParseInputs({
+  componentId,
+  draft,
+  componentSourceFile,
   newCode,
-  sourceFile,
-  targetFileName,
-  nextState,
-  syncSelectedEditableFileContent,
-  setOriginalUrdfContent,
-  setRobot,
-}: CommitEditableSourceApplyOptions): void {
-  syncSelectedEditableFileContent(targetFileName, newCode);
-
-  if (sourceFile.format === 'xacro') {
-    setOriginalUrdfContent(
-      canGenerateUrdf(nextState) ? generateURDF(nextState, { preserveMeshPaths: true }) : '',
-    );
-  }
-
-  // Let the viewer react to the canonical robot store diff so in-place geometry/joint
-  // patches stay incremental, while structural edits still fall back to a full reload.
-  setRobot({
-    name: nextState.name,
-    version: nextState.version,
-    links: nextState.links,
-    joints: nextState.joints,
-    rootLinkId: nextState.rootLinkId,
-    materials: nextState.materials,
-    closedLoopConstraints: nextState.closedLoopConstraints,
-    inspectionContext: nextState.inspectionContext,
-  });
-}
-
-function snapshotRobotStoreState(): Pick<
-  RobotData,
-  | 'name'
-  | 'version'
-  | 'links'
-  | 'joints'
-  | 'rootLinkId'
-  | 'materials'
-  | 'closedLoopConstraints'
-  | 'inspectionContext'
-> {
-  const state = useRobotStore.getState();
-  return {
-    name: state.name,
-    version: state.version,
-    links: state.links,
-    joints: state.joints,
-    rootLinkId: state.rootLinkId,
-    materials: state.materials,
-    closedLoopConstraints: state.closedLoopConstraints,
-    inspectionContext: state.inspectionContext,
+  availableFiles,
+  allFileContents,
+}: {
+  componentId: string;
+  draft: ComponentSourceDraft;
+  componentSourceFile: string | null;
+  newCode: string;
+  availableFiles: RobotFile[];
+  allFileContents: Record<string, string>;
+}) {
+  const sourceName = componentSourceFile ?? `component-${componentId}.${draft.format}`;
+  const sourceFile: RobotFile = {
+    name: sourceName,
+    format: draft.format,
+    content: newCode,
   };
-}
-
-function recordEditableSourceApplyResult(
-  mode: 'incremental-patch' | 'full-parse',
-  diagnostics: EditableSourceIncrementalPatchDiagnostics,
-  skipReason = diagnostics.skipReason,
-): void {
-  setRegressionEditableSourceApplyResult({
-    mode,
-    dirtyRangeCount: diagnostics.dirtyRangeCount,
-    dirtySpanBytes: diagnostics.dirtySpanBytes,
-    dirtySpanLimitBytes: diagnostics.dirtySpanLimitBytes,
-    patchKind: mode === 'incremental-patch' ? diagnostics.patchKind : null,
-    skipReason,
-  });
-}
-
-export function shouldAttemptEditableSourceIncrementalPatch({
-  sourceFile,
-  targetFileName,
-  closedLoopConstraints,
-}: ShouldAttemptEditableSourceIncrementalPatchOptions): boolean {
-  if (targetFileName !== sourceFile.name) {
-    return false;
-  }
-
-  if (sourceFile.format === 'mjcf' && (closedLoopConstraints?.length ?? 0) > 0) {
-    return false;
-  }
-
-  return sourceFile.format === 'urdf' || sourceFile.format === 'mjcf';
+  const nextAvailableFiles = availableFiles.some((file) => file.name === sourceName)
+    ? availableFiles.map((file) => file.name === sourceName ? sourceFile : file)
+    : [...availableFiles, sourceFile];
+  return {
+    sourceFile,
+    nextAvailableFiles,
+    nextAllFileContents: { ...allFileContents, [sourceName]: newCode },
+  };
 }
 
 export function useEditableSourceCodeApply({
   allFileContents,
   availableFiles,
-  selectedFile,
-  setAllFileContents,
-  setAvailableFiles,
-  setOriginalUrdfContent,
-  setRobot,
-  setSelectedFile,
 }: UseEditableSourceCodeApplyOptions) {
-  const editableSourceParseRequestRef = useRef(0);
+  const requestIdsRef = useRef(new Map<string, number>());
 
-  const syncSelectedEditableFileContent = useCallback(
-    (targetFileName: string, content: string) => {
-      if (selectedFile?.name === targetFileName && selectedFile.content !== content) {
-        setSelectedFile({
-          ...selectedFile,
-          content,
-        });
-      }
+  const handleCodeChange = useCallback(async (
+    newCode: string,
+    target: SourceCodeDocumentChangeTarget | undefined = undefined,
+    _applyRequest: SourceCodeEditorApplyRequest | undefined = undefined,
+  ): Promise<boolean> => {
+    const componentId = target?.componentId;
+    if (!componentId) return false;
 
-      if (
-        availableFiles.some((entry) => entry.name === targetFileName && entry.content !== content)
-      ) {
-        setAvailableFiles(
-          availableFiles.map((entry) =>
-            entry.name === targetFileName ? { ...entry, content } : entry,
-          ),
-        );
-      }
+    const workspaceState = useWorkspaceStore.getState();
+    const component = workspaceState.workspace.components[componentId];
+    const currentDraft = useAssetsStore.getState().componentSourceDrafts[componentId];
+    if (!component || !currentDraft || target.format !== currentDraft.format) return false;
+    if (currentDraft.robotSnapshotHash !== createSourceSemanticRobotHash(component.robot)) {
+      return false;
+    }
+    if (currentDraft.format === 'usd') return false;
 
-      if (allFileContents[targetFileName] !== content) {
-        setAllFileContents({
-          ...allFileContents,
-          [targetFileName]: content,
-        });
-      }
-    },
-    [
-      allFileContents,
+    const requestId = (requestIdsRef.current.get(componentId) ?? 0) + 1;
+    requestIdsRef.current.set(componentId, requestId);
+    const expectedWorkspaceRevision = workspaceState.revision;
+    const { sourceFile, nextAvailableFiles, nextAllFileContents } = createParseInputs({
+      componentId,
+      draft: currentDraft,
+      componentSourceFile: component.sourceFile,
+      newCode,
       availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-    ],
-  );
+      allFileContents,
+    });
 
-  const handleCodeChange = useCallback(
-    async (
-      newCode: string,
-      target: SourceCodeDocumentChangeTarget | undefined = undefined,
-      applyRequest: SourceCodeEditorApplyRequest | undefined = undefined,
-    ): Promise<boolean> => {
-      const syntheticSourceFile =
-        !selectedFile && target?.format
-          ? {
-              name: target.name,
-              format: target.format,
-              content: target.content ?? '',
-            }
-          : null;
-      const sourceFile = selectedFile ?? syntheticSourceFile;
-
-      if (!sourceFile || sourceFile.format === 'usd') {
-        return false;
-      }
-
-      const targetFileName = target?.name ?? sourceFile.name;
-      const shouldPersistEditableContent = target?.persistContent !== false;
-      const requestId = ++editableSourceParseRequestRef.current;
-      const nextAllFileContents =
-        !shouldPersistEditableContent || allFileContents[targetFileName] === newCode
-          ? allFileContents
-          : {
-              ...allFileContents,
-              [targetFileName]: newCode,
-            };
-      const nextAvailableFiles = shouldPersistEditableContent
-        ? availableFiles.map((entry) =>
-            entry.name === targetFileName ? { ...entry, content: newCode } : entry,
-          )
-        : availableFiles;
-      const nextSourceContent =
-        targetFileName === sourceFile.name
-          ? newCode
-          : (nextAllFileContents[sourceFile.name] ??
-            nextAvailableFiles.find((entry) => entry.name === sourceFile.name)?.content ??
-            sourceFile.content);
-      const currentRobotState = snapshotRobotStoreState();
-      const attemptIncrementalPatch = shouldAttemptEditableSourceIncrementalPatch({
-        sourceFile,
-        targetFileName,
-        closedLoopConstraints: currentRobotState.closedLoopConstraints,
+    try {
+      const parsed = await parseEditableRobotSourceWithWorker({
+        file: sourceFile,
+        content: newCode,
+        availableFiles: nextAvailableFiles,
+        allFileContents: nextAllFileContents,
       });
+      if (!parsed || requestIdsRef.current.get(componentId) !== requestId) return false;
 
-      try {
-        const applyResult = await applyEditableSourceChangeWithWorker({
-          file: sourceFile,
-          content: nextSourceContent,
-          previousContent: sourceFile.content,
-          dirtyRanges: applyRequest?.dirtyRanges ?? [],
-          attemptIncrementalPatch,
-          skipMjcfIncrementalPatch:
-            sourceFile.format === 'mjcf' &&
-            (currentRobotState.closedLoopConstraints?.length ?? 0) > 0,
-          availableFiles: nextAvailableFiles,
-          allFileContents: nextAllFileContents,
-        });
+      const robot = normalizeComponentRobot(
+        toRobotData(rewriteRobotMeshPathsForSource(parsed, sourceFile.name)),
+      );
+      const draft = createComponentSourceDraft({
+        componentId,
+        format: currentDraft.format as ComponentSourceFormat,
+        content: newCode,
+        robot,
+      });
+      return commitPreparedComponentSourceApply({
+        componentId,
+        expectedWorkspaceRevision,
+        robot,
+        draft,
+      });
+    } catch (error) {
+      console.error(`Failed to apply source draft for component "${componentId}".`, error);
+      return false;
+    }
+  }, [allFileContents, availableFiles]);
 
-        if (requestId !== editableSourceParseRequestRef.current) {
-          return false;
-        }
-
-        const currentSelectedFileName = useAssetsStore.getState().selectedFile?.name ?? null;
-        if (selectedFile && currentSelectedFileName !== sourceFile.name) {
-          return false;
-        }
-
-        let finalApplyMode: 'incremental-patch' | 'full-parse' = applyResult.mode;
-        let finalDiagnostics = applyResult.diagnostics;
-        let nextState =
-          applyResult.mode === 'incremental-patch'
-            ? applyEditableSourceIncrementalPatch({
-                patch: applyResult.patch,
-                currentState: snapshotRobotStoreState(),
-              })
-            : applyResult.state
-              ? rewriteRobotMeshPathsForSource(applyResult.state, sourceFile.name)
-              : null;
-
-        if (!nextState && applyResult.mode === 'incremental-patch') {
-          finalApplyMode = 'full-parse';
-          finalDiagnostics = {
-            ...applyResult.diagnostics,
-            patchKind: null,
-            skipReason: 'incremental-patch-apply-failed',
-          };
-          const parsedState = await parseEditableRobotSourceWithWorker({
-            file: sourceFile,
-            content: nextSourceContent,
-            availableFiles: nextAvailableFiles,
-            allFileContents: nextAllFileContents,
-          });
-
-          if (requestId !== editableSourceParseRequestRef.current) {
-            return false;
-          }
-
-          const refreshedSelectedFileName = useAssetsStore.getState().selectedFile?.name ?? null;
-          if (selectedFile && refreshedSelectedFileName !== sourceFile.name) {
-            return false;
-          }
-
-          nextState = parsedState
-            ? rewriteRobotMeshPathsForSource(parsedState, sourceFile.name)
-            : null;
-        }
-
-        if (!nextState) {
-          recordEditableSourceApplyResult(
-            finalApplyMode,
-            finalDiagnostics,
-            finalDiagnostics.skipReason ?? 'editable-source-parse-returned-null',
-          );
-          return false;
-        }
-
-        recordEditableSourceApplyResult(finalApplyMode, finalDiagnostics);
-        commitEditableSourceApply({
-          newCode,
-          sourceFile,
-          targetFileName,
-          nextState,
-          syncSelectedEditableFileContent: shouldPersistEditableContent
-            ? syncSelectedEditableFileContent
-            : () => undefined,
-          setOriginalUrdfContent,
-          setRobot,
-        });
-        return true;
-      } catch (error) {
-        if (requestId !== editableSourceParseRequestRef.current) {
-          return false;
-        }
-
-        console.error('Failed to parse editable source:', error);
-        return false;
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setOriginalUrdfContent,
-      setRobot,
-      syncSelectedEditableFileContent,
-    ],
-  );
-
-  return {
-    handleCodeChange,
-  };
+  return { handleCodeChange };
 }

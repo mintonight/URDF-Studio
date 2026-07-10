@@ -1,164 +1,112 @@
 import { useCallback, useEffect, useRef } from 'react';
+
 import { registerPendingHistoryFlusher } from '@/app/utils/pendingHistory';
-import { useRobotStore } from '@/store';
-import type { AssemblyState, RobotData } from '@/types';
-import type { UpdateCommitOptions } from '@/types/viewer';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 
 const PROPERTY_HISTORY_COMMIT_DELAY_MS = 220;
 
-interface PendingHistoryEntry<T> {
+interface PendingWorkspaceHistoryEntry {
   key: string;
-  label: string;
-  snapshot: T;
-  timeoutId: number | null;
+  operationId: string;
+  timeoutId: ReturnType<typeof setTimeout> | null;
 }
 
-interface UsePendingHistoryCoordinatorParams {
-  scopeKey: string;
-  createRobotSnapshot: () => RobotData;
-  createAssemblySnapshot: () => AssemblyState | null;
-}
+/**
+ * Owns the single property-edit transaction used by workspace mutations.
+ * Every write receives the transaction token; no robot/assembly snapshots or
+ * renderer-mode scope are involved.
+ */
+export function usePendingHistoryCoordinator() {
+  const pendingRef = useRef<PendingWorkspaceHistoryEntry | null>(null);
 
-export function usePendingHistoryCoordinator({
-  scopeKey,
-  createRobotSnapshot,
-  createAssemblySnapshot,
-}: UsePendingHistoryCoordinatorParams) {
-  const pendingRobotHistoryRef = useRef<PendingHistoryEntry<RobotData> | null>(null);
-  const pendingAssemblyHistoryRef = useRef<PendingHistoryEntry<AssemblyState | null> | null>(null);
-
-  const clearPendingHistoryTimer = useCallback((entry: PendingHistoryEntry<unknown> | null) => {
-    if (!entry || entry.timeoutId === null) return;
-    window.clearTimeout(entry.timeoutId);
-    entry.timeoutId = null;
+  const clearTimer = useCallback((pending: PendingWorkspaceHistoryEntry | null) => {
+    if (pending?.timeoutId === null || pending?.timeoutId === undefined) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    pending.timeoutId = null;
   }, []);
 
-  const snapshotsMatch = useCallback((before: unknown, after: unknown) => {
-    return JSON.stringify(before) === JSON.stringify(after);
-  }, []);
+  const commitPendingHistory = useCallback(
+    (expectedKey?: string): boolean => {
+      const pending = pendingRef.current;
+      if (!pending || (expectedKey !== undefined && pending.key !== expectedKey)) {
+        return false;
+      }
 
-  const commitPendingRobotHistory = useCallback(
-    (expectedKey?: string) => {
-      const pending = pendingRobotHistoryRef.current;
-      if (!pending || (expectedKey && pending.key !== expectedKey)) return;
-
-      clearPendingHistoryTimer(pending);
-      pendingRobotHistoryRef.current = null;
-
-      const currentSnapshot = createRobotSnapshot();
-      if (snapshotsMatch(pending.snapshot, currentSnapshot)) return;
-
-      useRobotStore.getState().pushHistorySnapshot(pending.snapshot, pending.label);
+      clearTimer(pending);
+      pendingRef.current = null;
+      const store = useWorkspaceStore.getState();
+      store.flushPendingJointMotion({ operationId: pending.operationId });
+      return store.commitWorkspaceTransaction(pending.operationId);
     },
-    [clearPendingHistoryTimer, createRobotSnapshot, snapshotsMatch],
+    [clearTimer],
   );
 
-  const commitPendingAssemblyHistory = useCallback(
-    (expectedKey?: string) => {
-      const pending = pendingAssemblyHistoryRef.current;
-      if (!pending || (expectedKey && pending.key !== expectedKey)) return;
+  const cancelPendingHistory = useCallback(
+    (expectedKey?: string): boolean => {
+      const pending = pendingRef.current;
+      if (!pending || (expectedKey !== undefined && pending.key !== expectedKey)) {
+        return false;
+      }
 
-      clearPendingHistoryTimer(pending);
-      pendingAssemblyHistoryRef.current = null;
-
-      const currentSnapshot = createAssemblySnapshot();
-      if (snapshotsMatch(pending.snapshot, currentSnapshot)) return;
-
-      useRobotStore.getState().pushHistorySnapshot(pending.snapshot, pending.label);
+      clearTimer(pending);
+      pendingRef.current = null;
+      return useWorkspaceStore
+        .getState()
+        .cancelWorkspaceTransaction(pending.operationId);
     },
-    [clearPendingHistoryTimer, createAssemblySnapshot, snapshotsMatch],
+    [clearTimer],
   );
 
-  const ensurePendingRobotHistory = useCallback(
-    (key: string, label: string) => {
-      const pending = pendingRobotHistoryRef.current;
+  const ensurePendingHistory = useCallback(
+    (key: string, label: string): string | null => {
+      const pending = pendingRef.current;
       if (pending?.key === key) {
-        pending.label = label;
-        clearPendingHistoryTimer(pending);
+        clearTimer(pending);
+        return pending.operationId;
+      }
+
+      commitPendingHistory();
+      const store = useWorkspaceStore.getState();
+      if (store.transaction) {
+        return null;
+      }
+
+      const operationId = store.beginWorkspaceTransaction(label);
+      pendingRef.current = { key, operationId, timeoutId: null };
+      return operationId;
+    },
+    [clearTimer, commitPendingHistory],
+  );
+
+  const schedulePendingHistoryCommit = useCallback(
+    (key: string, delayMs = PROPERTY_HISTORY_COMMIT_DELAY_MS): void => {
+      const pending = pendingRef.current;
+      if (!pending || pending.key !== key) {
         return;
       }
 
-      commitPendingRobotHistory();
-      pendingRobotHistoryRef.current = {
-        key,
-        label,
-        snapshot: createRobotSnapshot(),
-        timeoutId: null,
-      };
-    },
-    [clearPendingHistoryTimer, commitPendingRobotHistory, createRobotSnapshot],
-  );
-
-  const ensurePendingAssemblyHistory = useCallback(
-    (key: string, label: string) => {
-      const pending = pendingAssemblyHistoryRef.current;
-      if (pending?.key === key) {
-        pending.label = label;
-        clearPendingHistoryTimer(pending);
-        return;
-      }
-
-      commitPendingAssemblyHistory();
-      pendingAssemblyHistoryRef.current = {
-        key,
-        label,
-        snapshot: createAssemblySnapshot(),
-        timeoutId: null,
-      };
-    },
-    [clearPendingHistoryTimer, commitPendingAssemblyHistory, createAssemblySnapshot],
-  );
-
-  const schedulePendingRobotHistoryCommit = useCallback(
-    (key: string, delayMs = PROPERTY_HISTORY_COMMIT_DELAY_MS) => {
-      const pending = pendingRobotHistoryRef.current;
-      if (!pending || pending.key !== key) return;
-
-      clearPendingHistoryTimer(pending);
-      pending.timeoutId = window.setTimeout(() => {
-        commitPendingRobotHistory(key);
+      clearTimer(pending);
+      pending.timeoutId = setTimeout(() => {
+        commitPendingHistory(key);
       }, delayMs);
     },
-    [clearPendingHistoryTimer, commitPendingRobotHistory],
-  );
-
-  const schedulePendingAssemblyHistoryCommit = useCallback(
-    (key: string, delayMs = PROPERTY_HISTORY_COMMIT_DELAY_MS) => {
-      const pending = pendingAssemblyHistoryRef.current;
-      if (!pending || pending.key !== key) return;
-
-      clearPendingHistoryTimer(pending);
-      pending.timeoutId = window.setTimeout(() => {
-        commitPendingAssemblyHistory(key);
-      }, delayMs);
-    },
-    [clearPendingHistoryTimer, commitPendingAssemblyHistory],
+    [clearTimer, commitPendingHistory],
   );
 
   useEffect(() => {
-    const flushPendingHistory = () => {
-      commitPendingRobotHistory();
-      commitPendingAssemblyHistory();
-    };
-
-    registerPendingHistoryFlusher(flushPendingHistory);
+    const unregister = registerPendingHistoryFlusher(commitPendingHistory);
     return () => {
-      flushPendingHistory();
-      registerPendingHistoryFlusher(null);
+      commitPendingHistory();
+      unregister();
     };
-  }, [commitPendingAssemblyHistory, commitPendingRobotHistory]);
-
-  useEffect(() => {
-    commitPendingRobotHistory();
-    commitPendingAssemblyHistory();
-  }, [scopeKey, commitPendingAssemblyHistory, commitPendingRobotHistory]);
+  }, [commitPendingHistory]);
 
   return {
-    commitPendingRobotHistory,
-    commitPendingAssemblyHistory,
-    ensurePendingRobotHistory,
-    ensurePendingAssemblyHistory,
-    schedulePendingRobotHistoryCommit,
-    schedulePendingAssemblyHistoryCommit,
+    cancelPendingHistory,
+    commitPendingHistory,
+    ensurePendingHistory,
+    schedulePendingHistoryCommit,
   };
 }

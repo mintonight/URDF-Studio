@@ -124,8 +124,6 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
       }
 
       const robotData = prepareAssemblyRobotData(resolvedImportResult.robotData, {
-        componentId: message.componentId,
-        rootName: message.rootName,
         sourceFilePath: message.file.name,
         sourceFormat: message.file.format,
       });

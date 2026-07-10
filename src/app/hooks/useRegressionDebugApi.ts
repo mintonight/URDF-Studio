@@ -1,26 +1,35 @@
 import { useEffect, type MutableRefObject } from 'react';
 import {
   useAssetsStore,
-  useAssemblySelectionStore,
-  useRobotStore,
   useSelectionStore,
   useUIStore,
 } from '@/store';
 import { useJointPickSessionStore } from '@/store/jointPickSessionStore';
-import type { RobotFile } from '@/types';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { projectWorkspaceSelectionToRenderer } from '@/features/editor';
+import type { InteractionSelection, RobotFile, WorkspaceSelection } from '@/types';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import {
   clearRegressionDebugGlobals,
   isRegressionDebugEnabled,
 } from '@/shared/debug/regressionDebugEnabled';
+import type {
+  CommitResolvedRobotLoadOutcome,
+  WorkspaceLoadIntent,
+} from '@/app/utils/commitResolvedRobotLoad';
 
 type LoadRobotByNameRef = MutableRefObject<
   | ((
       file: RobotFile,
-      options?: { forceReload?: boolean; preserveAssemblyState?: boolean },
-    ) => Promise<void> | void)
+      options?: { forceReload?: boolean; intent?: WorkspaceLoadIntent },
+    ) => Promise<CommitResolvedRobotLoadOutcome | null> | CommitResolvedRobotLoadOutcome | null)
   | null
 >;
+
+function projectDebugSelection(selection: WorkspaceSelection): InteractionSelection {
+  const projection = useWorkspaceStore.getState().getSceneProjection();
+  return projectWorkspaceSelectionToRenderer(projection, selection);
+}
 
 export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): void {
   useEffect(() => {
@@ -43,17 +52,15 @@ export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): v
 
         installRegressionDebugApi(window);
         const regressionApi = window.__URDF_STUDIO_DEBUG__ as typeof window.__URDF_STUDIO_DEBUG__ & {
-          __store__?: typeof useRobotStore;
+          __workspaceStore__?: typeof useWorkspaceStore;
           __uiStore__?: typeof useUIStore;
           __assetsStore__?: typeof useAssetsStore;
-          __assemblySelectionStore__?: typeof useAssemblySelectionStore;
           __selectionStore__?: typeof useSelectionStore;
           __jointPickSessionStore__?: typeof useJointPickSessionStore;
         };
-        regressionApi.__store__ = useRobotStore;
+        regressionApi.__workspaceStore__ = useWorkspaceStore;
         regressionApi.__uiStore__ = useUIStore;
         regressionApi.__assetsStore__ = useAssetsStore;
-        regressionApi.__assemblySelectionStore__ = useAssemblySelectionStore;
         regressionApi.__selectionStore__ = useSelectionStore;
         regressionApi.__jointPickSessionStore__ = useJointPickSessionStore;
 
@@ -63,13 +70,13 @@ export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): v
           getUsdSceneSnapshot: (fileName: string) =>
             useAssetsStore.getState().getUsdSceneSnapshot(fileName),
           getDocumentLoadState: () => useAssetsStore.getState().documentLoadState,
-          getRobotState: () => ({
-            name: useRobotStore.getState().name,
-            links: useRobotStore.getState().links,
-            joints: useRobotStore.getState().joints,
-            rootLinkId: useRobotStore.getState().rootLinkId,
-            selection: useSelectionStore.getState().selection,
-          }),
+          getRobotState: () => {
+            const projection = useWorkspaceStore.getState().getSceneProjection();
+            return {
+              ...projection.robotData,
+              selection: projectDebugSelection(useSelectionStore.getState().selection),
+            };
+          },
           getAssetDebugState: () => {
             const assetsState = useAssetsStore.getState();
             return {
@@ -89,8 +96,10 @@ export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): v
             };
           },
           getInteractionState: () => ({
-            selection: useSelectionStore.getState().selection,
-            hoveredSelection: useSelectionStore.getState().hoveredSelection,
+            selection: projectDebugSelection(useSelectionStore.getState().selection),
+            hoveredSelection: projectDebugSelection(
+              useSelectionStore.getState().hoveredSelection,
+            ),
           }),
           resetFixtureFiles: () => {
             const assetsState = useAssetsStore.getState();

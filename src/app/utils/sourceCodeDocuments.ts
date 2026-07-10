@@ -1,4 +1,7 @@
-import type { AssemblyState, RobotFile } from '@/types';
+import type { AssemblyState, ComponentSourceDraft, RobotFile } from '@/types';
+import { resolveSourcePreservingComponentDraft } from '@/core/robot';
+import { generateURDF } from '@/core/parsers';
+import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import type { SourceCodeDocumentFlavor } from './sourceCodeDisplay';
 import { detectImportFormat } from './import-preparation/formatDetection.ts';
 import {
@@ -17,6 +20,7 @@ interface SourceTextFileEntry {
 }
 
 export interface SourceCodeDocumentChangeTarget {
+  componentId: string;
   name: string;
   format: SourceFileFormat;
   content?: string;
@@ -36,21 +40,33 @@ export interface SourceCodeDocumentDescriptor {
   changeTarget?: SourceCodeDocumentChangeTarget;
 }
 
+export interface CanonicalWorkspaceSourceDocuments {
+  mode: 'component' | 'assembly';
+  componentId: string | null;
+  documents: SourceCodeDocumentDescriptor[];
+  content: string;
+  documentFlavor: SourceCodeDocumentFlavor;
+  fileName: string;
+  /** Resource/editor context only; renderer backend selection belongs to scene projection. */
+  directComponentDocument: SourceCodeDocumentDescriptor | null;
+}
+
+export interface BuildCanonicalWorkspaceSourceDocumentsParams {
+  workspace: AssemblyState;
+  activeComponentId: string | null;
+  componentSourceDrafts: Record<string, ComponentSourceDraft>;
+  availableFiles: RobotFile[];
+  allFileContents: Record<string, string>;
+}
+
 interface BuildSourceCodeDocumentsParams {
+  componentId: string;
   activeSourceFile: RobotFile | null;
   sourceCodeContent: string;
   sourceCodeDocumentFlavor: SourceCodeDocumentFlavor;
   availableFiles: RobotFile[];
   allFileContents: Record<string, string>;
   forceReadOnly?: boolean;
-}
-
-interface BuildWorkspaceAssemblySourceCodeDocumentsParams {
-  assemblyState: AssemblyState | null;
-  generatedMergedFileName: string;
-  generatedMergedContent: string;
-  availableFiles: RobotFile[];
-  allFileContents: Record<string, string>;
 }
 
 const XACRO_INCLUDE_REGEX =
@@ -421,73 +437,6 @@ function buildDisplayNames(filePaths: string[]): Map<string, string> {
   return displayNames;
 }
 
-function getVisibleWorkspaceComponents(assemblyState: AssemblyState | null) {
-  return Object.values(assemblyState?.components ?? {}).filter(
-    (component) => component.visible !== false,
-  );
-}
-
-function getVisibleWorkspaceBridges(assemblyState: AssemblyState | null) {
-  const visibleComponentIds = new Set(
-    getVisibleWorkspaceComponents(assemblyState).map((component) => component.id),
-  );
-
-  return Object.values(assemblyState?.bridges ?? {}).filter(
-    (bridge) =>
-      visibleComponentIds.has(bridge.parentComponentId) &&
-      visibleComponentIds.has(bridge.childComponentId),
-  );
-}
-
-export function shouldUseMergedWorkspaceSourceDocument(
-  assemblyState: AssemblyState | null,
-): boolean {
-  const visibleComponents = getVisibleWorkspaceComponents(assemblyState);
-  if (visibleComponents.length <= 1) {
-    return false;
-  }
-
-  const visibleBridges = getVisibleWorkspaceBridges(assemblyState);
-  if (visibleBridges.length === 0) {
-    return false;
-  }
-
-  const componentIds = new Set(visibleComponents.map((component) => component.id));
-  const adjacency = new Map<string, Set<string>>();
-  componentIds.forEach((componentId) => {
-    adjacency.set(componentId, new Set());
-  });
-
-  visibleBridges.forEach((bridge) => {
-    adjacency.get(bridge.parentComponentId)?.add(bridge.childComponentId);
-    adjacency.get(bridge.childComponentId)?.add(bridge.parentComponentId);
-  });
-
-  const startComponentId = visibleComponents[0]?.id;
-  if (!startComponentId) {
-    return false;
-  }
-
-  const visited = new Set<string>([startComponentId]);
-  const queue = [startComponentId];
-  while (queue.length > 0) {
-    const componentId = queue.shift();
-    if (!componentId) {
-      continue;
-    }
-
-    adjacency.get(componentId)?.forEach((neighborId) => {
-      if (visited.has(neighborId)) {
-        return;
-      }
-      visited.add(neighborId);
-      queue.push(neighborId);
-    });
-  }
-
-  return visited.size === componentIds.size;
-}
-
 function collectRelatedSourceEntries(
   rootFile: RobotFile,
   rootContent: string,
@@ -531,6 +480,7 @@ function collectRelatedSourceEntries(
 }
 
 export function buildSourceCodeDocuments({
+  componentId,
   activeSourceFile,
   sourceCodeContent,
   sourceCodeDocumentFlavor,
@@ -554,6 +504,7 @@ export function buildSourceCodeDocuments({
           !isReadOnly && generatedDocumentFormat
             ? {
                 name: 'robot.urdf',
+                componentId,
                 format: generatedDocumentFormat,
                 content: sourceCodeContent,
                 persistContent: false,
@@ -577,10 +528,14 @@ export function buildSourceCodeDocuments({
           : undefined,
       documentFlavor: sourceCodeDocumentFlavor,
       readOnly: forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor),
-      changeTarget: {
-        name: activeSourceFile.name,
-        format: activeSourceFile.format,
-      },
+      changeTarget:
+        forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor)
+          ? undefined
+          : {
+              componentId,
+              name: activeSourceFile.name,
+              format: activeSourceFile.format,
+            },
     },
   ];
 
@@ -625,85 +580,111 @@ export function buildSourceCodeDocuments({
       content: entry.content,
       contentUrl: entry.format === 'usd' && !entry.content ? entry.blobUrl : undefined,
       documentFlavor,
-      readOnly: forceReadOnly || isSourceCodeDocumentReadOnly(documentFlavor),
+      readOnly: true,
       validationEnabled: shouldEnableValidationForDocument(documentFlavor, entry.content, false),
-      changeTarget: {
-        name: entry.path,
-        format: entry.format,
-      },
+      changeTarget: undefined,
     };
   });
 
   return [...primaryDocuments, ...relatedDocuments];
 }
 
-export function buildWorkspaceAssemblySourceCodeDocuments({
-  assemblyState,
-  generatedMergedFileName,
-  generatedMergedContent,
+function getGeneratedWorkspaceSourceFileName(workspace: AssemblyState): string {
+  const baseName = workspace.name.trim().replace(/[^a-zA-Z0-9_-]+/g, '_') || 'workspace';
+  return `${baseName}.urdf`;
+}
+
+/**
+ * Canonical source-editor contract. Mutation routing is always component-owned;
+ * assembled documents are derived, read-only projections.
+ */
+export function buildCanonicalWorkspaceSourceDocuments({
+  workspace,
+  activeComponentId,
+  componentSourceDrafts,
   availableFiles,
   allFileContents,
-}: BuildWorkspaceAssemblySourceCodeDocumentsParams): SourceCodeDocumentDescriptor[] | null {
-  const visibleComponents = getVisibleWorkspaceComponents(assemblyState);
-  if (visibleComponents.length <= 1) {
-    return null;
+}: BuildCanonicalWorkspaceSourceDocumentsParams): CanonicalWorkspaceSourceDocuments {
+  const componentIds = Object.keys(workspace.components);
+  const resolvedComponentId =
+    activeComponentId && workspace.components[activeComponentId]
+      ? activeComponentId
+      : componentIds[0] ?? null;
+  const component = resolvedComponentId
+    ? workspace.components[resolvedComponentId] ?? null
+    : null;
+  let directComponentDocuments: SourceCodeDocumentDescriptor[] = [];
+
+  if (component) {
+    const resolution = resolveSourcePreservingComponentDraft({
+      workspace,
+      componentId: component.id,
+      drafts: componentSourceDrafts,
+    });
+    if (resolution.status === 'matched') {
+      const draft = resolution.draft;
+      const sourceName = component.sourceFile ?? `component.${draft.format}`;
+      const librarySource = availableFiles.find((file) => file.name === sourceName);
+      const sourceFile: RobotFile = {
+        ...librarySource,
+        name: sourceName,
+        format: draft.format,
+        content: draft.content,
+      };
+      const documentFlavor = getSourceCodeDocumentFlavor(sourceFile);
+      directComponentDocuments = buildSourceCodeDocuments({
+        componentId: component.id,
+        activeSourceFile: sourceFile,
+        sourceCodeContent: draft.content,
+        sourceCodeDocumentFlavor: documentFlavor,
+        availableFiles,
+        allFileContents,
+      });
+    }
   }
 
-  if (shouldUseMergedWorkspaceSourceDocument(assemblyState)) {
-    const fileName = getSourceFileName(generatedMergedFileName);
-    return [
-      {
-        id: 'source:workspace-assembly',
-        fileName,
-        tabLabel: fileName,
-        filePath: null,
-        content: generatedMergedContent,
-        documentFlavor: 'urdf',
-        readOnly: true,
-        validationEnabled: true,
-      },
-    ];
+  const directComponentDocument = directComponentDocuments[0] ?? null;
+  const requiresAssemblyProjection =
+    componentIds.length > 1 || Object.keys(workspace.bridges).length > 0;
+  if (!requiresAssemblyProjection && directComponentDocument) {
+    return {
+      mode: 'component',
+      componentId: resolvedComponentId,
+      documents: directComponentDocuments,
+      content: directComponentDocument.content,
+      documentFlavor: directComponentDocument.documentFlavor,
+      fileName: directComponentDocument.fileName,
+      directComponentDocument,
+    };
   }
 
-  const seenSourceFiles = new Set<string>();
-  const sourceDocuments = visibleComponents.flatMap<SourceCodeDocumentDescriptor>((component) => {
-    if (!component.sourceFile || seenSourceFiles.has(component.sourceFile)) {
-      return [];
-    }
-    seenSourceFiles.add(component.sourceFile);
-
-    const sourceFile = availableFiles.find((file) => file.name === component.sourceFile);
-    if (!sourceFile || sourceFile.format === 'mesh' || sourceFile.format === 'asset') {
-      return [];
-    }
-
-    const content = allFileContents[sourceFile.name] ?? sourceFile.content;
-    const documentFlavor = getSourceCodeDocumentFlavor(sourceFile);
-    // Each tab here is a real, standalone component source file (the assembly
-    // is not yet merged into one generated document), so it stays editable the
-    // same way a single opened source file would be. The merged/bridged branch
-    // above is a generated artifact and remains read-only.
-    const readOnly = isSourceCodeDocumentReadOnly(documentFlavor);
-    return [
-      {
-        id: `source:${sourceFile.name}`,
-        fileName: getSourceFileName(sourceFile.name),
-        tabLabel: getSourceFileName(sourceFile.name),
-        filePath: sourceFile.name,
-        content,
-        documentFlavor,
-        readOnly,
-        validationEnabled: shouldEnableValidationForDocument(documentFlavor, content, false),
-        changeTarget: readOnly
-          ? undefined
-          : {
-              name: sourceFile.name,
-              format: sourceFile.format,
-              content,
-            },
-      },
-    ];
-  });
-
-  return sourceDocuments.length > 0 ? sourceDocuments : null;
+  const projectedRobot = requiresAssemblyProjection
+    ? buildExportableAssemblyRobotData(workspace)
+    : component?.robot;
+  const content = projectedRobot
+    ? generateURDF(
+        { ...projectedRobot, selection: { type: null, id: null } },
+        { preserveMeshPaths: true },
+      )
+    : '';
+  const fileName = getGeneratedWorkspaceSourceFileName(workspace);
+  const generatedDocument: SourceCodeDocumentDescriptor = {
+    id: 'source:workspace-projection',
+    fileName,
+    tabLabel: fileName,
+    filePath: null,
+    content,
+    documentFlavor: 'urdf',
+    readOnly: true,
+    validationEnabled: true,
+  };
+  return {
+    mode: requiresAssemblyProjection ? 'assembly' : 'component',
+    componentId: resolvedComponentId,
+    documents: [generatedDocument],
+    content,
+    documentFlavor: 'urdf',
+    fileName,
+    directComponentDocument,
+  };
 }

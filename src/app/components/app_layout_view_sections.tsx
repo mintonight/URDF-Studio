@@ -145,11 +145,11 @@ function WorkspaceViewerSection({
       className={workspaceChrome.classNames.viewerLayer}
       style={workspaceChrome.overlaySafeAreaStyle}
       viewerProps={{
-        robot: viewer.viewerRobot,
-        editorRobot: viewer.editorRobot,
+        workspace: viewer.workspace,
+        sceneProjection: viewer.sceneProjection,
+        scenePlacement: viewer.scenePlacement,
         mode: viewer.mergedAppMode,
-        onSelect: viewer.handleViewerSelectWithBridgePreview,
-        onMeshSelect: viewer.handleViewerMeshSelectWithAssemblyClear,
+        onSelect: viewer.handleViewerSelect,
         onHover: viewer.handleHover,
         onUpdate: viewer.handleUpdate,
         assets: viewer.viewerAssets,
@@ -177,18 +177,12 @@ function WorkspaceViewerSection({
           viewer.viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay,
         jointAngleState: viewer.jointAngleState,
         jointMotionState: viewer.jointMotionState,
-        onJointChange: viewer.handleJointChange,
-        syncJointChangesToApp: true,
         selection: viewer.selection,
         focusTarget: viewer.focusTarget,
         isMeshPreview: viewer.selectedFile?.format === 'mesh',
         onTransformPendingChange: viewer.handleWorkspaceTransformPendingChange,
         onCollisionTransformPreview: viewer.handleCollisionTransformPreview,
         onCollisionTransform: viewer.handleCollisionTransform,
-        assemblyState: viewer.normalizedAssemblyState,
-        assemblyWorkspaceActive: viewer.shouldRenderAssembly,
-        assemblySelection: viewer.assemblySelection,
-        sourceSceneAssemblyComponentId: viewer.sourceSceneAssemblyComponentId,
         onAssemblyTransform: viewer.handleAssemblyTransform,
         onComponentTransform: viewer.handleComponentTransform,
         onBridgeTransform: viewer.handleBridgeTransform,
@@ -220,14 +214,15 @@ function WorkspaceSidebarsSection({
       leftSidebarClassName={workspaceChrome.classNames.leftSidebarLayer}
       rightSidebarClassName={workspaceChrome.classNames.rightSidebarLayer}
       treeEditorProps={{
-        robot: sidebars.previewContextRobot,
-        onSelect: sidebars.handleSelectWithAssemblyClear,
-        onSelectGeometry: sidebars.handleSelectGeometryWithAssemblyClear,
+        workspace: sidebars.workspace,
+        activeComponentId: sidebars.activeComponentId,
+        onSelect: sidebars.handleSelect,
+        onHover: sidebars.handleHover,
+        onSelectGeometry: sidebars.handleSelectGeometry,
         onFocus: sidebars.handleFocus,
         onAddChild: sidebars.handleAddChild,
         onAddCollisionBody: sidebars.handleAddCollisionBody,
         onDelete: sidebars.handleDelete,
-        onNameChange: sidebars.handleNameChange,
         onUpdate: sidebars.handleUpdate,
         showVisual: sidebars.showVisual,
         setShowVisual: sidebars.handleSetShowVisual,
@@ -241,7 +236,6 @@ function WorkspaceSidebarsSection({
         onRequestLoadRobot: sidebars.handleRequestLoadRobot,
         currentFileName: sidebars.selectedFile?.name,
         sourceFilePath: sidebars.viewerSourceFilePath,
-        assemblyState: sidebars.normalizedAssemblyState,
         onAddComponent: sidebars.handleAddComponent,
         onDeleteLibraryFile: sidebars.handleDeleteLibraryFile,
         onDeleteLibraryFolder: sidebars.handleDeleteLibraryFolder,
@@ -249,11 +243,6 @@ function WorkspaceSidebarsSection({
         onDeleteAllLibraryFiles: sidebars.handleDeleteAllLibraryFiles,
         onExportLibraryFile: sidebars.handleExportLibraryFile,
         onCreateBridge: sidebars.handleCreateBridge,
-        onRemoveComponent: sidebars.removeComponent,
-        onRemoveBridge: sidebars.removeBridge,
-        onRenameComponent: sidebars.handleRenameComponent,
-        onSwitchToProMode: sidebars.handleSwitchTreeEditorToProMode,
-        onRequestSwitchToStructure: sidebars.handleRequestSwitchTreeEditorToStructure,
         isReadOnly: sidebars.isPreviewingWorkspaceSource,
         showJointPanel: sidebars.viewConfig.showJointPanel,
         showStructureGraph: sidebars.viewConfig.showStructureGraph,
@@ -277,24 +266,23 @@ function WorkspaceSidebarsSection({
         onAddComponent: sidebars.handleAddComponent,
       }}
       propertyEditorProps={{
-        robot: sidebars.propertyEditorSelectionContext.robot,
+        workspace: sidebars.workspace,
+        selection: sidebars.selection,
         onUpdate: sidebars.handleUpdate,
-        onSelect: sidebars.handleSelectWithAssemblyClear,
-        onSelectGeometry: sidebars.handleSelectGeometryWithAssemblyClear,
+        onSelect: sidebars.handleSelect,
+        onSelectGeometry: sidebars.handleSelectGeometry,
         onAddCollisionBody: sidebars.handleAddCollisionBody,
-        onHover: sidebars.handleHover,
         mode: sidebars.mergedAppMode,
         assets: sidebars.viewerAssets,
         onUploadAsset: sidebars.handleUploadAsset,
         motorLibrary: sidebars.motorLibrary,
         lang: sidebars.lang,
-        theme: sidebars.theme,
         collapsed: sidebars.rightSidebarCollapsed,
         onToggle: sidebars.onToggleRightSidebar,
         readOnlyMessage: sidebars.isPreviewingWorkspaceSource
           ? sidebars.t.previewReadOnlyHint
           : undefined,
-        jointTypeLocked: Boolean(sidebars.propertyEditorSelectionContext.selectedClosedLoopBridge),
+        jointTypeLocked: sidebars.selection?.entity.type === 'bridge',
         sourceFilePath: sidebars.viewerSourceFilePath,
       }}
     />
@@ -311,11 +299,13 @@ function SnapshotDialogSection({ snapshot }: Pick<AppLayoutViewProps, 'snapshot'
       <SnapshotDialog
         isOpen={snapshot.isOpen}
         isCapturing={snapshot.isCapturing}
+        captureProgress={snapshot.captureProgress}
         lang={snapshot.lang}
         previewSession={snapshot.previewSession}
         onPreviewCaptureActionChange={snapshot.onPreviewCaptureActionChange}
         onClose={snapshot.onClose}
         onCapture={snapshot.onCapture}
+        onCancelCapture={snapshot.onCancelCapture}
       />
     </Suspense>
   );

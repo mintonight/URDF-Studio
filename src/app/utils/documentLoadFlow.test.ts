@@ -2,14 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  buildRobotLoadSupportContextKey,
   preserveDocumentLoadProgressForSameFile,
   resolveRuntimeRobotReadyDocumentLoadState,
   shouldReuseResolvedMjcfViewerRuntime,
   shouldCommitResolvedRobotSelection,
   shouldIgnoreViewerLoadRegressionAfterReadySameFile,
   shouldIgnoreStaleViewerDocumentLoadEvent,
-  shouldSkipRedundantRobotReload,
 } from './documentLoadFlow.ts';
 
 test('shouldCommitResolvedRobotSelection only commits once the file can drive the viewer scene', () => {
@@ -425,114 +423,6 @@ test('shouldReuseResolvedMjcfViewerRuntime keeps the current runtime when MJCF w
         effectiveFileName: 'robots/demo/scene.xml',
         content: '<mujoco><include file=\"b2.xml\" /></mujoco>',
       },
-    }),
-    false,
-  );
-});
-
-test('buildRobotLoadSupportContextKey changes when import support context changes', () => {
-  const baseKey = buildRobotLoadSupportContextKey({
-    availableFiles: [{ name: 'robots/sally.xml', format: 'mjcf' }],
-    assets: {},
-    allFileContents: {},
-  });
-
-  const withSupportFilesKey = buildRobotLoadSupportContextKey({
-    availableFiles: [
-      { name: 'robots/sally.xml', format: 'mjcf' },
-      { name: 'robots/scenes/basic_scene.xml', format: 'mjcf' },
-    ],
-    assets: {},
-    allFileContents: {},
-  });
-
-  const withAssetsKey = buildRobotLoadSupportContextKey({
-    availableFiles: [
-      { name: 'robots/sally.xml', format: 'mjcf' },
-      { name: 'robots/scenes/basic_scene.xml', format: 'mjcf' },
-    ],
-    assets: {
-      'meshes/base.stl': 'blob:mesh',
-    },
-    allFileContents: {},
-  });
-
-  assert.notEqual(baseKey, withSupportFilesKey);
-  assert.notEqual(withSupportFilesKey, withAssetsKey);
-});
-
-test('shouldSkipRedundantRobotReload only skips same-file loads when context is unchanged and the current file is not errored', () => {
-  assert.equal(
-    shouldSkipRedundantRobotReload({
-      currentSelectedFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      currentDocumentLoadState: {
-        status: 'ready',
-        fileName: 'robots/sally.xml',
-        format: 'mjcf',
-      },
-      nextFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      previousLoadSupportContextKey: 'ctx-a',
-      nextLoadSupportContextKey: 'ctx-a',
-    }),
-    true,
-  );
-
-  assert.equal(
-    shouldSkipRedundantRobotReload({
-      currentSelectedFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      currentDocumentLoadState: {
-        status: 'error',
-        fileName: 'robots/sally.xml',
-        format: 'mjcf',
-      },
-      nextFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      previousLoadSupportContextKey: 'ctx-a',
-      nextLoadSupportContextKey: 'ctx-a',
-    }),
-    false,
-  );
-
-  assert.equal(
-    shouldSkipRedundantRobotReload({
-      currentSelectedFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      currentDocumentLoadState: {
-        status: 'ready',
-        fileName: 'robots/sally.xml',
-        format: 'mjcf',
-      },
-      nextFile: {
-        name: 'robots/sally.xml',
-        format: 'mjcf',
-        content: '<mujoco model="sally" />',
-        blobUrl: undefined,
-      },
-      previousLoadSupportContextKey: 'ctx-a',
-      nextLoadSupportContextKey: 'ctx-b',
     }),
     false,
   );

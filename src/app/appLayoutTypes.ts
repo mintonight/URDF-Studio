@@ -2,6 +2,10 @@ import type React from 'react';
 
 import type { HeaderAction } from './components/header/types';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
+import type {
+  CommitResolvedRobotLoadOutcome,
+  WorkspaceLoadIntent,
+} from './utils/commitResolvedRobotLoad';
 import type { RobotFile } from '@/types';
 
 export interface ProModeRoundtripSession {
@@ -39,7 +43,10 @@ export interface AppLayoutProps {
   headerSecondaryAction?: HeaderAction;
   viewConfig: AppLayoutViewConfig;
   setViewConfig: React.Dispatch<React.SetStateAction<AppLayoutViewConfig>>;
-  onLoadRobot: (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => void;
+  onLoadRobot: (
+    file: RobotFile,
+    options?: { intent?: WorkspaceLoadIntent },
+  ) => Promise<CommitResolvedRobotLoadOutcome | null> | CommitResolvedRobotLoadOutcome | null;
   viewerReloadKey: number;
   importPreparationOverlay?: ImportPreparationOverlayState | null;
   onExposeLayoutActions?: (actions: AppLayoutExposedActions) => void;
