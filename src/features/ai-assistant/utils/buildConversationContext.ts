@@ -22,13 +22,17 @@ export const buildConversationContext = ({
   selectedEntity = null,
   focusedIssue = null,
 }: ConversationContextOptions): string => {
-  const selectedEntitySnapshot = selectedEntity
+  const selectedSnapshotEntityId = selectedEntity
+    ? (selectedEntity.snapshotEntityId ?? selectedEntity.entityId)
+    : null
+  const selectedEntitySnapshot = selectedEntity && selectedSnapshotEntityId
     ? {
         type: selectedEntity.type,
-        id: selectedEntity.id,
+        componentId: selectedEntity.componentId,
+        entityId: selectedEntity.entityId,
         name: selectedEntity.type === 'link'
-          ? robot.links[selectedEntity.id]?.name || selectedEntity.id
-          : robot.joints[selectedEntity.id]?.name || selectedEntity.id,
+          ? robot.links[selectedSnapshotEntityId]?.name || selectedEntity.entityId
+          : robot.joints[selectedSnapshotEntityId]?.name || selectedEntity.entityId,
       }
     : undefined
 

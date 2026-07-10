@@ -1,11 +1,15 @@
-import { useRobotStore, useSelectionStore } from '@/store';
-import type { InspectionReport, RobotState } from '@/types';
+import { resolveAIWorkspaceRobotTarget } from '@/features/ai-assistant';
 import type {
   AIConversationFocusedIssue,
   AIConversationLaunchContext,
   AIConversationMode,
   AIConversationSelection,
 } from '@/features/ai-assistant';
+import { useSelectionStore } from '@/store/selectionStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import type { InspectionReport, InteractionSelection, RobotState } from '@/types';
+
+const EMPTY_AI_SNAPSHOT_SELECTION: InteractionSelection = { type: null, id: null };
 
 export function cloneAISnapshot<T>(value: T): T {
   if (typeof structuredClone === 'function') {
@@ -15,21 +19,10 @@ export function cloneAISnapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export function resolveConversationSelectedEntity(
-  robotSnapshot: RobotState,
-): AIConversationSelection | null {
-  if (!robotSnapshot.selection.type || !robotSnapshot.selection.id) {
-    return null;
-  }
-
-  if (robotSnapshot.selection.type !== 'link' && robotSnapshot.selection.type !== 'joint') {
-    return null;
-  }
-
-  return {
-    type: robotSnapshot.selection.type,
-    id: robotSnapshot.selection.id,
-  };
+export function resolveCurrentAIConversationSelection(): AIConversationSelection | null {
+  const workspace = useWorkspaceStore.getState().workspace;
+  const selection = useSelectionStore.getState().selection;
+  return resolveAIWorkspaceRobotTarget(workspace, selection).selectedEntity;
 }
 
 export function createConversationLaunchContext({
@@ -37,7 +30,7 @@ export function createConversationLaunchContext({
   mode,
   robotSnapshot,
   inspectionReportSnapshot = null,
-  selectedEntity = null,
+  selectedEntity,
   focusedIssue = null,
 }: {
   sessionId: number;
@@ -49,6 +42,9 @@ export function createConversationLaunchContext({
 }): AIConversationLaunchContext {
   const nextRobotSnapshot = cloneAISnapshot(robotSnapshot);
   const nextFocusedIssue = focusedIssue ? cloneAISnapshot(focusedIssue) : null;
+  const resolvedSelectedEntity = selectedEntity === undefined
+    ? resolveCurrentAIConversationSelection()
+    : selectedEntity;
 
   return {
     sessionId,
@@ -57,36 +53,22 @@ export function createConversationLaunchContext({
     inspectionReportSnapshot: inspectionReportSnapshot
       ? cloneAISnapshot(inspectionReportSnapshot)
       : null,
-    selectedEntity: selectedEntity
-      ? cloneAISnapshot(selectedEntity)
-      : resolveConversationSelectedEntity(nextRobotSnapshot),
+    selectedEntity: resolvedSelectedEntity
+      ? cloneAISnapshot(resolvedSelectedEntity)
+      : null,
     focusedIssue: nextFocusedIssue,
   };
 }
 
 export function resolveCurrentAIRobotSnapshot(): RobotState {
-  const { selection } = useSelectionStore.getState();
-  const { assemblyState, getMergedRobotData } = useRobotStore.getState();
-  const robotState = useRobotStore.getState();
-
-  if (assemblyState) {
-    const mergedWorkspaceRobot = getMergedRobotData();
-    if (mergedWorkspaceRobot) {
-      return cloneAISnapshot({
-        ...mergedWorkspaceRobot,
-        selection,
-      });
-    }
-  }
+  const workspace = useWorkspaceStore.getState().workspace;
+  const selection = useSelectionStore.getState().selection;
+  const target = resolveAIWorkspaceRobotTarget(workspace, selection);
 
   return cloneAISnapshot({
-    name: robotState.name,
-    links: robotState.links,
-    joints: robotState.joints,
-    rootLinkId: robotState.rootLinkId,
-    materials: robotState.materials,
-    closedLoopConstraints: robotState.closedLoopConstraints,
-    inspectionContext: robotState.inspectionContext,
-    selection,
+    ...target.robotData,
+    // RobotState is an external AI snapshot shape. Canonical selection travels
+    // separately as AIConversationSelection and is never mirrored here.
+    selection: EMPTY_AI_SNAPSHOT_SELECTION,
   });
 }

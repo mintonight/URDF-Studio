@@ -680,12 +680,13 @@ test('confirming regenerate returns to setup and preserves the prior mode and se
       'expected the previously selected normal mode to remain active after returning to setup',
     );
 
-    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
-    assert.ok(summaryChip, 'expected the setup summary chip to render after confirming regenerate');
-    assert.match(
-      summaryChip.textContent ?? '',
-      /已选择 \d+\/\d+ 项检查/,
-      'expected the normal inspection plan selection to be restored after confirming regenerate',
+    const summaryChip = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-summary]',
+    );
+    assert.ok(summaryChip, 'expected the setup summary to render after confirming regenerate');
+    assert.ok(
+      summaryChip.querySelector('[data-inspection-normal-footer-primary-count]'),
+      'expected the normal inspection plan selection count to be restored',
     );
     assert.ok(
       getButtonByText(t.runInspection),
@@ -748,32 +749,23 @@ test('inspection setup keeps selected checks in sync with updated recommended pr
     });
 
     assert.equal(
-      container.textContent?.includes('Mesh 资产检查'),
+      container.textContent?.includes(t.inspectionRobotTypeHumanoid),
       true,
-      'expected the recommendation card to show the updated mesh asset profile',
-    );
-    assert.equal(
-      container.textContent?.includes('双足机器人检查'),
-      true,
-      'expected the recommendation card to show the updated biped profile',
-    );
-    assert.ok(
-      Array.from(container.querySelectorAll<HTMLElement>('[data-inspection-normal-profile]')).find(
-        (section) => section.textContent?.includes('Mesh 资产检查'),
-      ),
-      'expected the mesh asset profile row to render in the generated plan',
+      'expected the recommendation card to reflect the updated humanoid robot type',
     );
 
-    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
+    const summaryChip = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-summary]',
+    );
     assert.ok(summaryChip, 'expected the normal setup summary chip to render');
     assert.equal(
-      summaryChip.textContent?.includes(
-        t.inspectionSelectedChecksSummary
-          .replace('{selected}', String(expectedUpdatedSelectedCount))
-          .replace('{total}', String(totalItemCount)),
-      ),
-      true,
+      summaryChip.querySelector('[data-inspection-normal-footer-primary-count]')?.textContent,
+      String(expectedUpdatedSelectedCount),
       'expected selected checks to match the updated recommendation profile set',
+    );
+    assert.equal(
+      summaryChip.querySelector('[data-inspection-normal-footer-total-count]')?.textContent,
+      String(totalItemCount),
     );
   } finally {
     await act(async () => {
@@ -1141,14 +1133,9 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
       'expected the normal mode to hide the professional run summary',
     );
     assert.equal(
-      container.textContent?.includes('请切换到专业模式'),
+      container.textContent?.includes(t.inspectionRecommendedPlanDescription),
       true,
-      'expected the normal mode setup description to reference professional mode',
-    );
-    assert.equal(
-      container.textContent?.includes('切换到高级模式'),
-      false,
-      'expected the outdated advanced-mode wording to be removed from the normal mode description',
+      'expected normal mode to explain how the recommendation is derived',
     );
 
     const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
@@ -1617,14 +1604,13 @@ test('professional mode status badge toggles the inspection item selection', asy
   }
 });
 
-test('inspection setup normal mode shows the inline selection summary and page-level bulk actions', async () => {
+test('inspection setup normal mode shows the footer selection summary without bulk actions', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
-  const t = translations.zh;
   const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
     (sum, profile) => sum + profile.items.length,
     0,
@@ -1645,16 +1631,18 @@ test('inspection setup normal mode shows the inline selection summary and page-l
       );
     });
 
-    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
-    assert.ok(summaryChip, 'expected the normal mode header to render an inline selection summary');
+    const summaryChip = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-summary]',
+    );
+    assert.ok(summaryChip, 'expected the normal mode footer to render a selection summary');
     assert.equal(
-      summaryChip.textContent?.includes(
-        t.inspectionSelectedChecksSummary
-          .replace('{selected}', String(initialSelectedItemCount))
-          .replace('{total}', String(totalItemCount)),
-      ),
-      true,
-      'expected the inline summary to reflect the recommended default profile selection',
+      summaryChip.querySelector('[data-inspection-normal-footer-primary-count]')?.textContent,
+      String(initialSelectedItemCount),
+      'expected the summary to reflect the recommended default profile selection',
+    );
+    assert.equal(
+      summaryChip.querySelector('[data-inspection-normal-footer-total-count]')?.textContent,
+      String(totalItemCount),
     );
 
     assert.equal(
@@ -1735,7 +1723,7 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
   }
 });
 
-test('inspection setup normal mode uses a scan queue layout aligned with antivirus-style setup', async () => {
+test('inspection setup normal mode uses a compact recommendation-card layout', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -1765,191 +1753,28 @@ test('inspection setup normal mode uses a scan queue layout aligned with antivir
       'expected the normal mode title to use a compact heading scale',
     );
 
-    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
-    assert.ok(summaryChip, 'expected the normal mode summary chip to render');
-    assert.equal(
-      summaryChip.className.includes('text-[11px]'),
-      true,
-      'expected the normal mode summary chip to use compact body sizing',
+    const recommendationCard = container.querySelector<HTMLElement>(
+      '[data-inspection-profile-recommendation-card]',
     );
-
-    const actionButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[data-inspection-normal-action]'),
-    );
-    assert.equal(actionButtons.length, 0, 'expected normal mode to omit manual bulk actions');
-
-    const scanList = container.querySelector<HTMLElement>('[data-inspection-normal-scan-list]');
-    assert.ok(scanList, 'expected normal mode to render the scan queue list container');
-    assert.equal(
-      scanList.className.includes('divide-y'),
-      true,
-      'expected the scan queue to use divided rows instead of a card grid',
-    );
-
-    const firstProfileCard = container.querySelector<HTMLElement>(
-      '[data-inspection-normal-profile]',
-    );
-    assert.ok(firstProfileCard, 'expected a normal mode profile section to render');
-    assert.equal(
-      firstProfileCard.className.includes('rounded-xl'),
-      true,
-      'expected the normal mode profile section to keep the tighter panel radius',
-    );
-    assert.equal(
-      firstProfileCard.className.includes('border-0'),
-      true,
-      'expected individual profile sections to stop rendering standalone card borders',
-    );
-
-    const profileIcon = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-profile-icon]',
-    );
-    assert.ok(profileIcon, 'expected the profile card icon wrapper to render');
-    assert.equal(
-      profileIcon.className.includes('h-9 w-9'),
-      true,
-      'expected the profile icon wrapper to use the compact profile scale',
-    );
-
-    const firstProfileRow = firstProfileCard.querySelector<HTMLButtonElement>(
-      '[data-inspection-normal-profile-row]',
-    );
-    assert.ok(firstProfileRow, 'expected each profile to render a scan queue row');
-    assert.equal(
-      firstProfileRow.className.includes('grid-cols-[auto_auto_minmax(0,1fr)_auto]'),
-      true,
-      'expected the profile row to use inclusion, icon, content, and disclosure columns',
-    );
-
-    const firstProfileProgress = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-profile-progress]',
+    assert.ok(recommendationCard, 'expected normal mode to render the recommendation card');
+    assert.equal(recommendationCard.className.includes('overflow-hidden'), true);
+    assert.equal(recommendationCard.className.includes('rounded-xl'), true);
+    assert.ok(
+      recommendationCard.querySelector('svg.lucide-sparkles'),
+      'expected the recommendation card to render the recommendation icon',
     );
     assert.ok(
-      firstProfileProgress,
-      'expected each profile row to expose a compact scan progress indicator',
+      recommendationCard.querySelector('[data-inspection-profile-adjust-scope]'),
+      'expected normal mode to expose scope correction without item-level controls',
     );
     assert.equal(
-      firstProfileProgress.style.width,
-      '100%',
-      'expected a fully selected profile to render a full progress indicator',
-    );
-
-    const firstProfileCount = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-profile-count]',
-    );
-    assert.ok(firstProfileCount, 'expected each profile row to render selected/total counts');
-    assert.equal(
-      firstProfileCount.className.includes('tabular-nums'),
-      true,
-      'expected profile counts to use aligned tabular numbers',
-    );
-
-    assert.equal(
-      firstProfileRow.getAttribute('aria-expanded'),
-      'false',
-      'expected normal mode profiles to be collapsed by default',
-    );
-    assert.equal(
-      firstProfileCard.querySelector('[data-inspection-normal-item-list]'),
+      container.querySelector('[data-inspection-normal-profile-row]'),
       null,
-      'expected collapsed normal mode profiles to hide item-level controls by default',
-    );
-
-    const selectedSummary = container.querySelector<HTMLElement>(
-      '[data-inspection-normal-summary]',
-    );
-    assert.ok(selectedSummary, 'expected the normal mode summary to render');
-    const initialSelectedSummaryText = selectedSummary.textContent;
-    const profileSelectionControl = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-profile-selection]',
+      'expected the simplified normal mode to omit professional item rows',
     );
     assert.ok(
-      profileSelectionControl,
-      'expected each profile to expose a read-only inclusion marker',
-    );
-    const profileSelectionMark = profileSelectionControl.querySelector<HTMLElement>(
-      '[data-inspection-normal-selection-mark]',
-    );
-    assert.ok(profileSelectionMark, 'expected the profile marker to render a selection mark');
-    assert.equal(
-      profileSelectionMark.className.includes('bg-system-blue/80'),
-      true,
-      'expected included profile markers to use the lighter normal-mode blue',
-    );
-    assert.equal(
-      profileSelectionMark.className.includes('bg-system-blue-solid'),
-      false,
-      'expected included profile markers to avoid the deeper solid-blue fill',
-    );
-
-    await act(async () => {
-      firstProfileRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    assert.equal(
-      firstProfileRow.getAttribute('aria-expanded'),
-      'true',
-      'expected clicking the profile row to expand item-level controls',
-    );
-    assert.equal(
-      selectedSummary.textContent,
-      initialSelectedSummaryText,
-      'expected clicking the profile row to leave selected item counts unchanged',
-    );
-
-    await act(async () => {
-      firstProfileRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    assert.equal(
-      firstProfileRow.getAttribute('aria-expanded'),
-      'false',
-      'expected clicking the profile row again to collapse item-level controls',
-    );
-
-    await act(async () => {
-      firstProfileRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    const itemList = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-item-list]',
-    );
-    assert.ok(itemList, 'expected expanded scan rows to reveal compact item-level controls');
-
-    const firstItemRow = firstProfileCard.querySelector<HTMLElement>(
-      '[data-inspection-normal-item]',
-    );
-    assert.ok(firstItemRow, 'expected a normal mode item row to render');
-    assert.equal(
-      firstItemRow.className.includes('rounded-md'),
-      true,
-      'expected the normal mode item rows to use a tighter scan-list item shape',
-    );
-
-    assert.equal(
-      firstItemRow.className.includes('border-system-blue/15'),
-      true,
-      'expected normal mode item rows to keep an included-state border',
-    );
-    assert.equal(
-      firstItemRow.className.includes('bg-system-blue/5'),
-      true,
-      'expected normal mode item rows to render as read-only included entries',
-    );
-
-    await act(async () => {
-      firstProfileRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    assert.equal(
-      firstProfileRow.getAttribute('aria-expanded'),
-      'false',
-      'expected clicking the expanded profile row to collapse item-level controls',
-    );
-    assert.equal(
-      selectedSummary.textContent,
-      initialSelectedSummaryText,
-      'expected collapsing the profile row to leave selected item counts unchanged',
+      container.querySelector('[data-inspection-normal-footer-summary]'),
+      'expected selected-check counts to remain visible in the footer',
     );
   } finally {
     await act(async () => {
@@ -2309,7 +2134,7 @@ test('inspection setup does not restore or persist the selected mode across remo
     });
 
     assert.ok(
-      container.querySelector('[data-inspection-normal-summary]'),
+      container.querySelector('[data-inspection-normal-footer-summary]'),
       'expected stale saved professional mode to be ignored on first open',
     );
     assert.equal(
@@ -2358,7 +2183,7 @@ test('inspection setup does not restore or persist the selected mode across remo
       });
 
       assert.ok(
-        container.querySelector('[data-inspection-normal-summary]'),
+        container.querySelector('[data-inspection-normal-footer-summary]'),
         'expected remounting the setup to return to normal mode',
       );
       assert.equal(
@@ -2412,7 +2237,7 @@ test('inspection setup defaults to normal mode when no saved mode exists', async
       'expected first-time setup to enter normal mode',
     );
     assert.ok(
-      container.querySelector('[data-inspection-normal-summary]'),
+      container.querySelector('[data-inspection-normal-footer-summary]'),
       'expected the normal-mode summary to render on first open',
     );
     assert.equal(
@@ -2518,7 +2343,7 @@ test('inspection setup header uses the toolbox AI inspection logo', async () => 
   }
 });
 
-test('inspection setup header uses the same maximize and restore icons as AI conversation', async () => {
+test('inspection setup header omits maximize and restore controls', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -2541,26 +2366,15 @@ test('inspection setup header uses the same maximize and restore icons as AI con
       );
     });
 
-    const maximizeButton = container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t.maximize}"]`,
+    assert.equal(
+      container.querySelector(`button[aria-label="${t.maximize}"]`),
+      null,
+      'expected the fixed-size setup window to omit maximize',
     );
-    assert.ok(maximizeButton, 'expected the setup header maximize button to render');
-    assert.ok(
-      maximizeButton.querySelector('svg.lucide-maximize-2'),
-      'expected the setup header maximize button to use the shared maximize icon',
-    );
-
-    await act(async () => {
-      maximizeButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    const restoreButton = container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t.restore}"]`,
-    );
-    assert.ok(restoreButton, 'expected the setup header restore button to render after maximizing');
-    assert.ok(
-      restoreButton.querySelector('svg.lucide-minimize-2'),
-      'expected the setup header restore button to use the shared restore icon',
+    assert.equal(
+      container.querySelector(`button[aria-label="${t.restore}"]`),
+      null,
+      'expected the fixed-size setup window to omit restore',
     );
   } finally {
     await act(async () => {

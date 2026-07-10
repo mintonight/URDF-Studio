@@ -4,7 +4,8 @@ import { MessageCircle, ScanSearch, Square, X } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language, TranslationKeys } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { useRobotStore } from '@/store';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import { isIdentityAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
@@ -136,21 +137,22 @@ export function AIInspectionModal({
 }: AIInspectionModalProps) {
   const t = translations[lang];
   const inspectionWindowLayer = useManagedWindowLayer('aiInspection');
-  const assemblyState = useRobotStore((state) => state.assemblyState);
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const assemblyWorkflowContext = useMemo(() => {
-    if (!assemblyState) {
-      return undefined;
-    }
+    const componentCount = Object.keys(workspace.components).length;
+    const bridgeCount = Object.keys(workspace.bridges).length;
 
     return {
-      assemblyActive: true,
-      componentCount: Object.keys(assemblyState.components).length,
-      bridgeCount: Object.keys(assemblyState.bridges).length,
+      assemblyActive: componentCount > 1 || bridgeCount > 0,
+      componentCount,
+      bridgeCount,
       componentTransformAuthored:
-        Boolean(assemblyState.transform) ||
-        Object.values(assemblyState.components).some((component) => Boolean(component.transform)),
+        !isIdentityAssemblyTransform(workspace.transform) ||
+        Object.values(workspace.components).some(
+          (component) => !isIdentityAssemblyTransform(component.transform),
+        ),
     };
-  }, [assemblyState]);
+  }, [workspace]);
   const profileRecommendation = useMemo(
     () =>
       buildInspectionProfileRecommendation(robot, {

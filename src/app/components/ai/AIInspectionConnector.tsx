@@ -1,13 +1,17 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { AIInspectionModal } from '@/features/ai-assistant';
+import {
+  AIInspectionModal,
+  resolveAIWorkspaceRobotTarget,
+} from '@/features/ai-assistant';
 import type {
   AIConversationFocusedIssue,
   AIConversationSelection,
 } from '@/features/ai-assistant';
-import { useRobotStore, useSelectionStore } from '@/store';
-import type { InspectionReport, RobotState } from '@/types';
+import { useSelectionStore } from '@/store/selectionStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import type { InspectionReport, InteractionSelection, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 
 interface AIInspectionConnectorProps {
@@ -24,12 +28,15 @@ interface AIInspectionConnectorProps {
   ) => void;
 }
 
+const EMPTY_AI_SNAPSHOT_SELECTION: InteractionSelection = { type: null, id: null };
+
 export function AIInspectionConnector({
   isOpen,
   onClose,
   lang,
   onOpenConversationWithReport,
 }: AIInspectionConnectorProps) {
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const { selection, setSelection, focusOn, pulseSelection } = useSelectionStore(
     useShallow((state) => ({
       selection: state.selection,
@@ -38,69 +45,79 @@ export function AIInspectionConnector({
       pulseSelection: state.pulseSelection,
     })),
   );
-  const {
-    robotName,
-    robotLinks,
-    robotJoints,
-    rootLinkId,
-    robotMaterials,
-    robotClosedLoopConstraints,
-    inspectionContext,
-  } = useRobotStore(
-    useShallow((state) => ({
-      robotName: state.name,
-      robotLinks: state.links,
-      robotJoints: state.joints,
-      rootLinkId: state.rootLinkId,
-      robotMaterials: state.materials,
-      robotClosedLoopConstraints: state.closedLoopConstraints,
-      inspectionContext: state.inspectionContext,
-    })),
+  const liveTarget = useMemo(
+    () => resolveAIWorkspaceRobotTarget(workspace, selection),
+    [selection, workspace],
   );
-  const { assemblyState, getMergedRobotData } = useRobotStore(
-    useShallow((state) => ({
-      assemblyState: state.assemblyState,
-      getMergedRobotData: state.getMergedRobotData,
-    })),
-  );
-
-  const mergedWorkspaceRobot = useMemo(() => {
-    if (!assemblyState) {
-      return null;
-    }
-
-    return getMergedRobotData();
-  }, [assemblyState, getMergedRobotData]);
-
-  const robot: RobotState = useMemo(() => {
-    if (mergedWorkspaceRobot) {
-      return {
-        ...mergedWorkspaceRobot,
-        selection,
-      };
-    }
-
-    return {
-      name: robotName,
-      links: robotLinks,
-      joints: robotJoints,
-      rootLinkId,
-      materials: robotMaterials,
-      closedLoopConstraints: robotClosedLoopConstraints,
-      inspectionContext,
-      selection,
+  const sessionScopeRef = useRef({
+    componentId: liveTarget.componentId,
+  });
+  const wasOpenRef = useRef(false);
+  if (!isOpen || !wasOpenRef.current) {
+    sessionScopeRef.current = {
+      componentId: liveTarget.componentId,
     };
-  }, [
-    mergedWorkspaceRobot,
-    robotJoints,
-    robotLinks,
-    robotName,
-    rootLinkId,
-    robotMaterials,
-    robotClosedLoopConstraints,
-    inspectionContext,
-    selection,
-  ]);
+  }
+  wasOpenRef.current = isOpen;
+  const sessionScope = sessionScopeRef.current;
+  const inspectionTarget = useMemo(
+    () => resolveAIWorkspaceRobotTarget(
+      workspace,
+      sessionScope.componentId
+        ? { entity: { type: 'component', componentId: sessionScope.componentId } }
+        : { entity: { type: 'assembly' } },
+    ),
+    [sessionScope.componentId, workspace],
+  );
+  const robot = useMemo<RobotState>(
+    () => ({
+      ...structuredClone(inspectionTarget.robotData),
+      selection: EMPTY_AI_SNAPSHOT_SELECTION,
+    }),
+    [inspectionTarget.robotData],
+  );
+
+  const handleSelectItem = useCallback(
+    (type: 'link' | 'joint', snapshotEntityId: string) => {
+      const ref = inspectionTarget.resolveSnapshotEntityRef(type, snapshotEntityId);
+      if (!ref) {
+        return;
+      }
+
+      const nextSelection = { entity: ref } as const;
+      setSelection(nextSelection);
+      pulseSelection(nextSelection);
+      focusOn(ref);
+    },
+    [focusOn, inspectionTarget, pulseSelection, setSelection],
+  );
+
+  const handleOpenConversationWithReport = useCallback(
+    (
+      report: InspectionReport,
+      robotSnapshot: RobotState,
+      options?: {
+        selectedEntity?: { type: 'link' | 'joint'; id: string } | null;
+        focusedIssue?: AIConversationFocusedIssue | null;
+      },
+    ) => {
+      const snapshotSelection = options?.selectedEntity;
+      const ref = snapshotSelection
+        ? inspectionTarget.resolveSnapshotEntityRef(
+            snapshotSelection.type,
+            snapshotSelection.id,
+          )
+        : null;
+
+      onOpenConversationWithReport(report, robotSnapshot, {
+        focusedIssue: options?.focusedIssue ?? null,
+        selectedEntity: ref && snapshotSelection
+          ? { ...ref, snapshotEntityId: snapshotSelection.id }
+          : null,
+      });
+    },
+    [inspectionTarget, onOpenConversationWithReport],
+  );
 
   return (
     <AIInspectionModal
@@ -108,12 +125,8 @@ export function AIInspectionConnector({
       onClose={onClose}
       robot={robot}
       lang={lang}
-      onSelectItem={(type, id) => {
-        setSelection({ type, id });
-        pulseSelection({ type, id });
-        focusOn(id);
-      }}
-      onOpenConversationWithReport={onOpenConversationWithReport}
+      onSelectItem={handleSelectItem}
+      onOpenConversationWithReport={handleOpenConversationWithReport}
     />
   );
 }

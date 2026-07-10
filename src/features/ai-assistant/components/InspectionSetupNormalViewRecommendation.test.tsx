@@ -85,7 +85,7 @@ test('normal setup view shows the profile recommendation card', async () => {
     assert.match(card.textContent ?? '', /Recommended Plan/)
     assert.match(card.textContent ?? '', /URDF/)
     assert.match(card.textContent ?? '', /Inspection Purpose/)
-    assert.match(container.textContent ?? '', /Included Scope/)
+    assert.match(card.textContent ?? '', /Adjust Scope/)
   } finally {
     await act(async () => {
       root.unmount()

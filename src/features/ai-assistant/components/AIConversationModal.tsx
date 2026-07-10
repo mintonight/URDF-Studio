@@ -57,10 +57,10 @@ function resolveSelectedEntityName(context: AIConversationLaunchContext | null):
     return null;
   }
 
-  const { type, id } = context.selectedEntity;
+  const { type, entityId, snapshotEntityId = entityId } = context.selectedEntity;
   return type === 'link'
-    ? context.robotSnapshot.links[id]?.name || id
-    : context.robotSnapshot.joints[id]?.name || id;
+    ? context.robotSnapshot.links[snapshotEntityId]?.name || entityId
+    : context.robotSnapshot.joints[snapshotEntityId]?.name || entityId;
 }
 
 function replaceTrailingAssistantMessage(

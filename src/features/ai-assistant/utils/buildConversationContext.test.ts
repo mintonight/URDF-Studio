@@ -104,7 +104,8 @@ test('buildConversationContext includes compact report snapshot for inspection-f
     inspectionReport: reportFixture,
     selectedEntity: {
       type: 'joint',
-      id: 'hip_joint',
+      componentId: 'arm',
+      entityId: 'hip_joint',
     },
     focusedIssue: {
       type: 'warning',
@@ -131,7 +132,7 @@ test('buildConversationContext includes compact report snapshot for inspection-f
         relatedIds?: string[];
       }>;
     };
-    selectedEntity: { type: string; id: string; name: string };
+    selectedEntity: { type: string; componentId: string; entityId: string; name: string };
     focusedIssue: { title: string; profileId?: string; evidenceLevel?: string; relatedIds?: string[] };
   };
 
@@ -148,7 +149,8 @@ test('buildConversationContext includes compact report snapshot for inspection-f
   assert.equal(payload.inspectionReport.issues[0]?.evidenceLevel, 'L1');
   assert.deepEqual(payload.selectedEntity, {
     type: 'joint',
-    id: 'hip_joint',
+    componentId: 'arm',
+    entityId: 'hip_joint',
     name: 'hip_joint',
   });
   assert.equal(payload.focusedIssue.title, 'Joint range may be too narrow');

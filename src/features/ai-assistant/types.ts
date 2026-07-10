@@ -2,7 +2,12 @@
  * AI Assistant Feature Types
  */
 
-import type { InspectionReport, RobotState } from '@/types';
+import type {
+  InspectionReport,
+  JointEntityRef,
+  LinkEntityRef,
+  RobotState,
+} from '@/types';
 
 /**
  * AI response structure
@@ -60,10 +65,10 @@ export interface AIConversationDivider {
 
 export type AIConversationMessage = AIConversationChatMessage | AIConversationDivider;
 
-export interface AIConversationSelection {
-  type: 'link' | 'joint';
-  id: string;
-}
+/** Canonical entity identity plus its key in the immutable AI snapshot. */
+export type AIConversationSelection = (LinkEntityRef | JointEntityRef) & {
+  snapshotEntityId?: string;
+};
 
 export interface AIConversationFocusedIssue {
   type: IssueType;

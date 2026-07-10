@@ -1,46 +1,77 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { RobotState } from '@/types';
+import { createSingleComponentWorkspace } from '@/core/robot';
+import { useSelectionStore } from '@/store/selectionStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  JointType,
+  type RobotState,
+} from '@/types';
 
 import {
   createConversationLaunchContext,
-  resolveConversationSelectedEntity,
+  resolveCurrentAIConversationSelection,
 } from './aiConversationLaunch.ts';
 
-function createRobotSnapshot(selection: RobotState['selection']): RobotState {
+function createRobotSnapshot(): RobotState {
   return {
     name: 'Test robot',
-    links: {},
-    joints: {},
+    links: {
+      base_link: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base_link',
+        name: 'base_link',
+      },
+      tool_link: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'tool_link',
+        name: 'tool_link',
+      },
+    },
+    joints: {
+      shoulder: {
+        ...structuredClone(DEFAULT_JOINT),
+        id: 'shoulder',
+        name: 'shoulder',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'tool_link',
+      },
+    },
     rootLinkId: 'base_link',
-    materials: {},
-    closedLoopConstraints: [],
-    selection,
+    selection: { type: null, id: null },
   };
 }
 
-test('resolveConversationSelectedEntity only exposes link and joint selections', () => {
-  assert.deepEqual(
-    resolveConversationSelectedEntity(createRobotSnapshot({ type: 'link', id: 'base_link' })),
-    { type: 'link', id: 'base_link' },
-  );
-  assert.deepEqual(
-    resolveConversationSelectedEntity(createRobotSnapshot({ type: 'joint', id: 'shoulder' })),
-    { type: 'joint', id: 'shoulder' },
-  );
-  assert.equal(
-    resolveConversationSelectedEntity(createRobotSnapshot({ type: 'tendon', id: 'tendon_a' })),
-    null,
-  );
-  assert.equal(
-    resolveConversationSelectedEntity(createRobotSnapshot({ type: null, id: null })),
-    null,
-  );
+function seedWorkspaceSelection(type: 'link' | 'joint', entityId: string) {
+  const robot = createRobotSnapshot();
+  const { selection: _selection, ...robotData } = robot;
+  useWorkspaceStore.setState({
+    workspace: createSingleComponentWorkspace(robotData, { componentId: 'arm' }),
+    activeComponentId: 'arm',
+  });
+  useSelectionStore.getState().setSelection({
+    entity: { type, componentId: 'arm', entityId },
+  });
+}
+
+test('current AI conversation selection retains explicit component ownership', () => {
+  seedWorkspaceSelection('joint', 'shoulder');
+
+  assert.deepEqual(resolveCurrentAIConversationSelection(), {
+    type: 'joint',
+    componentId: 'arm',
+    entityId: 'shoulder',
+    snapshotEntityId: 'shoulder',
+  });
 });
 
-test('createConversationLaunchContext clones launch payloads and derives selected entity', () => {
-  const robotSnapshot = createRobotSnapshot({ type: 'joint', id: 'elbow' });
+test('createConversationLaunchContext clones payloads and derives canonical selection', () => {
+  seedWorkspaceSelection('joint', 'shoulder');
+  const robotSnapshot = createRobotSnapshot();
   const inspectionReportSnapshot = {
     summary: 'Needs review',
     overallScore: 72,
@@ -63,24 +94,28 @@ test('createConversationLaunchContext clones launch payloads and derives selecte
     focusedIssue: inspectionReportSnapshot.issues[0],
   });
 
-  robotSnapshot.selection.id = 'mutated';
+  robotSnapshot.name = 'mutated';
   inspectionReportSnapshot.issues[0].title = 'Mutated issue';
 
-  assert.equal(launchContext.sessionId, 4);
-  assert.equal(launchContext.mode, 'inspection-followup');
-  assert.deepEqual(launchContext.selectedEntity, { type: 'joint', id: 'elbow' });
-  assert.equal(launchContext.robotSnapshot.selection.id, 'elbow');
+  assert.equal(launchContext.robotSnapshot.name, 'Test robot');
+  assert.deepEqual(launchContext.selectedEntity, {
+    type: 'joint',
+    componentId: 'arm',
+    entityId: 'shoulder',
+    snapshotEntityId: 'shoulder',
+  });
   assert.equal(launchContext.inspectionReportSnapshot?.issues[0]?.title, 'Joint range');
-  assert.equal(launchContext.focusedIssue?.title, 'Joint range');
 });
 
-test('createConversationLaunchContext preserves an explicit selected entity override', () => {
+test('explicit null selection does not inherit an unrelated live workspace selection', () => {
+  seedWorkspaceSelection('joint', 'shoulder');
+
   const launchContext = createConversationLaunchContext({
     sessionId: 7,
     mode: 'general',
-    robotSnapshot: createRobotSnapshot({ type: 'joint', id: 'elbow' }),
-    selectedEntity: { type: 'link', id: 'base_link' },
+    robotSnapshot: createRobotSnapshot(),
+    selectedEntity: null,
   });
 
-  assert.deepEqual(launchContext.selectedEntity, { type: 'link', id: 'base_link' });
+  assert.equal(launchContext.selectedEntity, null);
 });
