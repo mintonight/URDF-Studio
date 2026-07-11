@@ -176,6 +176,60 @@ test('generateSTEP handles multi-link robots with mixed primitives', async () =>
   );
 });
 
+test('generateSTEP preserves asymmetric translation and a 90-degree Z rotation in the payload', async () => {
+  resetMock();
+  const robot = makeBoxRobot();
+  robot.links.base.visual.origin = {
+    xyz: { x: 0.125, y: -0.25, z: 0.375 },
+    rpy: { r: 0, p: 0, y: Math.PI / 2 },
+  };
+
+  const originalWorker = globalThis.Worker;
+  let postedRequest: NonNullable<typeof lastWorkerPayload> | null = null;
+  class CapturingWorker {
+    private messageListener?: (event: MessageEvent) => void;
+    addEventListener(type: string, listener: EventListener) {
+      if (type === 'message') this.messageListener = listener as (event: MessageEvent) => void;
+    }
+    removeEventListener() {}
+    terminate() {}
+    postMessage(request: NonNullable<typeof lastWorkerPayload>) {
+      postedRequest = request;
+      queueMicrotask(() => this.messageListener?.({
+        data: {
+          type: 'done',
+          data: new Uint8Array([0x49, 0x53, 0x4f]),
+          linkCount: 1,
+          shapeCount: 7,
+          warnings: [],
+        },
+      } as MessageEvent));
+    }
+  }
+
+  try {
+    globalThis.Worker = CapturingWorker as unknown as typeof Worker;
+    const result = await stepGenModule.generateSTEP(robot);
+    assert.equal(result.shapeCount, 7, 'expected the worker-reported shape count');
+  } finally {
+    globalThis.Worker = originalWorker;
+  }
+
+  assert.ok(postedRequest);
+  const matrix = postedRequest.links[0].shapes[0].matrix;
+  const expected = [
+    0, 1, 0, 0,
+    -1, 0, 0, 0,
+    0, 0, 1, 0,
+    0.125, -0.25, 0.375, 1,
+  ];
+  assert.equal(matrix.length, expected.length);
+  matrix.forEach((value, index) => assert.ok(
+    Math.abs(value - expected[index]) < 1e-12,
+    `matrix[${index}] expected ${expected[index]}, received ${value}`,
+  ));
+});
+
 // Verify the mock-based full round trip works.
 test('generateSTEP produces STEP content via the worker bridge (mocked)', async () => {
   resetMock();

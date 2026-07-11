@@ -44,6 +44,8 @@ export interface StepExportResult {
   linkCount: number;
   /** Number of geometry shapes written (primitives + mesh shells). */
   shapeCount: number;
+  /** Non-fatal warnings (degenerate triangles, capsule approximation, etc.). */
+  warnings: string[];
 }
 
 /** Extract a column-major 4x4 matrix array from a THREE.Matrix4. */
@@ -85,7 +87,6 @@ export async function generateSTEP(
   const { provider, includeMeshes = true } = options;
   const linkWorldMatrices = computeLinkWorldMatrices(robot);
   const linkPayloads: StepLinkPayload[] = [];
-  let shapeCount = 0;
 
   for (const link of Object.values(robot.links)) {
     const linkPayload = await collectLinkShapes(
@@ -95,7 +96,6 @@ export async function generateSTEP(
       includeMeshes,
     );
     if (!linkPayload) continue;
-    shapeCount += linkPayload.shapes.length;
     linkPayloads.push(linkPayload);
   }
 
@@ -111,7 +111,8 @@ export async function generateSTEP(
   return {
     content: decoder.decode(result.data),
     linkCount: result.linkCount,
-    shapeCount,
+    shapeCount: result.shapeCount,
+    warnings: result.warnings,
   };
 }
 

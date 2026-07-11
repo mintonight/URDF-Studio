@@ -16,6 +16,7 @@ export interface StepWorkerResult {
   data: Uint8Array;
   linkCount: number;
   shapeCount: number;
+  warnings: string[];
 }
 
 interface WorkerLike {
@@ -81,6 +82,7 @@ export async function exportStepWithWorker(
           data: success.data,
           linkCount: success.linkCount,
           shapeCount: success.shapeCount,
+          warnings: success.warnings ?? [],
         });
       } else {
         reject(new Error(response.message || 'STEP export worker reported an error.'));
