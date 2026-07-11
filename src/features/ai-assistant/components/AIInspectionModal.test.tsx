@@ -1665,10 +1665,6 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
-  const getButtonByText = (label: string) =>
-    Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === label,
-    ) ?? null;
 
   try {
     await act(async () => {
