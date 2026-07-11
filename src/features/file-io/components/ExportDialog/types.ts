@@ -54,6 +54,8 @@ export interface UsdExportConfig {
 
 export interface StepExportConfig {
   includeMeshes: boolean;
+  compressMeshes: boolean;
+  meshQuality: number;
 }
 
 export interface ExportDialogConfig {

@@ -774,6 +774,19 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                       onChange={(v) => updateStep('includeMeshes', v)}
                     />
                   </Row>
+                  {config.step.includeMeshes && (
+                    <STLQualitySelector
+                      compressSTL={config.step.compressMeshes}
+                      stlQuality={config.step.meshQuality}
+                      mode={qualityModes.step}
+                      t={t}
+                      label={t.exportCompressMeshes}
+                      description={null}
+                      onCompressChange={(v) => updateStep('compressMeshes', v)}
+                      onQualityChange={(v) => updateStep('meshQuality', v)}
+                      onModeChange={(mode) => updateQualityMode('step', mode)}
+                    />
+                  )}
                 </div>
                 <p className="mt-2 text-[11px] leading-5 text-text-tertiary">
                   {t.exportStepFormatHint}

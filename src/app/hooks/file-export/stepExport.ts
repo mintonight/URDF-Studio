@@ -78,6 +78,10 @@ export async function executeStepExport({
   const { robot, exportName } = exportContext;
   const geometryProvider: StepGeometryProvider = createStepMeshGeometryProvider({
     assets,
+    compression: {
+      enabled: config.step.compressMeshes,
+      quality: config.step.meshQuality,
+    },
   });
   const result = await generateSTEP(robot, {
     provider: geometryProvider,
