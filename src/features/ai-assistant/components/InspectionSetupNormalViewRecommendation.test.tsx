@@ -85,7 +85,19 @@ test('normal setup view shows the profile recommendation card', async () => {
     assert.match(card.textContent ?? '', /Recommended Plan/)
     assert.match(card.textContent ?? '', /URDF/)
     assert.match(card.textContent ?? '', /Inspection Purpose/)
-    assert.match(card.textContent ?? '', /Adjust Scope/)
+    assert.ok(
+      card.querySelector('[data-inspection-normal-select="purpose"]'),
+      'expected purpose to be editable through a select control',
+    )
+    assert.ok(
+      card.querySelector('[data-inspection-normal-select="targetPlatform"]'),
+      'expected target platform to be editable through a select control',
+    )
+    assert.equal(
+      card.querySelector('[data-inspection-profile-adjust-scope]'),
+      null,
+      'expected the separate adjust-scope action to be removed',
+    )
   } finally {
     await act(async () => {
       root.unmount()
