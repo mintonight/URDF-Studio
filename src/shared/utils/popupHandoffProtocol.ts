@@ -1,12 +1,13 @@
 /**
- * Handoff Protocol — shared between BOT World (sender) and receivers (URDF Studio, Motion Studio).
- * Must stay in sync across all three projects:
+ * Handoff Protocol — shared between BOT World (sender) and receivers (URDF Studio, Motion Studio, BotLab).
+ * Must stay in sync across all projects:
  *   BOT-World/src/shared/utils/popupHandoffProtocol.ts
  *   URDF-Studio/src/shared/utils/popupHandoffProtocol.ts
  *   MotionStudioUI-BluePrint/src/shared/utils/popupHandoffProtocol.ts
+ *   botlab/src/shared/utils/popupHandoffProtocol.ts
  *
  * Protocol v2: assetId-based direct download (no ZIP, no popup, no IndexedDB).
- * BOT-World passes assetId + origin via URL params; Studio downloads files directly from BOT-World API.
+ * BOT-World passes assetId + origin via URL params; receiver downloads files directly from BOT-World API.
  */
 
 // ---------------------------------------------------------------------------
