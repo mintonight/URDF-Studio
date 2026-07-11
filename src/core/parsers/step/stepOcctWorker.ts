@@ -147,19 +147,15 @@ function buildMeshShape(oc: any, positions: number[]): any {
 
   for (let t = 0; t < triangleCount; t++) {
     const base = t * 9;
-    const polygon = new oc.BRepBuilderAPI_MakePolygon();
-    polygon.Add(makePnt(oc, positions[base], positions[base + 1], positions[base + 2]));
-    polygon.Add(makePnt(oc, positions[base + 3], positions[base + 4], positions[base + 5]));
-    polygon.Add(makePnt(oc, positions[base + 6], positions[base + 7], positions[base + 8]));
+    const polygon = new oc.BRepBuilderAPI_MakePolygon_1();
+    polygon.Add_1(makePnt(oc, positions[base], positions[base + 1], positions[base + 2]));
+    polygon.Add_1(makePnt(oc, positions[base + 3], positions[base + 4], positions[base + 5]));
+    polygon.Add_1(makePnt(oc, positions[base + 6], positions[base + 7], positions[base + 8]));
     polygon.Close();
-    const wire = polygon.Wire();
-    if (wire && !wire.IsNull()) {
-      const faceMaker = new oc.BRepBuilderAPI_MakeFace_3(wire, false);
-      const face = faceMaker.Face();
-      if (face && !face.IsNull()) {
-        builder.Add(compound, face);
-      }
-      faceMaker.delete();
+    // A closed 3-point polygon returns a valid shape (shell) directly.
+    const triangleShape = polygon.Shape();
+    if (triangleShape && !triangleShape.IsNull()) {
+      builder.Add(compound, triangleShape);
     }
     polygon.delete();
   }
