@@ -135,7 +135,7 @@ function RecognitionSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="rounded-xl border border-border-black bg-element-bg p-3">
+    <label className="flex h-full min-h-0 flex-col rounded-xl border border-border-black bg-element-bg p-3">
       <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
         {label}
       </span>
@@ -143,7 +143,11 @@ function RecognitionSelect({
         data-inspection-recognition-select={dataKey}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
-        className="mt-2 h-9 w-full rounded-lg border border-border-black bg-panel-bg px-2.5 text-[12px] font-semibold text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+        className="mt-2 h-9 w-full appearance-none rounded-lg border border-border-black bg-panel-bg bg-[length:14px_14px] bg-[right_0.625rem_center] bg-no-repeat px-2.5 pr-8 text-[12px] font-semibold text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+        }}
       >
         {children}
       </select>
@@ -570,7 +574,7 @@ export function InspectionSetupView({
   return (
     <section
       data-inspection-review-details="true"
-      className="flex min-h-0 flex-1 flex-col gap-4"
+      className="flex flex-col gap-4"
     >
       <section
         data-inspection-recognition-panel="true"
@@ -612,7 +616,10 @@ export function InspectionSetupView({
           </div>
         </div>
 
-        <div className="grid gap-3 p-4 xl:grid-cols-4">
+        <div
+          data-inspection-recognition-grid="true"
+          className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2"
+        >
           <RecognitionSelect
             label={t.inspectionPlanPurpose}
             value={plan.purpose}
@@ -672,7 +679,7 @@ export function InspectionSetupView({
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm">
+      <section className="flex min-h-[420px] flex-1 flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border-black px-4 py-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
