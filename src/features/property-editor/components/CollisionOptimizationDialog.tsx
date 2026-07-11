@@ -141,13 +141,13 @@ function StatCard({
 
   return (
     <div
-      className={`flex w-full min-w-0 items-center justify-between gap-1.5 rounded-md border px-1.75 py-1 ${surfaceClass}`}
+      className={`flex w-full min-w-0 items-center justify-between gap-1.5 rounded-md border px-2 py-1.25 ${surfaceClass}`}
     >
       <div className={`flex min-w-0 items-center gap-1.25 ${accentClass}`}>
         <span className="shrink-0">{icon}</span>
-        <span className="truncate text-[8px] font-medium tracking-[0.02em]">{label}</span>
+        <span className="truncate text-[11px] font-medium tracking-[0.02em]">{label}</span>
       </div>
-      <div className={`shrink-0 text-[10px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
+      <div className={`shrink-0 text-[13px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }
@@ -198,7 +198,7 @@ function PanelSwitchButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-w-0 flex-1 items-center justify-center gap-1.25 rounded-lg px-2 py-1.25 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+      className={`flex min-w-0 flex-1 items-center justify-center gap-1.25 rounded-lg px-2 py-1.25 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
         active
           ? 'bg-white dark:bg-segmented-active text-text-primary shadow-sm'
           : 'text-text-secondary hover:bg-element-hover hover:text-text-primary'
@@ -207,7 +207,7 @@ function PanelSwitchButton({
       {icon}
       <span className="truncate">{label}</span>
       {badge ? (
-        <span className="rounded-full border border-border-black bg-element-bg px-1 py-0.5 text-[9px] leading-none text-text-tertiary">
+        <span className="rounded-full border border-border-black bg-element-bg px-1 py-0.5 text-[11px] leading-none text-text-tertiary">
           {badge}
         </span>
       ) : null}
@@ -225,10 +225,10 @@ function StrategyField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-2">
-      <div className="text-[10px] font-medium leading-tight text-text-primary">{label}</div>
+    <div className="rounded-lg border border-border-black bg-panel-bg px-2.5 py-2">
+      <div className="text-[12px] font-medium leading-tight text-text-primary">{label}</div>
       {desc ? (
-        <div className="mt-0.5 text-[9px] leading-snug text-text-tertiary">{desc}</div>
+        <div className="mt-0.5 text-[11px] leading-snug text-text-tertiary">{desc}</div>
       ) : null}
       <div className={`${desc ? 'mt-1.5' : 'mt-1'} flex flex-wrap gap-1`}>{children}</div>
     </div>
@@ -360,18 +360,18 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
 
   const defaultWindowSize = useMemo(() => {
     if (typeof window === 'undefined') {
-      return { width: 560, height: 460 };
+      return { width: 720, height: 580 };
     }
 
     return {
-      width: Math.min(660, Math.max(520, Math.round(window.innerWidth * 0.4))),
-      height: Math.min(500, Math.max(400, Math.round(window.innerHeight * 0.52))),
+      width: Math.min(900, Math.max(680, Math.round(window.innerWidth * 0.5))),
+      height: Math.min(680, Math.max(520, Math.round(window.innerHeight * 0.62))),
     };
   }, []);
 
   const windowState = useDraggableWindow({
     defaultSize: defaultWindowSize,
-    minSize: { width: 480, height: 380 },
+    minSize: { width: 560, height: 460 },
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -1171,19 +1171,19 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       window={windowState}
       onClose={onClose}
       title={
-        <div className="flex min-w-0 items-center gap-1.5">
-          <div className="rounded-md border border-border-black bg-element-bg p-1 text-text-secondary">
-            <Sparkles className="h-3 w-3" />
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="rounded-md border border-border-black bg-element-bg p-1.5 text-text-secondary">
+            <Sparkles className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold text-text-primary">{copy.title}</div>
+            <div className="text-sm font-semibold text-text-primary">{copy.title}</div>
           </div>
         </div>
       }
       className="flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-lg"
       zIndex={collisionOptimizationWindowLayer.zIndex}
       onActivate={collisionOptimizationWindowLayer.onActivate}
-      headerClassName="flex h-10 shrink-0 items-center justify-between border-b border-border-black bg-element-bg px-2"
+      headerClassName="flex h-12 shrink-0 items-center justify-between border-b border-border-black bg-element-bg px-2.5"
       interactionClassName="select-none"
       showMinimizeButton={false}
       showMaximizeButton={false}
@@ -1191,8 +1191,8 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       closeButtonClassName={`rounded-md p-1 ${CLOSE_BUTTON_DANGER_TERTIARY_CLASS}`}
       showResizeHandles={true}
     >
-      <div className="flex-1 min-h-0 overflow-hidden px-2 py-2 sm:px-2.5">
-        <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex-1 min-h-0 overflow-hidden px-3 py-2.5 sm:px-3.5">
+        <div className="flex h-full min-h-0 flex-col gap-2.5">
           <div className={`grid gap-1 ${statsGridClass}`}>
             <StatCard
               label={copy.totalCollisions}
@@ -1278,8 +1278,8 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
 
             {showSettingsPanel && (
               <div className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg">
-                <div className="shrink-0 border-b border-border-black bg-panel-bg px-2 py-1.5">
-                  <div className="text-[10px] font-semibold text-text-primary">
+                <div className="shrink-0 border-b border-border-black bg-panel-bg px-2.5 py-1.5">
+                  <div className="text-[12px] font-semibold text-text-primary">
                     {copy.strategies}
                   </div>
                 </div>
@@ -1322,10 +1322,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                       className="flex w-full items-center justify-between rounded-lg border border-border-black bg-element-bg px-2 py-1.5 text-left transition-colors hover:bg-panel-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                     >
                       <div>
-                        <div className="text-[10px] font-semibold text-text-primary">
+                        <div className="text-[12px] font-semibold text-text-primary">
                           {copy.defaultStrategies}
                         </div>
-                        <div className="mt-0.5 text-[9px] text-text-tertiary">
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">
                           {showDefaultStrategies
                             ? copy.hideDefaultStrategies
                             : copy.showDefaultStrategies}
@@ -1416,10 +1416,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                         className={`rounded-lg border border-border-black bg-panel-bg px-2 py-2 gap-2 ${isDenseLayout ? 'flex flex-col' : 'flex items-start justify-between'}`}
                       >
                         <div className="min-w-0">
-                          <div className="text-[10px] font-medium leading-tight text-text-primary">
+                          <div className="text-[12px] font-medium leading-tight text-text-primary">
                             {copy.avoidSiblingOverlap}
                           </div>
-                          <div className="mt-0.5 text-[9px] leading-relaxed text-text-tertiary">
+                          <div className="mt-0.5 text-[11px] leading-relaxed text-text-tertiary">
                             {copy.avoidSiblingOverlapDesc}
                           </div>
                         </div>
@@ -1438,18 +1438,18 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                           className={`grid gap-1.5 ${isDenseLayout ? 'grid-cols-1' : 'grid-cols-2'}`}
                         >
                           <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
-                            <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
+                            <div className="text-[11px] font-medium tracking-[0.02em] text-text-tertiary">
                               {copy.warningBefore}
                             </div>
-                            <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
+                            <div className="mt-0.5 text-[14px] font-semibold text-text-primary">
                               {warningBefore}
                             </div>
                           </div>
                           <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
-                            <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
+                            <div className="text-[11px] font-medium tracking-[0.02em] text-text-tertiary">
                               {copy.warningAfter}
                             </div>
-                            <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
+                            <div className="mt-0.5 text-[14px] font-semibold text-text-primary">
                               {warningAfter}
                             </div>
                           </div>
@@ -1468,16 +1468,16 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
         className={`shrink-0 gap-2 border-t border-border-black bg-element-bg px-2.5 py-2 ${isCompactLayout ? 'flex flex-wrap items-center' : 'flex items-center'}`}
       >
         <div
-          className={`flex items-center gap-1.25 text-[9px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
+          className={`flex items-center gap-1.25 text-[11px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
         >
-          <RefreshCw className="h-3 w-3" />
+          <RefreshCw className="h-3.5 w-3.5" />
           <span>{footerLabel}</span>
         </div>
         <div className="flex-1" />
         <button
           type="button"
           onClick={onClose}
-          className={`rounded-md px-2.25 py-1.25 text-[10px] font-medium text-text-secondary transition-colors hover:bg-panel-bg hover:text-text-primary ${isCompactLayout ? 'order-2' : ''}`}
+          className={`rounded-md px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-panel-bg hover:text-text-primary ${isCompactLayout ? 'order-2' : ''}`}
         >
           {t.cancel}
         </button>
@@ -1485,9 +1485,9 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
           type="button"
           onClick={handleApply}
           disabled={activeOperations.length === 0 || isAnalyzing}
-          className={`flex items-center gap-1.25 rounded-md bg-system-blue-solid px-3 py-1.25 text-[10px] font-semibold text-white transition-colors hover:bg-system-blue disabled:cursor-not-allowed disabled:opacity-50 ${isCompactLayout ? 'order-3 ml-auto' : ''}`}
+          className={`flex items-center gap-1.25 rounded-md bg-system-blue-solid px-3.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-system-blue disabled:cursor-not-allowed disabled:opacity-50 ${isCompactLayout ? 'order-3 ml-auto' : ''}`}
         >
-          <Sparkles className="h-3 w-3" />
+          <Sparkles className="h-3.5 w-3.5" />
           {copy.apply}
         </button>
       </div>

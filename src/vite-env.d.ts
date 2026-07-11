@@ -11,3 +11,19 @@ declare const __APP_VERSION__: string;
 declare module 'monaco-editor/esm/vs/editor/edcore.main' {
   export * from 'monaco-editor';
 }
+
+// opencascade.js ships only JS (no type declarations). The WASM kernel is a
+// large auto-generated surface accessed through the `oc` handle; callers use
+// `any`-typed local bindings in the STEP worker.
+declare module 'opencascade.js' {
+  const initOpenCascade: () => Promise<unknown>;
+  export { initOpenCascade };
+}
+declare module 'opencascade.js/dist/opencascade.wasm.js' {
+  const factory: (config: Record<string, unknown>) => Promise<unknown>;
+  export default factory;
+}
+declare module 'opencascade.js/dist/opencascade.wasm.wasm?url' {
+  const url: string;
+  export default url;
+}

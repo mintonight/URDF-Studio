@@ -10,6 +10,7 @@ export const enWorkflow: TranslationWorkflowKeys = {
   exportFormatXacro: 'Xacro',
   exportFormatSDF: 'SDF',
   exportFormatUSD: 'USD',
+  exportFormatStep: 'STEP',
   exportComingSoon: 'Coming Soon',
   exportUsdFileFormat: 'USD Layer Format',
   exportUsdFileFormatDesc:
@@ -55,6 +56,7 @@ export const enWorkflow: TranslationWorkflowKeys = {
   exportOutputSection: 'Output',
   exportOptionsSection: 'Options',
   exportDoExport: 'Export ZIP',
+  exportDoExportStep: 'Export STEP',
   exportDoExportProject: 'Export .usp',
   exportProjectWorkspaceSummary: 'Export the current workspace project',
   exportProjectWorkspaceSummaryDesc:
@@ -76,6 +78,12 @@ export const enWorkflow: TranslationWorkflowKeys = {
   exportProgressGeneratingMjcfDetail: 'Writing MJCF XML with converted mesh references.',
   exportProgressGeneratingXacroDetail: 'Writing Xacro output with ROS-specific tags.',
   exportProgressGeneratingSdfDetail: 'Writing SDFormat package files.',
+  exportProgressGeneratingStep: 'Generating STEP file',
+  exportProgressGeneratingStepDetail: 'Writing visual geometry as a STEP file for CAD reference.',
+  exportStepIncludeMeshes: 'Include Mesh Geometry',
+  exportStepIncludeMeshesDesc:
+    'Export mesh visuals as tessellated polyhedral shells alongside analytic primitives.',
+  exportStepFormatHint: 'Single .step file — for mechanical / industrial design reference in CAD software.',
   exportProgressPreparingSimulationMeshes: 'Preparing simulation meshes',
   exportProgressPreparingSimulationMeshesDetail:
     'Converting unsupported meshes into MJCF-friendly assets.',

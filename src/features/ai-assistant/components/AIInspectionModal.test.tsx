@@ -1665,10 +1665,6 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
 
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
-  const getButtonByText = (label: string) =>
-    Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === label,
-    ) ?? null;
 
   try {
     await act(async () => {
@@ -1689,25 +1685,19 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
     assert.ok(getRunButton(), 'expected the normal mode run button to render');
     assert.equal(getRunButton()?.disabled, false, 'expected run inspection to start enabled');
 
-    const adjustButton = container.querySelector<HTMLButtonElement>(
-      '[data-inspection-profile-adjust-scope]',
+    const targetSelect = container.querySelector<HTMLSelectElement>(
+      '[data-inspection-normal-select="targetPlatform"]',
     );
-    assert.ok(adjustButton, 'expected the normal mode adjustment action to render');
+    assert.ok(targetSelect, 'expected the target platform select to render');
 
     await act(async () => {
-      adjustButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    const gazeboButton = getButtonByText('Gazebo');
-    assert.ok(gazeboButton, 'expected target-platform correction controls to render');
-
-    await act(async () => {
-      gazeboButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      targetSelect!.value = 'gazebo';
+      targetSelect!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     });
 
     assert.equal(
-      container.textContent?.includes('Gazebo'),
-      true,
+      targetSelect!.value,
+      'gazebo',
       'expected the normal plan summary to reflect the corrected target platform',
     );
     assert.equal(
@@ -1748,9 +1738,9 @@ test('inspection setup normal mode uses a compact recommendation-card layout', a
     const title = container.querySelector<HTMLElement>('[data-inspection-normal-title]');
     assert.ok(title, 'expected the normal mode title to render a test hook');
     assert.equal(
-      title.className.includes('text-lg'),
+      title.className.includes('text-2xl'),
       true,
-      'expected the normal mode title to use a compact heading scale',
+      'expected the normal mode title to use a larger heading scale',
     );
 
     const recommendationCard = container.querySelector<HTMLElement>(
@@ -1764,8 +1754,17 @@ test('inspection setup normal mode uses a compact recommendation-card layout', a
       'expected the recommendation card to render the recommendation icon',
     );
     assert.ok(
+      recommendationCard.querySelector('[data-inspection-normal-select="purpose"]'),
+      'expected normal mode to expose purpose correction without item-level controls',
+    );
+    assert.ok(
+      recommendationCard.querySelector('[data-inspection-normal-select="targetPlatform"]'),
+      'expected normal mode to expose target correction without item-level controls',
+    );
+    assert.equal(
       recommendationCard.querySelector('[data-inspection-profile-adjust-scope]'),
-      'expected normal mode to expose scope correction without item-level controls',
+      null,
+      'expected the separate adjust-scope action to stay out of normal mode',
     );
     assert.equal(
       container.querySelector('[data-inspection-normal-profile-row]'),
@@ -1806,16 +1805,25 @@ test('inspection setup normal mode exposes correction controls through a low-pri
       );
     });
 
-    const adjustButton = container.querySelector<HTMLButtonElement>(
-      '[data-inspection-profile-adjust-scope]',
+    const purposeSelect = container.querySelector<HTMLSelectElement>(
+      '[data-inspection-normal-select="purpose"]',
+    );
+    const targetSelect = container.querySelector<HTMLSelectElement>(
+      '[data-inspection-normal-select="targetPlatform"]',
     );
 
-    assert.ok(adjustButton, 'expected the normal plan adjustment action to render');
+    assert.ok(purposeSelect, 'expected the normal plan purpose select to render');
+    assert.ok(targetSelect, 'expected the normal plan target select to render');
     assert.equal(
-      adjustButton.className.includes('bg-element-bg') &&
-        adjustButton.className.includes('text-text-secondary'),
+      purposeSelect.className.includes('bg-panel-bg') &&
+        purposeSelect.className.includes('text-text-primary'),
       true,
-      'expected adjustment to use low-priority secondary styling',
+      'expected purpose correction to use compact select styling',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-profile-adjust-scope]'),
+      null,
+      'expected the separate adjust-scope action to stay out of normal mode',
     );
     assert.equal(
       container.querySelector('[data-inspection-normal-action]'),

@@ -30,6 +30,15 @@ export type { XacroArgs, XacroFileMap } from './xacro/xacroParser';
 export { isSDF, parseSDF } from './sdf/sdfParser';
 export { generateSDF, generateSdfModelConfig } from './sdf/sdfGenerator';
 
+// STEP Parser (ISO 10303-21 — visual geometry export for CAD design reference)
+export { generateSTEP } from './step/stepGenerator';
+export type {
+  GenerateStepOptions,
+  StepExportResult,
+  StepGeometryPayload,
+  StepGeometryProvider,
+} from './step/stepGenerator';
+
 // File Preview - Convert various robot file formats to URDF for preview
 export { computePreviewUrdf } from './filePreview';
 export {

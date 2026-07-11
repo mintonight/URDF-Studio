@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2 } from 'lucide-react';
+import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2, Box } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
@@ -32,6 +32,7 @@ import type {
   RosVersion,
   MjcfExportConfig,
   SdfExportConfig,
+  StepExportConfig,
   UrdfExportConfig,
   UsdExportConfig,
   XacroExportConfig,
@@ -75,6 +76,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     xacro: getStlPreset(DEFAULT_CONFIG.xacro.compressSTL, DEFAULT_CONFIG.xacro.stlQuality),
     sdf: getStlPreset(DEFAULT_CONFIG.sdf.compressSTL, DEFAULT_CONFIG.sdf.stlQuality),
     usd: getStlPreset(DEFAULT_CONFIG.usd.compressMeshes, DEFAULT_CONFIG.usd.meshQuality),
+    step: 'none',
   }));
 
   const windowState = useDraggableWindow({
@@ -95,7 +97,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const isCompactLayout = dialogWidth < 480;
   const isStackedLayout = dialogWidth < 420;
   const isCompactFormatPicker = dialogWidth < 400;
-  const formatGridClassName = 'grid-cols-5';
+  const formatGridClassName = isCompactFormatPicker ? 'grid-cols-3' : 'grid-cols-6';
 
   const setFormat = useCallback(
     (fmt: MeshExportFormat) => {
@@ -151,6 +153,13 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     [],
   );
 
+  const updateStep = useCallback(
+    <K extends keyof StepExportConfig>(key: K, value: StepExportConfig[K]) => {
+      setConfig((prev) => ({ ...prev, step: { ...prev.step, [key]: value } }));
+    },
+    [],
+  );
+
   const updateIncludeSkeleton = useCallback((value: boolean) => {
     setConfig((prev) => ({ ...prev, includeSkeleton: value }));
   }, []);
@@ -172,19 +181,21 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         ? config.usd.fileFormat === 'usda'
           ? 3
           : 4
-        : activeExportFormat === 'mjcf'
-          ? config.mjcf.includeMeshes
-            ? 5
-            : 4
-          : (
-                activeExportFormat === 'urdf'
-                  ? config.urdf.includeMeshes
-                  : activeExportFormat === 'xacro'
-                    ? config.xacro.includeMeshes
-                    : config.sdf.includeMeshes
-              )
-            ? 4
-            : 3;
+        : activeExportFormat === 'step'
+          ? 3
+          : activeExportFormat === 'mjcf'
+            ? config.mjcf.includeMeshes
+              ? 5
+              : 4
+            : (
+                  activeExportFormat === 'urdf'
+                    ? config.urdf.includeMeshes
+                    : activeExportFormat === 'xacro'
+                      ? config.xacro.includeMeshes
+                      : config.sdf.includeMeshes
+                )
+              ? 4
+              : 3;
   const progressState = localExportProgress ?? {
     stepLabel: t.exportProgressPreparing,
     detail: t.exportProgressPreparingDetail,
@@ -221,7 +232,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           ? '.sdf'
           : config.format === 'usd'
             ? `.${config.usd.fileFormat}`
-            : '.urdf';
+            : config.format === 'step'
+              ? '.step'
+              : '.urdf';
 
   const formatLabel: Record<MeshExportFormat, string> = {
     mjcf: t.exportFormatMJCF,
@@ -229,6 +242,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     xacro: t.exportFormatXacro,
     sdf: t.exportFormatSDF,
     usd: t.exportFormatUSD,
+    step: t.exportFormatStep,
   };
   const compatibleTargets =
     config.format === 'project' ? [] : getExportFormatSupports(config.format);
@@ -337,6 +351,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     {fmt === 'xacro' && <Braces className="w-3.5 h-3.5" />}
                     {fmt === 'sdf' && <Layers className="w-3.5 h-3.5" />}
                     {fmt === 'usd' && <Package className="w-3.5 h-3.5" />}
+                    {fmt === 'step' && <Box className="w-3.5 h-3.5" />}
                     <span className="min-w-0 whitespace-nowrap leading-none">
                       {formatLabel[fmt]}
                     </span>
@@ -744,6 +759,40 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 </div>
               </>
             )}
+
+            {config.format === 'step' && (
+              <>
+                <SectionLabel>{t.exportOptionsSection}</SectionLabel>
+                <div className="bg-element-bg rounded-xl border border-border-black px-3 divide-y divide-border-black">
+                  <Row
+                    label={t.exportStepIncludeMeshes}
+                    desc={t.exportStepIncludeMeshesDesc}
+                    stacked={isStackedLayout}
+                  >
+                    <Toggle
+                      value={config.step.includeMeshes}
+                      onChange={(v) => updateStep('includeMeshes', v)}
+                    />
+                  </Row>
+                  {config.step.includeMeshes && (
+                    <STLQualitySelector
+                      compressSTL={config.step.compressMeshes}
+                      stlQuality={config.step.meshQuality}
+                      mode={qualityModes.step}
+                      t={t}
+                      label={t.exportCompressMeshes}
+                      description={null}
+                      onCompressChange={(v) => updateStep('compressMeshes', v)}
+                      onQualityChange={(v) => updateStep('meshQuality', v)}
+                      onModeChange={(mode) => updateQualityMode('step', mode)}
+                    />
+                  )}
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-text-tertiary">
+                  {t.exportStepFormatHint}
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -771,13 +820,17 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   <Layers className="w-4 h-4" />
                 ) : config.format === 'usd' ? (
                   <Package className="w-4 h-4" />
+                ) : config.format === 'step' ? (
+                  <Box className="w-4 h-4" />
                 ) : (
                   <Layers className="w-4 h-4" />
                 )}
                 <span className="font-mono break-all">
                   {config.format === 'usd'
                     ? `${formatExt} layered package → .zip`
-                    : `${formatExt} + meshes → .zip`}
+                    : config.format === 'step'
+                      ? `${formatExt} → single file`
+                      : `${formatExt} + meshes → .zip`}
                 </span>
               </div>
             )}
@@ -794,7 +847,11 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               ) : (
                 <Upload className="w-3.5 h-3.5" />
               )}
-              {isExporting ? t.exporting : t.exportDoExport}
+              {isExporting
+                ? t.exporting
+                : config.format === 'step'
+                  ? t.exportDoExportStep
+                  : t.exportDoExport}
             </button>
           </div>
         </div>

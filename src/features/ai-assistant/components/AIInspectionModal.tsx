@@ -928,7 +928,7 @@ export function AIInspectionModal({
               inspectionSetupMode === 'advanced' ? (
                 <div
                   ref={reportScrollViewportRef}
-                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg dark:bg-panel-bg"
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                 >
                   <div className="flex min-h-0 flex-1 flex-col gap-4 p-6">
                     {inspectionCancellationNotice && (
@@ -961,9 +961,9 @@ export function AIInspectionModal({
                   ref={reportScrollViewportRef}
                   className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                 >
-                  <div className="flex flex-1 flex-col p-6">
+                  <div className="flex min-h-0 flex-1 flex-col p-6">
                     {inspectionCancellationNotice && (
-                      <div className="mb-4">
+                      <div className="mb-4 shrink-0">
                         <DismissibleInspectionCancellationNotice
                           notice={inspectionCancellationNotice}
                           t={t}

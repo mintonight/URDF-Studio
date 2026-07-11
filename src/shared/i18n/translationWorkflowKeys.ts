@@ -8,6 +8,7 @@ export interface TranslationExportDialogKeys {
   exportFormatXacro: string;
   exportFormatSDF: string;
   exportFormatUSD: string;
+  exportFormatStep: string;
   exportComingSoon: string;
   exportUsdFileFormat: string;
   exportUsdFileFormatDesc: string;
@@ -46,6 +47,7 @@ export interface TranslationExportDialogKeys {
   exportOutputSection: string;
   exportOptionsSection: string;
   exportDoExport: string;
+  exportDoExportStep: string;
   exportDoExportProject: string;
   exportProjectWorkspaceSummary: string;
   exportProjectWorkspaceSummaryDesc: string;
@@ -64,6 +66,11 @@ export interface TranslationExportDialogKeys {
   exportProgressGeneratingMjcfDetail: string;
   exportProgressGeneratingXacroDetail: string;
   exportProgressGeneratingSdfDetail: string;
+  exportProgressGeneratingStep: string;
+  exportProgressGeneratingStepDetail: string;
+  exportStepIncludeMeshes: string;
+  exportStepIncludeMeshesDesc: string;
+  exportStepFormatHint: string;
   exportProgressPreparingSimulationMeshes: string;
   exportProgressPreparingSimulationMeshesDetail: string;
   exportProgressCollectingAssets: string;
