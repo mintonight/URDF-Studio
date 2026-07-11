@@ -1165,6 +1165,101 @@ test('applyGeometryPatchInPlace applies double-sided rendering to marked mesh vi
   assert.equal((visualMesh.material as THREE.Material).side, THREE.DoubleSide);
 });
 
+test('applyGeometryPatchInPlace updates mesh scale on the geometry group without changing loader transforms', () => {
+  const robotModel = new THREE.Group() as THREE.Group & {
+    links?: Record<string, THREE.Object3D>;
+  };
+  const linkObject = new THREE.Group();
+  linkObject.name = 'base_link';
+  markAsUrdfLink(linkObject);
+
+  const visualGroup = new URDFVisual();
+  visualGroup.scale.set(0.001, 0.001, 0.001);
+  const loaderRoot = new THREE.Group();
+  loaderRoot.scale.set(0.01, 0.01, 0.01);
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshPhongMaterial(),
+  );
+  loaderRoot.add(visualMesh);
+  visualGroup.add(loaderRoot);
+  linkObject.add(visualGroup);
+  robotModel.add(linkObject);
+  robotModel.links = { base_link: linkObject };
+
+  const previousLinkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      type: GeometryType.MESH,
+      meshPath: 'base_link.obj',
+      dimensions: { x: 0.001, y: 0.001, z: 0.001 },
+    }),
+  });
+  const linkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      type: GeometryType.MESH,
+      meshPath: 'base_link.obj',
+      dimensions: { x: 0.002, y: 0.004, z: -0.003 },
+    }),
+  });
+
+  const applied = applyGeometryPatchInPlace({
+    robotModel,
+    patch: {
+      linkName: 'base_link',
+      previousLinkData,
+      linkData,
+      visualChanged: true,
+      visualBodiesChanged: false,
+      collisionChanged: false,
+      collisionBodiesChanged: false,
+      inertialChanged: false,
+      visibilityChanged: false,
+    },
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {},
+  });
+
+  assert.equal(applied, true);
+  assert.deepEqual(visualGroup.scale.toArray(), [0.002, 0.004, -0.003]);
+  assert.deepEqual(loaderRoot.scale.toArray(), [0.01, 0.01, 0.01]);
+  assert.deepEqual(
+    visualGroup.userData.geometryDimensions,
+    { x: 0.002, y: 0.004, z: -0.003 },
+  );
+  assert.equal((visualMesh.material as THREE.Material).side, THREE.DoubleSide);
+
+  const zeroScaleLinkData = structuredClone(linkData);
+  zeroScaleLinkData.visual.dimensions = { x: 0, y: 0.004, z: 0.003 };
+  assert.equal(applyGeometryPatchInPlace({
+    robotModel,
+    patch: {
+      linkName: 'base_link',
+      previousLinkData: linkData,
+      linkData: zeroScaleLinkData,
+      visualChanged: true,
+      visualBodiesChanged: false,
+      collisionChanged: false,
+      collisionBodiesChanged: false,
+      inertialChanged: false,
+      visibilityChanged: false,
+    },
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {},
+  }), true);
+  assert.deepEqual(visualGroup.scale.toArray(), [0, 0.004, 0.003]);
+  assert.deepEqual(loaderRoot.scale.toArray(), [0.01, 0.01, 0.01]);
+});
+
 test('applyGeometryPatchInPlace updates authored multi-material colors in place without rebuilding the visual group', () => {
   const robotModel = new THREE.Group() as THREE.Group & {
     links?: Record<string, THREE.Object3D>;

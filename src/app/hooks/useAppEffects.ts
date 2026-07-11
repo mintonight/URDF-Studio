@@ -109,7 +109,7 @@ export function useSelectionCleanup() {
   }, [activeComponentId, selectionSession, workspace]);
 }
 
-/** Derived source documents never survive after their component semantic snapshot changes. */
+/** Remove source drafts only after their owning component leaves the workspace. */
 export function useComponentSourceDraftCleanup() {
   const { workspace, revision, jointMotionRevision } = useWorkspaceStore(
     useShallow((state) => ({
@@ -137,7 +137,7 @@ export function useComponentSourceDraftCleanup() {
     ) {
       return;
     }
-    const matchingDrafts = Object.fromEntries(
+    const ownedDrafts = Object.fromEntries(
       Object.entries(componentSourceDrafts).filter(([componentId, draft]) => {
         const component = workspace.components[componentId];
         // Only prune drafts whose component no longer exists. Do NOT prune
@@ -148,8 +148,8 @@ export function useComponentSourceDraftCleanup() {
         return Boolean(component && draft.componentId === componentId);
       }),
     );
-    if (Object.keys(matchingDrafts).length !== Object.keys(componentSourceDrafts).length) {
-      useAssetsStore.getState().replaceComponentSourceDrafts(matchingDrafts);
+    if (Object.keys(ownedDrafts).length !== Object.keys(componentSourceDrafts).length) {
+      useAssetsStore.getState().replaceComponentSourceDrafts(ownedDrafts);
     }
   }, [componentSourceDrafts, jointMotionRevision, revision, workspace]);
 }

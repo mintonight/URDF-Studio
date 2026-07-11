@@ -83,6 +83,15 @@ function applyMeshScaleToGroup(group: THREE.Object3D, geometry: LinkGeometry): v
   group.userData.geometryDimensions = { ...geometry.dimensions };
 }
 
+function hasMirroredMeshScale(geometry: LinkGeometry): boolean {
+  if (geometry.type !== GeometryType.MESH) return false;
+  const scale = geometry.dimensions;
+  const x = Number.isFinite(scale?.x) ? scale.x : 1;
+  const y = Number.isFinite(scale?.y) ? scale.y : 1;
+  const z = Number.isFinite(scale?.z) ? scale.z : 1;
+  return x * y * z < 0;
+}
+
 function patchGeometryCategory({
   robotModel,
   linkObject,
@@ -323,7 +332,7 @@ function patchGeometryCategory({
         if (hasGeometryMeshMaterialGroups(geometry)) {
           applyVisualMeshMaterialGroupsToObject(obj, geometry, { manager });
         }
-        if (geometry.doubleSided === true) {
+        if (geometry.doubleSided === true || hasMirroredMeshScale(geometry)) {
           forceObjectMaterialSide(obj, THREE.DoubleSide);
         }
       }
@@ -726,14 +735,9 @@ function patchPrimitiveDimensionsInPlace(
 
   switch (geometry.type) {
     case GeometryType.MESH:
-      // Mesh dimensions encode per-axis scale factors; apply them to the
-      // mesh's parent group so runtime scale edits reflect immediately.
-      if (mesh.parent) {
-        mesh.parent.scale.set(dims.x || 1, dims.y || 1, dims.z || 1);
-        mesh.parent.userData.geometryDimensions = { ...dims };
-      } else {
-        mesh.scale.set(dims.x || 1, dims.y || 1, dims.z || 1);
-      }
+      // Authored mesh scale belongs to the URDF geometry group. Loader-owned
+      // descendants may carry unit conversion or normalization transforms.
+      applyMeshScaleToGroup(targetGroup, geometry);
       return true;
     case GeometryType.BOX:
       if (!(mesh.geometry instanceof THREE.BoxGeometry) && mesh.geometry.type !== 'BoxGeometry') {
@@ -922,7 +926,10 @@ function patchGeometryGroupInPlace({
     });
   }
 
-  if (!isCollision && geometry.doubleSided === true) {
+  if (
+    !isCollision
+    && (geometry.doubleSided === true || hasMirroredMeshScale(geometry))
+  ) {
     forceObjectMaterialSide(targetGroup, THREE.DoubleSide);
   }
 

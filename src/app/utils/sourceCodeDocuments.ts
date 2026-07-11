@@ -1,5 +1,4 @@
 import type { AssemblyState, ComponentSourceDraft, RobotFile } from '@/types';
-import { resolveSourcePreservingComponentDraft } from '@/core/robot';
 import { generateURDF } from '@/core/parsers';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import type { SourceCodeDocumentFlavor } from './sourceCodeDisplay';
@@ -616,13 +615,12 @@ export function buildCanonicalWorkspaceSourceDocuments({
   let directComponentDocuments: SourceCodeDocumentDescriptor[] = [];
 
   if (component) {
-    const resolution = resolveSourcePreservingComponentDraft({
-      workspace,
-      componentId: component.id,
-      drafts: componentSourceDrafts,
-    });
-    if (resolution.status === 'matched') {
-      const draft = resolution.draft;
+    const draft = componentSourceDrafts[component.id];
+    // The source editor may recover an owned draft whose semantic hash drifted
+    // during canonical post-import normalization. Export and viewer resolution
+    // keep their stricter hash checks; an explicit source save reparses the
+    // draft and commits through the workspace-revision CAS.
+    if (draft?.componentId === component.id) {
       const sourceName = component.sourceFile ?? `component.${draft.format}`;
       const librarySource = availableFiles.find((file) => file.name === sourceName);
       const sourceFile: RobotFile = {

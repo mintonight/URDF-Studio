@@ -121,11 +121,12 @@ export function useEditableSourceCodeApply({
     const component = workspaceState.workspace.components[componentId];
     const currentDraft = useAssetsStore.getState().componentSourceDrafts[componentId];
     if (!component || !currentDraft || target.format !== currentDraft.format) return false;
-    if (currentDraft.robotSnapshotHash !== createSourceSemanticRobotHash(component.robot)) {
-      return false;
-    }
     if (currentDraft.format === 'usd') return false;
 
+    // Owned stale drafts remain editable so post-import normalization cannot
+    // strand the source editor in read-only mode. The revision captured below
+    // is checked again by commitPreparedComponentSourceApply after parsing, so
+    // a concurrent workspace edit still prevents the source from overwriting it.
     const requestId = (requestIdsRef.current.get(componentId) ?? 0) + 1;
     requestIdsRef.current.set(componentId, requestId);
     const expectedWorkspaceRevision = workspaceState.revision;

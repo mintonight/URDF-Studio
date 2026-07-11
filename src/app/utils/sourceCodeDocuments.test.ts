@@ -163,7 +163,7 @@ test('same-source component instances retain isolated direct draft resources', (
   assert.equal(right.directComponentDocument?.changeTarget?.componentId, 'right');
 });
 
-test('stale and missing single-component drafts generate read-only source without library fallback', () => {
+test('stale single-component drafts remain editable while missing drafts use a read-only projection', () => {
   const workspace = createSingleComponentWorkspace(robot('left_robot'), {
     componentId: 'left',
     sourceFile: 'library/shared.xml',
@@ -177,25 +177,39 @@ test('stale and missing single-component drafts generate read-only source withou
   workspace.components.left.robot.name = 'semantic-edit';
 
   const libraryTemplate = '<mujoco model="immutable-template" />';
-  const draftCases: Array<Record<string, typeof staleDraft>> = [{ left: staleDraft }, {}];
-  for (const componentSourceDrafts of draftCases) {
-    const result = buildCanonicalWorkspaceSourceDocuments({
-      workspace,
-      activeComponentId: 'left',
-      componentSourceDrafts,
-      availableFiles: [{
-        name: 'library/shared.xml',
-        format: 'mjcf',
-        content: libraryTemplate,
-      }],
-      allFileContents: {},
-    });
-    assert.equal(result.mode, 'component');
-    assert.equal(result.documents[0].readOnly, true);
-    assert.equal(result.directComponentDocument, null);
-    assert.notEqual(result.content, libraryTemplate);
-    assert.match(result.content, /semantic-edit/);
-  }
+  const staleResult = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: 'left',
+    componentSourceDrafts: { left: staleDraft },
+    availableFiles: [{
+      name: 'library/shared.xml',
+      format: 'mjcf',
+      content: libraryTemplate,
+    }],
+    allFileContents: {},
+  });
+  assert.equal(staleResult.mode, 'component');
+  assert.equal(staleResult.content, staleDraft.content);
+  assert.equal(staleResult.documents[0].readOnly, false);
+  assert.equal(staleResult.directComponentDocument, staleResult.documents[0]);
+  assert.equal(staleResult.documents[0].changeTarget?.componentId, 'left');
+
+  const missingResult = buildCanonicalWorkspaceSourceDocuments({
+    workspace,
+    activeComponentId: 'left',
+    componentSourceDrafts: {},
+    availableFiles: [{
+      name: 'library/shared.xml',
+      format: 'mjcf',
+      content: libraryTemplate,
+    }],
+    allFileContents: {},
+  });
+  assert.equal(missingResult.mode, 'component');
+  assert.equal(missingResult.documents[0].readOnly, true);
+  assert.equal(missingResult.directComponentDocument, null);
+  assert.notEqual(missingResult.content, libraryTemplate);
+  assert.match(missingResult.content, /semantic-edit/);
 });
 
 test('multi-component and bridged workspaces expose a transformed read-only projection', () => {

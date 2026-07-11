@@ -82,7 +82,7 @@ test('selection cleanup repairs committed selection and clears every invalid tra
   }
 });
 
-test('source draft cleanup removes stale and foreign drafts after any workspace mutation', async () => {
+test('source draft cleanup preserves owned stale drafts and removes foreign drafts', async () => {
   const originalWindow = globalThis.window;
   const originalDocument = globalThis.document;
   const originalNavigator = globalThis.navigator;
@@ -130,7 +130,9 @@ test('source draft cleanup removes stale and foreign drafts after any workspace 
       name: 'mutated source robot',
     });
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(useAssetsStore.getState().componentSourceDrafts, {});
+    assert.deepEqual(Object.keys(useAssetsStore.getState().componentSourceDrafts), [
+      'component_1',
+    ]);
   } finally {
     flushSync(() => root.unmount());
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
