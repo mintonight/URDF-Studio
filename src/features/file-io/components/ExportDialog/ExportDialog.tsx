@@ -847,7 +847,11 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               ) : (
                 <Upload className="w-3.5 h-3.5" />
               )}
-              {isExporting ? t.exporting : t.exportDoExport}
+              {isExporting
+                ? t.exporting
+                : config.format === 'step'
+                  ? t.exportDoExportStep
+                  : t.exportDoExport}
             </button>
           </div>
         </div>

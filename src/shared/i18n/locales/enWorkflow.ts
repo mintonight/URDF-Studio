@@ -56,6 +56,7 @@ export const enWorkflow: TranslationWorkflowKeys = {
   exportOutputSection: 'Output',
   exportOptionsSection: 'Options',
   exportDoExport: 'Export ZIP',
+  exportDoExportStep: 'Export STEP',
   exportDoExportProject: 'Export .usp',
   exportProjectWorkspaceSummary: 'Export the current workspace project',
   exportProjectWorkspaceSummaryDesc:

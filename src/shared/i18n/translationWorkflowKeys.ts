@@ -47,6 +47,7 @@ export interface TranslationExportDialogKeys {
   exportOutputSection: string;
   exportOptionsSection: string;
   exportDoExport: string;
+  exportDoExportStep: string;
   exportDoExportProject: string;
   exportProjectWorkspaceSummary: string;
   exportProjectWorkspaceSummaryDesc: string;

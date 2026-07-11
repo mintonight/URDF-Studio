@@ -56,6 +56,7 @@ export const zhWorkflow: TranslationWorkflowKeys = {
   exportOutputSection: '输出内容',
   exportOptionsSection: '选项',
   exportDoExport: '导出 ZIP',
+  exportDoExportStep: '导出 STEP',
   exportDoExportProject: '导出 .usp',
   exportProjectWorkspaceSummary: '导出当前工作区工程',
   exportProjectWorkspaceSummaryDesc:
