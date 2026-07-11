@@ -3,6 +3,8 @@ import path from 'path';
 import { defineConfig, loadEnv, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
 
 const appPackageVersion =
   JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')).version ?? '0.0.0';
@@ -431,6 +433,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      wasm(),
+      topLevelAwait(),
       createUsdConfigurationProxyPlugin(),
       createConditionalIsolationHeadersPlugin(),
       createStaticHostingHeadersAssetPlugin(),
