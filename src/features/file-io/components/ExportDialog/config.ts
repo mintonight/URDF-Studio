@@ -1,12 +1,13 @@
 import type { ExportDialogConfig, MeshExportFormat } from './types';
 
-export const EXPORT_FORMATS: MeshExportFormat[] = ['mjcf', 'urdf', 'xacro', 'sdf', 'usd'];
+export const EXPORT_FORMATS: MeshExportFormat[] = ['mjcf', 'urdf', 'xacro', 'sdf', 'usd', 'step'];
 
 export const MJCF_SUPPORTS = ['MuJoCo', 'Motphys', 'Genesis'];
 export const URDF_SUPPORTS = ['Isaac Sim', 'Isaac Gym', 'Genesis', 'PyBullet', 'ManiSkill', 'Motphys'];
 export const XACRO_SUPPORTS = ['Gazebo Classic', 'Gazebo Sim', 'ROS1', 'ROS2'];
 export const SDF_SUPPORTS = ['Gazebo', 'Ignition Gazebo', 'sdformat'];
 export const USD_SUPPORTS = ['OpenUSD', 'Isaac Sim', 'Genesis', 'Omniverse'];
+export const STEP_SUPPORTS = ['SolidWorks', 'Fusion 360', 'FreeCAD', 'Inventor'];
 
 export const DEFAULT_CONFIG: ExportDialogConfig = {
   format: 'mjcf',
@@ -50,6 +51,9 @@ export const DEFAULT_CONFIG: ExportDialogConfig = {
     compressMeshes: true,
     meshQuality: 100,
   },
+  step: {
+    includeMeshes: true,
+  },
 };
 
 export function getExportFormatSupports(format: MeshExportFormat): string[] {
@@ -64,6 +68,8 @@ export function getExportFormatSupports(format: MeshExportFormat): string[] {
       return SDF_SUPPORTS;
     case 'usd':
       return USD_SUPPORTS;
+    case 'step':
+      return STEP_SUPPORTS;
     default: {
       const exhaustiveFormat: never = format;
       return exhaustiveFormat;

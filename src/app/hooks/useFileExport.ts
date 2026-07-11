@@ -767,6 +767,21 @@ export function useFileExport() {
         });
       }
 
+      if (config.format === 'step') {
+        const { executeStepExport } = await import('./file-export/stepExport');
+        return executeStepExport({
+          config,
+          target,
+          options,
+          t,
+          resolveLibraryExportContext,
+          resolveExportContext,
+          createProgressReporter,
+          downloadBlob,
+          markCurrentTargetSaved,
+        });
+      }
+
       return executeConfiguredRobotExport({
         addMeshesToZip,
         assets: workspaceExportAssets,
