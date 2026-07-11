@@ -2,9 +2,9 @@
  * STEP export orchestration.
  *
  * STEP exports the robot's visual geometry as a single `.step` file (ISO 10303-21)
- * for CAD design reference. Unlike the zip-based formats, it produces one text file
- * downloaded directly via `downloadBlob`. Meshes are tessellated; primitives become
- * analytic B-rep solids.
+ * for CAD design reference. Unlike the zip-based formats, it produces one file
+ * downloaded directly via `downloadBlob`. The OCCT WASM kernel builds analytic
+ * solids from primitives and tessellated shapes from meshes.
  */
 
 import { generateSTEP, type StepGeometryProvider } from '@/core/parsers';
@@ -41,6 +41,26 @@ interface ExecuteStepExportParams {
 
 const STEP_TOTAL_STEPS = 3;
 
+/** Merge extraMeshFiles blobs into the assets map as blob URLs. */
+export function mergeExtraMeshFiles(
+  assets: Record<string, string>,
+  extraMeshFiles?: Map<string, Blob>,
+): { assets: Record<string, string>; createdBlobUrls: string[] } {
+  if (!extraMeshFiles || extraMeshFiles.size === 0) {
+    return { assets, createdBlobUrls: [] };
+  }
+  const merged: Record<string, string> = { ...assets };
+  const createdBlobUrls: string[] = [];
+  for (const [path, blob] of extraMeshFiles) {
+    if (!merged[path]) {
+      const url = URL.createObjectURL(blob);
+      merged[path] = url;
+      createdBlobUrls.push(url);
+    }
+  }
+  return { assets: merged, createdBlobUrls };
+}
+
 export async function executeStepExport({
   config,
   target,
@@ -54,6 +74,8 @@ export async function executeStepExport({
   markCurrentTargetSaved,
 }: ExecuteStepExportParams): Promise<ExportExecutionResult> {
   const reportProgress = createProgressReporter(options.onProgress, STEP_TOTAL_STEPS);
+
+  // Step 1: resolve the robot + assets.
   reportProgress(1, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
     stageProgress: 0.3,
     indeterminate: true,
@@ -68,40 +90,48 @@ export async function executeStepExport({
     throw new Error(t.exportFailedParse);
   }
 
-  reportProgress(
-    2,
-    t.exportProgressGeneratingStep,
-    t.exportProgressGeneratingStepDetail,
-    { stageProgress: 0.4, indeterminate: true },
-  );
+  const { robot, exportName, extraMeshFiles } = exportContext;
+  const { assets: mergedAssets, createdBlobUrls } = mergeExtraMeshFiles(assets, extraMeshFiles);
 
-  const { robot, exportName } = exportContext;
-  const geometryProvider: StepGeometryProvider = createStepMeshGeometryProvider({
-    assets,
-    compression: {
-      enabled: config.step.compressMeshes,
-      quality: config.step.meshQuality,
-    },
-  });
-  const result = await generateSTEP(robot, {
-    provider: geometryProvider,
-    includeMeshes: config.step.includeMeshes,
-  });
+  try {
+    // Step 2: build geometry + generate STEP via OCCT WASM worker.
+    reportProgress(
+      2,
+      t.exportProgressGeneratingStep,
+      t.exportProgressGeneratingStepDetail,
+      { stageProgress: 0.4, indeterminate: true },
+    );
 
-  reportProgress(
-    3,
-    t.exportProgressGeneratingStep,
-    t.exportProgressGeneratingStepDetail,
-    { stageProgress: 0.9, indeterminate: false },
-  );
+    const geometryProvider: StepGeometryProvider = createStepMeshGeometryProvider({
+      assets: mergedAssets,
+      compression: {
+        enabled: config.step.compressMeshes,
+        quality: config.step.meshQuality,
+      },
+    });
+    const result = await generateSTEP(robot, {
+      provider: geometryProvider,
+      includeMeshes: config.step.includeMeshes,
+    });
 
-  const blob = new Blob([result.content], { type: 'application/step' });
-  downloadBlob(blob, `${exportName}.step`);
-  markCurrentTargetSaved();
+    // Step 3: write + download.
+    reportProgress(
+      3,
+      t.exportProgressGeneratingStep,
+      t.exportProgressGeneratingStepDetail,
+      { stageProgress: 0.9, indeterminate: false },
+    );
 
-  return {
-    partial: false,
-    warnings: [],
-    issues: [],
-  };
+    const blob = new Blob([result.content], { type: 'application/step' });
+    downloadBlob(blob, `${exportName}.step`);
+    markCurrentTargetSaved();
+
+    return {
+      partial: result.warnings.length > 0,
+      warnings: result.warnings,
+      issues: [],
+    };
+  } finally {
+    createdBlobUrls.forEach((url) => URL.revokeObjectURL(url));
+  }
 }
