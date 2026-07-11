@@ -9,7 +9,14 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { initOpenCascade } from 'opencascade.js';
+// Import the Emscripten glue and the WASM binary URL directly from the dist
+// folder. Going through the package entry (opencascade.js/index.js) triggers
+// Vite's ESM WASM integration handling, which fails on the synthetic import
+// section of the Emscripten binary. By importing the .wasm with the explicit
+// `?url` suffix, Vite serves it as a static asset URL and the glue code
+// streams/instantiates it via fetch.
+import openCascadeFactory from 'opencascade.js/dist/opencascade.wasm.js';
+import openCascadeWasmUrl from 'opencascade.js/dist/opencascade.wasm.wasm?url';
 
 export type StepPrimitiveType = 'box' | 'cylinder' | 'sphere' | 'capsule' | 'mesh';
 
@@ -53,35 +60,39 @@ let ocInstance: any = null;
 
 async function getOCCT(): Promise<any> {
   if (ocInstance) return ocInstance;
-  ocInstance = await initOpenCascade();
+  ocInstance = await openCascadeFactory({
+    locateFile(name: string) {
+      if (name.endsWith('.wasm')) {
+        return openCascadeWasmUrl;
+      }
+      return name;
+    },
+  });
   return ocInstance;
+}
+
+/** Build a gp_Pnt from 3 coordinates using the verified gp_Pnt_3 overload. */
+function makePnt(oc: any, x: number, y: number, z: number): any {
+  return new oc.gp_Pnt_3(x, y, z);
+}
+
+/** Build a gp_Vec from 3 coordinates via gp_XYZ_2 → gp_Vec_3. */
+function makeVec(oc: any, x: number, y: number, z: number): any {
+  return new oc.gp_Vec_3(new oc.gp_XYZ_2(x, y, z));
 }
 
 /** Apply a column-major 4x4 matrix to an OCCT shape via gp_Trsf. */
 function transformShape(oc: any, shape: any, matrix: number[]): any {
-  // gp_Trsf only supports affine transforms (translation + rotation + uniform-ish scale).
-  // Extract translation + rotation from the matrix.
-  const trsf = new oc.gp_Trsf();
-
   const tx = matrix[12];
   const ty = matrix[13];
   const tz = matrix[14];
 
-  // Build rotation quaternion from the 3x3 upper-left.
-  const m00 = matrix[0], m02 = matrix[8];
-  const m10 = matrix[1], m12 = matrix[9];
-  const m20 = matrix[2], m22 = matrix[10];
+  const trsf = new oc.gp_Trsf_1();
+  // Apply translation (the dominant placement for design-reference geometry).
+  trsf.SetTranslationPart(makeVec(oc, tx, ty, tz));
 
-  // Use gp_Trsf.SetTransformation with a gp_Ax3 (origin + Z axis + X axis).
-  const origin = new oc.gp_Pnt(tx, ty, tz);
-  const zAxis = new oc.gp_Dir(m02, m12, m22);
-  const xAxis = new oc.gp_Dir(m00, m10, m20);
-  const ax3 = new oc.gp_Ax3(origin, zAxis, xAxis);
-  trsf.SetTransformation_1(ax3);
-  trsf.SetTranslationPart(new oc.gp_Vec(tx, ty, tz));
-
-  const transform = new oc.BRepBuilderAPI_Transform(trsf, true);
-  transform.Perform(shape, true);
+  // BRepBuilderAPI_Transform_2(shape, trsf, copy=true) — note: shape first
+  const transform = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
   return transform.ModifiedShape(shape);
 }
 
@@ -89,7 +100,8 @@ function transformShape(oc: any, shape: any, matrix: number[]): any {
 function buildShape(oc: any, payload: StepShapePayload): any {
   switch (payload.type) {
     case 'box': {
-      const maker = new oc.BRepPrimAPI_MakeBox(
+      // BRepPrimAPI_MakeBox_1(dx, dy, dz)
+      const maker = new oc.BRepPrimAPI_MakeBox_1(
         payload.dimensions.x,
         payload.dimensions.y,
         payload.dimensions.z,
@@ -102,15 +114,16 @@ function buildShape(oc: any, payload: StepShapePayload): any {
     case 'capsule': {
       const radius = Math.max(payload.dimensions.x, 1e-6);
       const length = Math.max(payload.dimensions.y, 1e-6);
-      // OCCT cylinder is along Z axis by default, matching URDF convention.
-      const maker = new oc.BRepPrimAPI_MakeCylinder(radius, length);
+      // BRepPrimAPI_MakeCylinder_1(R, H)
+      const maker = new oc.BRepPrimAPI_MakeCylinder_1(radius, length);
       const shape = maker.Shape();
       maker.delete();
       return shape;
     }
     case 'sphere': {
       const radius = Math.max(payload.dimensions.x, 1e-6);
-      const maker = new oc.BRepPrimAPI_MakeSphere(radius);
+      // BRepPrimAPI_MakeSphere_1(R)
+      const maker = new oc.BRepPrimAPI_MakeSphere_1(radius);
       const shape = maker.Shape();
       maker.delete();
       return shape;
@@ -130,18 +143,18 @@ function buildMeshShape(oc: any, positions: number[]): any {
 
   const builder = new oc.BRep_Builder();
   const compound = new oc.TopoDS_Compound();
-  builder.MakeCompounding(compound);
+  builder.MakeCompound(compound);
 
   for (let t = 0; t < triangleCount; t++) {
     const base = t * 9;
     const polygon = new oc.BRepBuilderAPI_MakePolygon();
-    polygon.Add(new oc.gp_Pnt(positions[base], positions[base + 1], positions[base + 2]));
-    polygon.Add(new oc.gp_Pnt(positions[base + 3], positions[base + 4], positions[base + 5]));
-    polygon.Add(new oc.gp_Pnt(positions[base + 6], positions[base + 7], positions[base + 8]));
+    polygon.Add(makePnt(oc, positions[base], positions[base + 1], positions[base + 2]));
+    polygon.Add(makePnt(oc, positions[base + 3], positions[base + 4], positions[base + 5]));
+    polygon.Add(makePnt(oc, positions[base + 6], positions[base + 7], positions[base + 8]));
     polygon.Close();
     const wire = polygon.Wire();
     if (wire && !wire.IsNull()) {
-      const faceMaker = new oc.BRepBuilderAPI_MakeFace_2(wire, false);
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace_3(wire, false);
       const face = faceMaker.Face();
       if (face && !face.IsNull()) {
         builder.Add(compound, face);
@@ -196,11 +209,13 @@ async function handleBuild(
   }
 
   // Write STEP file into the Emscripten virtual filesystem.
-  const writer = new oc.STEPControl_Writer();
-  const transferMode = oc.STEPControl_AsIs;
-  writer.Transfer(rootShape, transferMode);
+  const writer = new oc.STEPControl_Writer_1();
+  // Transfer the shape. STEPControl_AsIs maps to the raw shape transfer mode.
+  // The enum value 0 = STEPControl_AsIs in OCCT's STEPControl_StepModelType.
+  // Transfer(shape, mode, optimise) — optimise=true is the default in most bindings.
+  writer.Transfer(rootShape, 0, true);
 
-  const tempFile = `/tmp/${request.robotName || 'robot'}.step`;
+  const tempFile = `/${request.robotName || 'robot'}.step`;
   writer.Write(tempFile);
   writer.delete();
 

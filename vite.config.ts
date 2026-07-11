@@ -53,34 +53,6 @@ function resolveUsdConfigurationRootDirs(): string[] {
   return candidateDirs.filter((dirPath) => fs.existsSync(dirPath));
 }
 
-/**
- * opencascade.js loads its 52 MB Emscripten WASM binary via a bare
- * `import wasmFile from "./dist/opencascade.wasm.wasm"`. Vite treats the
- * `.wasm` file as an ESM WASM module and fails to resolve the binary's
- * synthetic import section. Rewrite that one import so Vite serves the
- * raw file as a URL asset, letting the Emscripten JS glue instantiate it.
- */
-function createOpenCascadeWasmUrlPlugin(): import('vite').Plugin {
-  return {
-    name: 'opencascade-wasm-url',
-    enforce: 'pre',
-    async resolveId(source, importer, options) {
-      if (
-        source.endsWith('.wasm.wasm') &&
-        !source.endsWith('?url') &&
-        importer &&
-        importer.includes(path.join('node_modules', 'opencascade.js'))
-      ) {
-        // Resolve the relative path ourselves so Vite gets an absolute file
-        // id, then let Vite's own resolver add the `?url` suffix.
-        const resolved = path.resolve(path.dirname(importer), source);
-        return this.resolve(`${resolved}?url`, importer, { ...options, skipSelf: true });
-      }
-      return null;
-    },
-  };
-}
-
 function createUsdConfigurationProxyPlugin() {
   const configurationFileIndex = buildConfigurationFileIndex(resolveUsdConfigurationRootDirs());
 
@@ -459,13 +431,6 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      // opencascade.js ships an Emscripten-generated WASM binary whose package
-      // entry imports it as `import wasmFile from "./dist/opencascade.wasm.wasm"`
-      // (no `?url` suffix). Vite's default WASM handling misinterprets the
-      // binary's Emscripten import section as ESM WASM integration. Rewriting
-      // that specific import to `?url` lets the JS glue (opencascade.wasm.js)
-      // stream/instantiate the WASM itself — the intended Emscripten flow.
-      createOpenCascadeWasmUrlPlugin(),
       createUsdConfigurationProxyPlugin(),
       createConditionalIsolationHeadersPlugin(),
       createStaticHostingHeadersAssetPlugin(),

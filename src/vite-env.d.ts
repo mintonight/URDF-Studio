@@ -19,3 +19,11 @@ declare module 'opencascade.js' {
   const initOpenCascade: () => Promise<unknown>;
   export { initOpenCascade };
 }
+declare module 'opencascade.js/dist/opencascade.wasm.js' {
+  const factory: (config: Record<string, unknown>) => Promise<unknown>;
+  export default factory;
+}
+declare module 'opencascade.js/dist/opencascade.wasm.wasm?url' {
+  const url: string;
+  export default url;
+}

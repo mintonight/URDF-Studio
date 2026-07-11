@@ -53,6 +53,27 @@ function matrixToArray(matrix: THREE.Matrix4): number[] {
   return Array.from(elements);
 }
 
+/** Extract a single primitive shape payload, or null to skip. */
+function buildPrimitiveShape(
+  visual: UrdfVisual,
+  matrix: THREE.Matrix4,
+): StepShapePayload | null {
+  const dimensions = { ...visual.dimensions };
+  const matrixArray = matrixToArray(matrix);
+  switch (visual.type) {
+    case GeometryType.BOX:
+      return { type: 'box', dimensions, matrix: matrixArray };
+    case GeometryType.CYLINDER:
+      return { type: 'cylinder', dimensions, matrix: matrixArray };
+    case GeometryType.SPHERE:
+      return { type: 'sphere', dimensions, matrix: matrixArray };
+    case GeometryType.CAPSULE:
+      return { type: 'capsule', dimensions, matrix: matrixArray };
+    default:
+      return null;
+  }
+}
+
 /**
  * Generate a complete STEP file for the robot's visual geometry via the OCCT
  * WASM kernel.
@@ -67,77 +88,15 @@ export async function generateSTEP(
   let shapeCount = 0;
 
   for (const link of Object.values(robot.links)) {
-    const entries = getVisualGeometryEntries(link);
-    if (entries.length === 0) continue;
-
-    const linkWorld = linkWorldMatrices[link.id] ?? new THREE.Matrix4();
-    const shapes: StepShapePayload[] = [];
-
-    for (const entry of entries) {
-      const visual = entry.geometry;
-      const localMatrix = createOriginMatrix(visual.origin);
-      const fullMatrix = new THREE.Matrix4().multiplyMatrices(linkWorld, localMatrix);
-
-      switch (visual.type) {
-        case GeometryType.BOX:
-          shapes.push({
-            type: 'box',
-            dimensions: { ...visual.dimensions },
-            matrix: matrixToArray(fullMatrix),
-          });
-          shapeCount++;
-          break;
-        case GeometryType.CYLINDER:
-          shapes.push({
-            type: 'cylinder',
-            dimensions: { ...visual.dimensions },
-            matrix: matrixToArray(fullMatrix),
-          });
-          shapeCount++;
-          break;
-        case GeometryType.SPHERE:
-          shapes.push({
-            type: 'sphere',
-            dimensions: { ...visual.dimensions },
-            matrix: matrixToArray(fullMatrix),
-          });
-          shapeCount++;
-          break;
-        case GeometryType.CAPSULE:
-          shapes.push({
-            type: 'capsule',
-            dimensions: { ...visual.dimensions },
-            matrix: matrixToArray(fullMatrix),
-          });
-          shapeCount++;
-          break;
-        case GeometryType.MESH:
-          if (includeMeshes && provider) {
-            const payload = await provider.loadMeshGeometry(visual, link.id);
-            if (payload && payload.positions.length >= 9) {
-              shapes.push({
-                type: 'mesh',
-                dimensions: { ...visual.dimensions },
-                matrix: matrixToArray(fullMatrix),
-                positions: payload.positions,
-              });
-              shapeCount++;
-            }
-          }
-          break;
-        default:
-          // PLANE, ELLIPSOID, HFIELD, POLYLINE, SDF, NONE — skipped.
-          break;
-      }
-    }
-
-    if (shapes.length === 0) continue;
-
-    linkPayloads.push({
-      linkId: link.id,
-      linkName: link.name || link.id,
-      shapes,
-    });
+    const linkPayload = await collectLinkShapes(
+      link,
+      linkWorldMatrices[link.id] ?? new THREE.Matrix4(),
+      provider,
+      includeMeshes,
+    );
+    if (!linkPayload) continue;
+    shapeCount += linkPayload.shapes.length;
+    linkPayloads.push(linkPayload);
   }
 
   const result = await exportStepWithWorker({
@@ -152,6 +111,50 @@ export async function generateSTEP(
   return {
     content: decoder.decode(result.data),
     linkCount: result.linkCount,
-    shapeCount: shapeCount,
+    shapeCount,
+  };
+}
+
+/** Collect all visual shapes for one link into a StepLinkPayload (or null). */
+async function collectLinkShapes(
+  link: RobotData['links'][string],
+  linkWorld: THREE.Matrix4,
+  provider: StepGeometryProvider | undefined,
+  includeMeshes: boolean,
+): Promise<StepLinkPayload | null> {
+  const entries = getVisualGeometryEntries(link);
+  if (entries.length === 0) return null;
+
+  const shapes: StepShapePayload[] = [];
+
+  for (const entry of entries) {
+    const visual = entry.geometry;
+    const localMatrix = createOriginMatrix(visual.origin);
+    const fullMatrix = new THREE.Matrix4().multiplyMatrices(linkWorld, localMatrix);
+
+    if (visual.type === GeometryType.MESH) {
+      if (!includeMeshes || !provider) continue;
+      const payload = await provider.loadMeshGeometry(visual, link.id);
+      if (payload && payload.positions.length >= 9) {
+        shapes.push({
+          type: 'mesh',
+          dimensions: { ...visual.dimensions },
+          matrix: matrixToArray(fullMatrix),
+          positions: payload.positions,
+        });
+      }
+      continue;
+    }
+
+    const primitive = buildPrimitiveShape(visual, fullMatrix);
+    if (primitive) shapes.push(primitive);
+  }
+
+  if (shapes.length === 0) return null;
+
+  return {
+    linkId: link.id,
+    linkName: link.name || link.id,
+    shapes,
   };
 }
