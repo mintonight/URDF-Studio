@@ -65,3 +65,4 @@ snapshot-default-page.png
 canvas-jpg-chunks.json
 /.trellis
 /.worktrees/
+/.agents
