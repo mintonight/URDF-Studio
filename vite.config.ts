@@ -3,8 +3,6 @@ import path from 'path';
 import { defineConfig, loadEnv, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
 
 const appPackageVersion =
   JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')).version ?? '0.0.0';
@@ -53,6 +51,30 @@ function resolveUsdConfigurationRootDirs(): string[] {
   ];
 
   return candidateDirs.filter((dirPath) => fs.existsSync(dirPath));
+}
+
+/**
+ * opencascade.js loads its 52 MB Emscripten WASM binary via a bare
+ * `import wasmFile from "./dist/opencascade.wasm.wasm"`. Vite treats the
+ * `.wasm` file as an ESM WASM module and fails to resolve the binary's
+ * synthetic `import "a"` section. Rewrite that one import to `?url` so the
+ * Emscripten JS glue (`opencascade.wasm.js`) streams the WASM itself.
+ */
+function createOpenCascadeWasmUrlPlugin() {
+  return {
+    name: 'opencascade-wasm-url',
+    enforce: 'pre' as const,
+    resolveId(source: string, importer: string | undefined) {
+      if (
+        source.endsWith('.wasm.wasm') &&
+        importer &&
+        importer.includes('opencascade.js')
+      ) {
+        return source + '?url';
+      }
+      return null;
+    },
+  };
 }
 
 function createUsdConfigurationProxyPlugin() {
@@ -433,8 +455,13 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      wasm(),
-      topLevelAwait(),
+      // opencascade.js ships an Emscripten-generated WASM binary whose package
+      // entry imports it as `import wasmFile from "./dist/opencascade.wasm.wasm"`
+      // (no `?url` suffix). Vite's default WASM handling misinterprets the
+      // binary's Emscripten import section as ESM WASM integration. Rewriting
+      // that specific import to `?url` lets the JS glue (opencascade.wasm.js)
+      // stream/instantiate the WASM itself — the intended Emscripten flow.
+      createOpenCascadeWasmUrlPlugin(),
       createUsdConfigurationProxyPlugin(),
       createConditionalIsolationHeadersPlugin(),
       createStaticHostingHeadersAssetPlugin(),
