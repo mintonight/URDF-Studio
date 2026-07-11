@@ -97,7 +97,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const isCompactLayout = dialogWidth < 480;
   const isStackedLayout = dialogWidth < 420;
   const isCompactFormatPicker = dialogWidth < 400;
-  const formatGridClassName = 'grid-cols-5';
+  const formatGridClassName = isCompactFormatPicker ? 'grid-cols-3' : 'grid-cols-6';
 
   const setFormat = useCallback(
     (fmt: MeshExportFormat) => {

@@ -377,7 +377,7 @@ test('export format picker stays as a single compact row at the default dialog w
       '[data-export-format-picker]',
       'format picker',
     );
-    assert.match(formatPicker.className, /grid-cols-5/);
+    assert.match(formatPicker.className, /grid-cols-6/);
 
     const mjcfButton = getButtonByText(container, 'MJCF');
     assert.doesNotMatch(mjcfButton.className, /flex-col/);
