@@ -452,7 +452,7 @@ export default defineConfig(({ mode }) => {
       // The oxipng codec ships a `.wasm?url` import that esbuild's dependency
       // pre-bundling can't resolve; let Vite's asset pipeline handle it inside
       // the PNG optimization worker instead.
-      exclude: ['@jsquash/oxipng'],
+      exclude: ['@jsquash/oxipng', 'opencascade.js'],
     },
     resolve: {
       dedupe: ['three', '@react-three/fiber', '@react-three/drei'],

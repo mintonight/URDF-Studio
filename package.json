@@ -153,6 +153,7 @@
     "lucide-react": "^0.555.0",
     "monaco-editor": "^0.55.1",
     "openai": "^4.0.0",
+    "opencascade.js": "^1.1.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
