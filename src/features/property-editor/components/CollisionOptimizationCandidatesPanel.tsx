@@ -89,7 +89,7 @@ function HeaderActionButton({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md px-1.5 py-0.5 text-[9px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-text-primary"
+      className="rounded-md px-2 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-text-primary"
     >
       {children}
     </button>
@@ -105,7 +105,7 @@ function HeaderBadge({
 }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] ${
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${
         active
           ? 'border-system-blue/20 bg-system-blue/10 text-system-blue'
           : 'border-border-black bg-element-bg text-text-tertiary'
@@ -153,11 +153,11 @@ export function CollisionOptimizationCandidatesPanel({
 }: CollisionOptimizationCandidatesPanelProps) {
   return (
     <div className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg">
-      <div className="shrink-0 border-b border-border-black bg-panel-bg px-1.75 py-1.25">
+      <div className="shrink-0 border-b border-border-black bg-panel-bg px-2 py-1.5">
         <div className="space-y-1.25">
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <div className="min-w-0 flex flex-wrap items-center gap-1.5">
-              <div className="text-[10px] font-semibold text-text-primary">{labels.title}</div>
+              <div className="text-[12px] font-semibold text-text-primary">{labels.title}</div>
               <HeaderBadge>
                 {labels.eligible} {eligibleCount}
               </HeaderBadge>
