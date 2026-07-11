@@ -182,7 +182,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           ? 3
           : 4
         : activeExportFormat === 'step'
-          ? 2
+          ? 3
           : activeExportFormat === 'mjcf'
             ? config.mjcf.includeMeshes
               ? 5

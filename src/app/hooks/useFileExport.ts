@@ -773,6 +773,7 @@ export function useFileExport() {
           config,
           target,
           options,
+          assets: workspaceExportAssets,
           t,
           resolveLibraryExportContext,
           resolveExportContext,
