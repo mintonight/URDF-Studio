@@ -354,10 +354,9 @@ async function handleBuild(
           const positions = shapePayload.positions ?? [];
 
           if (shouldUseAnalyticReconstruction(request.experimentalAnalyticReconstruction)) {
-            // Experimental analytic reconstruction path — disabled by default.
-            // When enabled, only plane surfaces produce OCCT faces from boundary
-            // loops. All other types route to faceted fallback with a 5,000-face
-            // global budget enforced by allocateFallbackBudget.
+            // Analytic reconstruction path. The feature gate only admits OCCT
+            // builders that have passed real STEP transfer tests; all other
+            // surfaces retain the bounded faceted fallback.
             const { prepareStepMeshTopology } = await import('./stepMeshTopology');
             const { analyzeMeshTopology } = await import('./stepMeshAnalysis');
             const { checkResourceLimits } = await import('./stepFallbackBudget');
@@ -366,6 +365,7 @@ async function handleBuild(
             const { reconstructSurfaces } = await import('./stepSurfaceReconstruction');
             const { extractRegionBoundary } = await import('./stepRegionBoundary');
             const { buildOcctPlanarRegionFace, buildOcctTriangleFace } = await import('./stepOcctFaceFactory');
+            const { buildOcctCylindricalRegionFace } = await import('./stepOcctAnalyticFaceFactory');
             const { allocateFallbackBudget } = await import('./stepFallbackBudget');
             const { simplifyStepMesh } = await import('./stepMeshSimplifier');
 
@@ -384,7 +384,7 @@ async function handleBuild(
             const grown = growPlanarRegions(prepared, analysis, tolerances);
             const regions = reconstructSurfaces(prepared, analysis, grown, tolerances);
 
-            // Separate into analytic (plane only) and fallback regions.
+            // Separate verified analytic surfaces from fallback regions.
             const analyticRegions = regions.filter(
               (r) => r.accepted && isAnalyticSurfaceEnabled(r.type),
             );
@@ -415,8 +415,42 @@ async function handleBuild(
             let analyticCount = 0;
             let fallbackCount = 0;
 
-            // Accepted planar regions: extract boundary → single OCCT face.
+            // Accepted analytic regions: build one verified OCCT face when the
+            // corresponding factory can preserve the source region safely.
             for (const region of analyticRegions) {
+              if (region.type === 'cylinder') {
+                const cylinderFace = buildOcctCylindricalRegionFace(
+                  oc,
+                  prepared.mesh.vertices,
+                  prepared.mesh.indices,
+                  region,
+                  tolerances.baseDistance,
+                );
+                if (cylinderFace) {
+                  meshBuilder.Add(meshCompound, cylinderFace.shape);
+                  (cylinderFace.shape as { delete?: () => void }).delete?.();
+                  analyticCount++;
+                  continue;
+                }
+                // Unsafe partial cylinders fall back to real triangle faces;
+                // they must never be passed to the planar boundary factory.
+                for (const tId of region.triangleIds) {
+                  const a = prepared.mesh.indices[tId * 3] * 3;
+                  const b = prepared.mesh.indices[tId * 3 + 1] * 3;
+                  const c = prepared.mesh.indices[tId * 3 + 2] * 3;
+                  const fallbackFace = buildOcctTriangleFace(oc, [
+                    prepared.mesh.vertices[a], prepared.mesh.vertices[a + 1], prepared.mesh.vertices[a + 2],
+                    prepared.mesh.vertices[b], prepared.mesh.vertices[b + 1], prepared.mesh.vertices[b + 2],
+                    prepared.mesh.vertices[c], prepared.mesh.vertices[c + 1], prepared.mesh.vertices[c + 2],
+                  ]);
+                  if (fallbackFace) {
+                    meshBuilder.Add(meshCompound, fallbackFace.shape);
+                    (fallbackFace.shape as { delete?: () => void }).delete?.();
+                    fallbackCount++;
+                  }
+                }
+                continue;
+              }
               const boundaryResult = extractRegionBoundary(
                 prepared.mesh.indices,
                 region.triangleIds,

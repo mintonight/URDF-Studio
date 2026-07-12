@@ -13,10 +13,13 @@ import type { SurfaceType } from './stepMeshRegionTypes';
 
 /**
  * Surface types currently approved for analytic OCCT face construction.
- * Only 'plane' is enabled — cylinder/sphere/cone require trimmed-face
- * builders and independent CAD reopen before being added here.
+ * Plane and complete-revolution cylinders are enabled. Sphere/cone require
+ * verified OCCT builders and independent CAD reopen before being added here.
  */
-export const ENABLED_STEP_ANALYTIC_SURFACES: ReadonlySet<SurfaceType> = new Set(['plane']);
+export const ENABLED_STEP_ANALYTIC_SURFACES: ReadonlySet<SurfaceType> = new Set([
+  'plane',
+  'cylinder',
+]);
 
 /**
  * Returns true only when an explicit experimental flag enables analytic

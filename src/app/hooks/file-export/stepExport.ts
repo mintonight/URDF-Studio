@@ -110,7 +110,11 @@ export async function executeStepExport({
     const result = await generateSTEP(robot, {
       provider: geometryProvider,
       includeMeshes: config.step.includeMeshes,
-      experimentalAnalyticReconstruction: false,
+      // Analytic reconstruction is guarded again inside the Worker by
+      // ENABLED_STEP_ANALYTIC_SURFACES. Unsupported analytic types continue
+      // through the bounded faceted fallback instead of being emitted as
+      // unverified OCCT surfaces.
+      experimentalAnalyticReconstruction: true,
     });
 
     // Step 3: write + download.

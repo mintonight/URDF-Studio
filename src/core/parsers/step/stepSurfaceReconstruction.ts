@@ -161,6 +161,28 @@ export function reconstructSurfaces(
   // region), this step is mostly a safety net for future multi-pass growing.
   const resolved = resolveOverlaps(candidates);
 
+  // Planar region growing intentionally splits curved surfaces into narrow
+  // normal-compatible bands. Give the union of all still-unmatched bands one
+  // second analytic fit so a complete cylinder/sphere/cone can be recovered.
+  if (fallbackTriangleIds.length >= tolerances.minRegionTriangles) {
+    const secondPass = [
+      { type: 'cylinder' as const, result: fitCylinder(prepared, analysis, fallbackTriangleIds, tolerances) },
+      { type: 'sphere' as const, result: fitSphere(prepared, analysis, fallbackTriangleIds, tolerances) },
+      { type: 'cone' as const, result: fitCone(prepared, analysis, fallbackTriangleIds, tolerances) },
+    ].find((candidate) => candidate.result.accepted);
+    if (secondPass) {
+      resolved.push({
+        id: regionId++,
+        type: secondPass.type,
+        triangleIds: [...fallbackTriangleIds],
+        parameters: secondPass.result.parameters,
+        quality: secondPass.result.quality,
+        accepted: true,
+      });
+      fallbackTriangleIds.length = 0;
+    }
+  }
+
   // Add fallback region for unmatched triangles.
   if (fallbackTriangleIds.length > 0) {
     resolved.push({

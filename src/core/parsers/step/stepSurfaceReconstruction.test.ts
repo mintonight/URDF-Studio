@@ -24,6 +24,33 @@ function makePlanarGrid(N: number) {
   return prepareStepMeshTopology({ vertices: verts, indices });
 }
 
+/** Build the lateral surface of a closed-revolution cylinder. */
+function makeCylinder(radius: number, height: number, segments: number, rings: number) {
+  const verts: number[] = [];
+  const indices: number[] = [];
+  for (let ring = 0; ring <= rings; ring++) {
+    for (let segment = 0; segment < segments; segment++) {
+      const angle = (segment / segments) * Math.PI * 2;
+      verts.push(
+        radius * Math.cos(angle),
+        radius * Math.sin(angle),
+        (ring / rings) * height,
+      );
+    }
+  }
+  for (let ring = 0; ring < rings; ring++) {
+    for (let segment = 0; segment < segments; segment++) {
+      const next = (segment + 1) % segments;
+      const v00 = ring * segments + segment;
+      const v10 = ring * segments + next;
+      const v01 = (ring + 1) * segments + segment;
+      const v11 = (ring + 1) * segments + next;
+      indices.push(v00, v10, v11, v00, v11, v01);
+    }
+  }
+  return prepareStepMeshTopology({ vertices: verts, indices });
+}
+
 test('reconstructSurfaces recognizes a planar grid as plane', () => {
   const prepared = makePlanarGrid(8);
   const analysis = analyzeMeshTopology(prepared);
@@ -34,6 +61,22 @@ test('reconstructSurfaces recognizes a planar grid as plane', () => {
   assert.ok(regions.length >= 1, 'should produce at least 1 region');
   const planeRegions = regions.filter((r) => r.type === 'plane' && r.accepted);
   assert.ok(planeRegions.length >= 1, 'should have at least 1 accepted plane region');
+});
+
+test('reconstructSurfaces reunites curved bands into one cylinder', () => {
+  const prepared = makeCylinder(0.5, 2, 32, 5);
+  const analysis = analyzeMeshTopology(prepared);
+  const tolerances = computeTolerances(analysis.diagonal);
+  const grown = growPlanarRegions(prepared, analysis, tolerances);
+  const regions = reconstructSurfaces(prepared, analysis, grown, tolerances);
+
+  const cylinder = regions.find((region) => region.type === 'cylinder' && region.accepted);
+  assert.ok(cylinder, 'the complete revolution should become an analytic cylinder');
+  assert.equal(
+    cylinder.triangleIds.length,
+    prepared.mesh.indices.length / 3,
+    'the analytic cylinder should replace every lateral triangle',
+  );
 });
 
 test('reconstructSurfaces routes unmatched triangles to fallback', () => {

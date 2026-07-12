@@ -148,10 +148,10 @@ test('mixed plane/freeform mesh produces complete triangle coverage', () => {
   assertCompleteCoverage(regions, triangleCount);
 });
 
-test('only plane surfaces are enabled for analytic construction', () => {
-  assert.equal(ENABLED_STEP_ANALYTIC_SURFACES.size, 1);
+test('only verified plane and cylinder surfaces are enabled for analytic construction', () => {
+  assert.equal(ENABLED_STEP_ANALYTIC_SURFACES.size, 2);
   assert.equal(isAnalyticSurfaceEnabled('plane'), true);
-  assert.equal(isAnalyticSurfaceEnabled('cylinder'), false);
+  assert.equal(isAnalyticSurfaceEnabled('cylinder'), true);
   assert.equal(isAnalyticSurfaceEnabled('sphere'), false);
   assert.equal(isAnalyticSurfaceEnabled('cone'), false);
 });
