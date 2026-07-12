@@ -16,6 +16,13 @@ import openCascadeFactory from 'opencascade.js/dist/opencascade.wasm.js';
 import openCascadeWasmUrl from 'opencascade.js/dist/opencascade.wasm.wasm?url';
 
 import { isDegenerateTriangle } from './stepOcctUtils';
+import { prepareStepMeshTopology } from './stepMeshTopology';
+import { analyzeMeshTopology } from './stepMeshAnalysis';
+import { computeTolerances } from './stepMeshRegionTypes';
+import type { StepMeshMode } from './stepMeshTypes';
+import { growPlanarRegions } from './stepRegionGrowing';
+import { reconstructSurfaces } from './stepSurfaceReconstruction';
+import { checkResourceLimits } from './stepFallbackBudget';
 
 export type StepPrimitiveType = 'box' | 'cylinder' | 'sphere' | 'capsule' | 'mesh';
 
@@ -39,6 +46,7 @@ export interface StepWorkerRequest {
   type: 'build';
   links: StepLinkPayload[];
   robotName: string;
+  meshMode?: StepMeshMode;
 }
 
 export interface StepWorkerSuccess {
@@ -221,6 +229,77 @@ function buildSphere(oc: any, radius: number): any {
 }
 
 // ---------------------------------------------------------------------------
+// Analytic shape builders for reconstructed regions.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single OCCT triangle shape from 3 vertices.
+ * Uses the verified BRepBuilderAPI_MakePolygon_1 + .Shape() path.
+ */
+function buildSingleTriangle(
+  oc: any,
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
+): any | null {
+  const p1 = new oc.gp_Pnt_3(ax, ay, az);
+  const p2 = new oc.gp_Pnt_3(bx, by, bz);
+  const p3 = new oc.gp_Pnt_3(cx, cy, cz);
+  const polygon = new oc.BRepBuilderAPI_MakePolygon_1();
+  polygon.Add_1(p1);
+  polygon.Add_1(p2);
+  polygon.Add_1(p3);
+  polygon.Close();
+  const shape = polygon.Shape();
+  polygon.delete();
+  p1.delete();
+  p2.delete();
+  p3.delete();
+  return (shape && !shape.IsNull()) ? shape : null;
+}
+
+/**
+ * Build an OCCT planar face from a set of triangles that have been
+ * recognized as coplanar. Creates a single face covering the convex hull
+ * of the region's boundary vertices.
+ *
+ * Strategy: collect boundary vertices from the triangle set, build a
+ * convex hull polygon, and use its .Shape() as the face.
+ */
+function buildPlanarFace(
+  oc: any,
+  vertices: number[],
+  indices: number[],
+  triangleIds: number[],
+): any | null {
+  // Collect unique vertex indices from the region.
+  const vertexSet = new Set<number>();
+  for (const tId of triangleIds) {
+    vertexSet.add(indices[tId * 3]);
+    vertexSet.add(indices[tId * 3 + 1]);
+    vertexSet.add(indices[tId * 3 + 2]);
+  }
+
+  if (vertexSet.size < 3) return null;
+
+  // Build a polygon through all unique vertices (simple approach — no convex hull).
+  // OCCT MakePolygon connects points in order; for a planar region this creates
+  // a wire that covers the region.
+  const polygon = new oc.BRepBuilderAPI_MakePolygon_1();
+  for (const vIdx of vertexSet) {
+    polygon.Add_1(new oc.gp_Pnt_3(
+      vertices[vIdx * 3],
+      vertices[vIdx * 3 + 1],
+      vertices[vIdx * 3 + 2],
+    ));
+  }
+  polygon.Close();
+  const shape = polygon.Shape();
+  polygon.delete();
+  return (shape && !shape.IsNull()) ? shape : null;
+}
+
+// ---------------------------------------------------------------------------
 // Mesh shell builder — each triangle becomes a closed-polygon shape.
 // ---------------------------------------------------------------------------
 
@@ -349,15 +428,89 @@ async function handleBuild(
         }
         case 'mesh': {
           const positions = shapePayload.positions ?? [];
-          const meshResult = buildMeshShape(oc, positions);
-          if (!meshResult) {
-            warnings.push(`Link "${link.linkName}" mesh had no valid triangles; skipped.`);
-            continue;
+          const meshMode = request.meshMode ?? 'lightweight';
+
+          if (meshMode === 'cad-repair' || meshMode === 'lightweight') {
+            // Run the CAD reconstruction pipeline.
+            const prepared = prepareStepMeshTopology({ vertices: positions });
+            if (prepared.mesh.indices.length === 0) {
+              warnings.push(`Link "${link.linkName}" mesh had no valid triangles after cleanup; skipped.`);
+              continue;
+            }
+
+            const triangleCount = prepared.mesh.indices.length / 3;
+            try {
+              checkResourceLimits({ inputTriangles: triangleCount, candidateRegions: 1 });
+            } catch {
+              warnings.push(`Link "${link.linkName}" mesh exceeds resource limits; using raw faceted fallback.`);
+              const meshResult = buildMeshShape(oc, positions);
+              if (!meshResult) continue;
+              rawShape = meshResult.shape;
+              break;
+            }
+
+            const analysis = analyzeMeshTopology(prepared);
+            const tolerances = computeTolerances(analysis.diagonal);
+            const grown = growPlanarRegions(prepared, analysis, tolerances);
+            const regions = reconstructSurfaces(prepared, analysis, grown, tolerances);
+
+            // Build OCCT shapes from reconstructed regions.
+            const builder = new oc.BRep_Builder();
+            const meshCompound = new oc.TopoDS_Compound();
+            builder.MakeCompound(meshCompound);
+
+            let analyticCount = 0;
+            let fallbackCount = 0;
+
+            for (const region of regions) {
+              if (region.accepted && region.type === 'plane') {
+                const planeShape = buildPlanarFace(
+                  oc,
+                  prepared.mesh.vertices,
+                  prepared.mesh.indices,
+                  region.triangleIds,
+                );
+                if (planeShape) {
+                  builder.Add(meshCompound, planeShape);
+                  analyticCount++;
+                  continue;
+                }
+              }
+
+              // Fallback: add triangles as polygon shapes.
+              for (const tId of region.triangleIds) {
+                const a = prepared.mesh.indices[tId * 3] * 3;
+                const b = prepared.mesh.indices[tId * 3 + 1] * 3;
+                const c = prepared.mesh.indices[tId * 3 + 2] * 3;
+                const triShape = buildSingleTriangle(
+                  oc,
+                  prepared.mesh.vertices[a], prepared.mesh.vertices[a + 1], prepared.mesh.vertices[a + 2],
+                  prepared.mesh.vertices[b], prepared.mesh.vertices[b + 1], prepared.mesh.vertices[b + 2],
+                  prepared.mesh.vertices[c], prepared.mesh.vertices[c + 1], prepared.mesh.vertices[c + 2],
+                );
+                if (triShape) {
+                  builder.Add(meshCompound, triShape);
+                  fallbackCount++;
+                }
+              }
+            }
+
+            if (analyticCount > 0) {
+              warnings.push(`Link "${link.linkName}" reconstructed ${analyticCount} analytic region(s), ${fallbackCount} fallback triangle(s).`);
+            }
+            rawShape = meshCompound;
+          } else {
+            // Raw faceted mode: original per-triangle polygon path.
+            const meshResult = buildMeshShape(oc, positions);
+            if (!meshResult) {
+              warnings.push(`Link "${link.linkName}" mesh had no valid triangles; skipped.`);
+              continue;
+            }
+            if (meshResult.skipped > 0) {
+              warnings.push(`Link "${link.linkName}" mesh skipped ${meshResult.skipped} degenerate triangle(s).`);
+            }
+            rawShape = meshResult.shape;
           }
-          if (meshResult.skipped > 0) {
-            warnings.push(`Link "${link.linkName}" mesh skipped ${meshResult.skipped} degenerate triangle(s).`);
-          }
-          rawShape = meshResult.shape;
           break;
         }
         default:

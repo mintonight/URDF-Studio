@@ -110,6 +110,7 @@ export async function executeStepExport({
     const result = await generateSTEP(robot, {
       provider: geometryProvider,
       includeMeshes: config.step.includeMeshes,
+      meshMode: config.step.meshMode,
     });
 
     // Step 3: write + download.

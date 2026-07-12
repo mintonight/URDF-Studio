@@ -35,6 +35,8 @@ export interface GenerateStepOptions {
   provider?: StepGeometryProvider;
   /** When false, skip MESH visuals entirely (only export primitives). Defaults to true. */
   includeMeshes?: boolean;
+  /** Mesh export mode: 'lightweight' (analytic reconstruction) or 'cad-repair'. */
+  meshMode?: import('./stepMeshTypes').StepMeshMode;
 }
 
 export interface StepExportResult {
@@ -102,6 +104,7 @@ export async function generateSTEP(
   const result = await exportStepWithWorker({
     robotName: robot.name || 'robot',
     links: linkPayloads,
+    meshMode: options.meshMode,
   });
 
   // Decode the STEP bytes to a string for the download pipeline (which expects
