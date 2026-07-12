@@ -1,4 +1,6 @@
 import { parseURDF } from '@/core/parsers';
+import { resolveJointKey } from '@/core/robot';
+import { rerootAssemblyComponentRobot } from '@/core/robot/assemblyReroot';
 import { createStableJsonSnapshot } from '@/core/robot/semanticSnapshot';
 import type { RobotData, RobotMaterialState, UrdfJoint, UrdfLink } from '@/types';
 import type {
@@ -26,18 +28,38 @@ function fail(reason: string): PartitionFlattenedGroupEditResult {
   return { ok: false, reason };
 }
 
-function findDuplicateDirectEntityName(text: string): string | null {
+function validateDirectEntityNames(
+  text: string,
+  provenance: GraftAssemblyGroupUrdfSourceProvenance,
+): string | null {
   const document = new DOMParser().parseFromString(text, 'text/xml');
   const robot = document.querySelector('robot');
   if (!robot) return null;
-  for (const tagName of ['link', 'joint']) {
+  const expectedNamesByTag = {
+    link: provenance.directLinkNames,
+    joint: provenance.directJointNames,
+  };
+  for (const tagName of ['link', 'joint'] as const) {
     const names = new Set<string>();
     for (const element of Array.from(robot.children)) {
       if (element.tagName !== tagName) continue;
       const name = element.getAttribute('name')?.trim();
-      if (name && names.has(name)) return `${tagName} "${name}"`;
+      if (!name) return `${tagName} without a name cannot be attributed safely`;
+      if (names.has(name)) return `duplicate ${tagName} "${name}" cannot be attributed safely`;
       if (name) names.add(name);
     }
+    const expectedNames = expectedNamesByTag[tagName];
+    const addedName = Array.from(names).find((name) => !expectedNames.has(name));
+    if (addedName) {
+      const owner = tagName === 'link'
+        ? provenance.linkOwnerByName.get(addedName)
+        : provenance.jointOwnerByName.get(addedName);
+      return owner
+        ? `${tagName} "${addedName}" cannot be added in the flattened view`
+        : `${tagName} "${addedName}" has no component provenance`;
+    }
+    const missingName = Array.from(expectedNames).find((name) => !names.has(name));
+    if (missingName) return `${tagName} "${missingName}" cannot be removed in the flattened view`;
   }
   return null;
 }
@@ -46,8 +68,8 @@ function findOriginalEntityId<T extends { name: string }>(
   entities: Record<string, T>,
   originalName: string,
 ): string | null {
-  const match = Object.entries(entities).find(([, entity]) => entity.name === originalName);
-  return match?.[0] ?? null;
+  const matches = Object.entries(entities).filter(([, entity]) => entity.name === originalName);
+  return matches.length === 1 ? matches[0][0] : null;
 }
 
 function resolveOriginalLinkId(
@@ -110,11 +132,11 @@ function partitionFlatComponentRobot(
   };
 }
 
-function rebuildMasterRobot(
+function rebuildComponentRobot(
   parsedRobot: RobotData,
+  componentId: string,
   provenance: GraftAssemblyGroupUrdfSourceProvenance,
 ): RobotData | null {
-  const componentId = provenance.masterComponentId;
   const originalRobot = provenance.componentRobotById.get(componentId);
   if (!originalRobot) return null;
 
@@ -158,21 +180,85 @@ function rebuildMasterRobot(
     };
   }
 
-  const rootOwner = provenance.linkOwnerByName.get(parsedRobot.rootLinkId);
-  const rootLinkId = rootOwner?.componentId === componentId
-    ? findOriginalEntityId(originalRobot.links, rootOwner.originalName)
-    : null;
-  if (!rootLinkId || !links[rootLinkId]) return null;
+  const childLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
+  const rootLinkIds = Object.keys(links).filter((linkId) => !childLinkIds.has(linkId));
+  if (rootLinkIds.length !== 1) return null;
 
   return {
     ...originalRobot,
-    name: parsedRobot.name,
-    version: parsedRobot.version,
+    ...(componentId === provenance.masterComponentId
+      ? { name: parsedRobot.name, version: parsedRobot.version }
+      : {}),
     links,
     joints,
-    rootLinkId,
+    rootLinkId: rootLinkIds[0],
     ...(Object.keys(materials).length > 0 ? { materials } : { materials: undefined }),
   };
+}
+
+function hasSameKeys<T>(left: Record<string, T>, right: Record<string, T>): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+function resolveExpectedFlattenedRobot(
+  componentId: string,
+  provenance: GraftAssemblyGroupUrdfSourceProvenance,
+): RobotData | null {
+  const originalRobot = provenance.componentRobotById.get(componentId);
+  if (!originalRobot) return null;
+  if (componentId === provenance.masterComponentId) return originalRobot;
+
+  const bridge = Array.from(provenance.bridgeById.values()).find((candidate) =>
+    provenance.linkOwnerByName.get(candidate.flattenedChildLinkName)?.componentId === componentId,
+  );
+  const rootOwner = bridge
+    ? provenance.linkOwnerByName.get(bridge.flattenedChildLinkName)
+    : null;
+  const targetRootLinkId = rootOwner
+    ? findOriginalEntityId(originalRobot.links, rootOwner.originalName)
+    : null;
+  return targetRootLinkId
+    ? rerootAssemblyComponentRobot(originalRobot, targetRootLinkId, componentId)
+    : null;
+}
+
+function validateComponentStructure(
+  componentId: string,
+  rebuiltFlatRobot: RobotData,
+  provenance: GraftAssemblyGroupUrdfSourceProvenance,
+): string | null {
+  const expectedFlatRobot = resolveExpectedFlattenedRobot(componentId, provenance);
+  if (!expectedFlatRobot) return `component "${componentId}" has no flattened topology baseline`;
+  if (
+    !hasSameKeys(rebuiltFlatRobot.links, expectedFlatRobot.links)
+    || !hasSameKeys(rebuiltFlatRobot.joints, expectedFlatRobot.joints)
+  ) {
+    return `component "${componentId}" entities cannot be added or removed in the flattened view`;
+  }
+  if (rebuiltFlatRobot.rootLinkId !== expectedFlatRobot.rootLinkId) {
+    return `component "${componentId}" root topology cannot be edited in the flattened view`;
+  }
+  for (const [jointId, expectedJoint] of Object.entries(expectedFlatRobot.joints)) {
+    const joint = rebuiltFlatRobot.joints[jointId];
+    const mimicJointId = joint?.mimic?.joint
+      ? resolveJointKey(rebuiltFlatRobot.joints, joint.mimic.joint)
+      : null;
+    const expectedMimicJointId = expectedJoint.mimic?.joint
+      ? resolveJointKey(expectedFlatRobot.joints, expectedJoint.mimic.joint)
+      : null;
+    if (
+      !joint
+      || joint.parentLinkId !== expectedJoint.parentLinkId
+      || joint.childLinkId !== expectedJoint.childLinkId
+      || mimicJointId !== expectedMimicJointId
+    ) {
+      return `joint "${expectedJoint.name}" topology cannot be edited in the flattened view`;
+    }
+  }
+  return null;
 }
 
 function validateComponentJointEndpoints(
@@ -191,8 +277,10 @@ function validateComponentJointEndpoints(
   const mimicOwner = joint.mimic?.joint
     ? provenance.jointOwnerByName.get(joint.mimic.joint)
     : null;
-  return !mimicOwner
-    || (mimicOwner.kind === 'component' && mimicOwner.componentId === owner.componentId);
+  return !joint.mimic?.joint
+    || Boolean(
+      mimicOwner?.kind === 'component' && mimicOwner.componentId === owner.componentId,
+    );
 }
 
 function bridgeEditableSnapshot(joint: UrdfJoint): string {
@@ -254,19 +342,59 @@ function validateParsedEntityAttribution(
   return null;
 }
 
-function validateSlavePartitions(
+type ComponentRobotCollection =
+  | { componentRobots: Map<string, RobotData> }
+  | { reason: string };
+
+function collectChangedComponentRobots(
   parsedRobot: RobotData,
   provenance: GraftAssemblyGroupUrdfSourceProvenance,
-): string | null {
+): ComponentRobotCollection {
+  const componentRobots = new Map<string, RobotData>();
   for (const [componentId, baselineHash] of provenance.flattenedComponentHashById) {
     const flatRobot = partitionFlatComponentRobot(parsedRobot, componentId, provenance);
-    if (!flatRobot) return `component "${componentId}" could not be partitioned`;
-    const changed = createFlattenedComponentPartitionHash(flatRobot) !== baselineHash;
-    if (componentId !== provenance.masterComponentId && changed) {
-      return `slave component "${componentId}" cannot be edited in the flattened view yet`;
+    const rebuiltFlatRobot = rebuildComponentRobot(parsedRobot, componentId, provenance);
+    if (!flatRobot || !rebuiltFlatRobot) {
+      return { reason: `component "${componentId}" could not be partitioned` };
     }
+    const structureError = validateComponentStructure(
+      componentId,
+      rebuiltFlatRobot,
+      provenance,
+    );
+    if (structureError) return { reason: structureError };
+    const changed = createFlattenedComponentPartitionHash(flatRobot) !== baselineHash;
+    const masterMetadataChanged = componentId === provenance.masterComponentId
+      && (parsedRobot.name !== provenance.masterRobotName
+        || parsedRobot.version !== provenance.masterRobotVersion);
+    if (!changed && !masterMetadataChanged) continue;
+    if (componentId === provenance.masterComponentId) {
+      componentRobots.set(componentId, rebuiltFlatRobot);
+      continue;
+    }
+
+    const slave = provenance.slaveById.get(componentId);
+    const originalRobot = provenance.componentRobotById.get(componentId);
+    if (!slave || !originalRobot) {
+      return { reason: `slave component "${componentId}" has no inverse provenance` };
+    }
+    const {
+      closedLoopConstraints: _closedLoopConstraints,
+      inspectionContext: _inspectionContext,
+      ...urdfFlatRobot
+    } = rebuiltFlatRobot;
+    const restoredRobot = rerootAssemblyComponentRobot(
+      urdfFlatRobot,
+      slave.originalRootLinkId,
+      componentId,
+    );
+    componentRobots.set(componentId, {
+      ...restoredRobot,
+      closedLoopConstraints: originalRobot.closedLoopConstraints,
+      inspectionContext: originalRobot.inspectionContext,
+    });
   }
-  return null;
+  return { componentRobots };
 }
 
 type BridgeEditCollection =
@@ -295,48 +423,31 @@ function collectBridgeEdits(
     : { edits };
 }
 
-/** Partition a flattened group edit; Phase 1 accepts master and bridge changes only. */
+/** Partition a flattened group edit and invert slave name/reroot projection changes. */
 export function partitionFlattenedGroupEdit(
   editedText: string,
   provenance: GraftAssemblyGroupUrdfSourceProvenance,
 ): PartitionFlattenedGroupEditResult {
   try {
-    const duplicate = findDuplicateDirectEntityName(editedText);
-    if (duplicate) return fail(`duplicate ${duplicate} cannot be attributed safely`);
+    const directEntityError = validateDirectEntityNames(editedText, provenance);
+    if (directEntityError) return fail(directEntityError);
     const parsedState = parseURDF(editedText);
     if (!parsedState) return fail('edited flattened URDF could not be parsed');
     const parsedRobot = toRobotData(parsedState);
 
     const attributionError = validateParsedEntityAttribution(parsedRobot, provenance);
     if (attributionError) return fail(attributionError);
-    const slavePartitionError = validateSlavePartitions(parsedRobot, provenance);
-    if (slavePartitionError) return fail(slavePartitionError);
-
-    const componentRobots = new Map<string, RobotData>();
-    const masterRobot = rebuildMasterRobot(parsedRobot, provenance);
-    if (!masterRobot || !provenance.componentRobotById.has(provenance.masterComponentId)) {
-      return fail('master component could not be rebuilt');
-    }
-    const flatMaster = partitionFlatComponentRobot(
-      parsedRobot,
-      provenance.masterComponentId,
-      provenance,
-    );
-    const masterPartitionChanged = Boolean(
-      flatMaster
-      && createFlattenedComponentPartitionHash(flatMaster)
-        !== provenance.flattenedComponentHashById.get(provenance.masterComponentId),
-    );
-    const masterDocumentMetadataChanged = parsedRobot.name !== provenance.masterRobotName
-      || parsedRobot.version !== provenance.masterRobotVersion;
-    if (masterPartitionChanged || masterDocumentMetadataChanged) {
-      componentRobots.set(provenance.masterComponentId, masterRobot);
-    }
+    const componentResult = collectChangedComponentRobots(parsedRobot, provenance);
+    if ('reason' in componentResult) return fail(componentResult.reason);
 
     const bridgeEdits = collectBridgeEdits(parsedRobot, provenance);
     if ('reason' in bridgeEdits) return fail(bridgeEdits.reason);
 
-    return { ok: true, componentRobots, bridgeJointEdits: bridgeEdits.edits };
+    return {
+      ok: true,
+      componentRobots: componentResult.componentRobots,
+      bridgeJointEdits: bridgeEdits.edits,
+    };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }

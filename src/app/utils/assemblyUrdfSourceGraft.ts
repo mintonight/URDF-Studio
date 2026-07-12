@@ -71,6 +71,8 @@ export interface GraftAssemblyGroupUrdfSourceProvenance {
   masterRobotVersion?: string;
   linkOwnerByName: Map<string, GraftComponentEntityOwner>;
   jointOwnerByName: Map<string, GraftJointEntityOwner>;
+  directLinkNames: Set<string>;
+  directJointNames: Set<string>;
   slaveById: Map<string, GraftSlaveProvenance>;
   componentRobotById: Map<string, RobotData>;
   flattenedComponentHashById: Map<string, string>;
@@ -174,6 +176,18 @@ function stripRobotWrapper(urdf: string): string {
     .replace(/\s*<\/robot>\s*$/, '')
     .replace(/^\n+/, '')
     .replace(/\s+$/, '');
+}
+
+function collectDirectEntityNames(urdf: string, tagName: 'link' | 'joint'): Set<string> {
+  const document = new DOMParser().parseFromString(urdf, 'text/xml');
+  const robot = document.querySelector('robot');
+  if (!robot) return new Set();
+  return new Set(
+    Array.from(robot.children)
+      .filter((element) => element.tagName === tagName)
+      .map((element) => element.getAttribute('name')?.trim())
+      .filter((name): name is string => Boolean(name)),
+  );
 }
 
 /**
@@ -358,6 +372,8 @@ function createGraftBuildContext(
       masterRobotVersion: parsedMaster.version,
       linkOwnerByName,
       jointOwnerByName,
+      directLinkNames: new Set(),
+      directJointNames: new Set(),
       slaveById: new Map(),
       componentRobotById,
       flattenedComponentHashById,
@@ -501,6 +517,8 @@ export function graftAssemblyGroupUrdfSource(
       CLOSING_ROBOT_TAG,
       `\n\n${injection}\n\n</robot>\n`,
     );
+    context.provenance.directLinkNames = collectDirectEntityNames(urdfText, 'link');
+    context.provenance.directJointNames = collectDirectEntityNames(urdfText, 'joint');
     return {
       ok: true,
       urdfText,
