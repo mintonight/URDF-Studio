@@ -19,6 +19,7 @@ import { useAppLayoutStoreSlices } from './hooks/useAppLayoutStoreSlices';
 import { useBatchThumbnailDebugApi } from './hooks/useBatchThumbnailDebugApi';
 import { useCollisionOptimizationWorkflow } from './hooks/useCollisionOptimizationWorkflow';
 import { useEditableSourceCodeApply } from './hooks/useEditableSourceCodeApply';
+import { useFlattenedGroupSourceApply } from './hooks/useFlattenedGroupSourceApply';
 import { useEditableSourcePatches } from './hooks/useEditableSourcePatches';
 import { useIkToolController } from './hooks/useIkToolController';
 import { useIkDragPanelActions } from './hooks/use_ik_drag_panel_actions';
@@ -46,6 +47,7 @@ import {
 } from './hooks/workspaceViewerDetailPreferences';
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 import { buildCanonicalWorkspaceSourceDocuments } from './utils/sourceCodeDocuments';
+import type { SourceCodeDocumentChangeTarget } from './utils/sourceCodeDocuments';
 import { resolveCanonicalWorkspaceViewerDocument } from './utils/canonicalWorkspaceViewerDocument';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
@@ -67,6 +69,7 @@ import type {
   SnapshotCaptureProgress,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import { projectWorkspaceJointMotionToRenderer, type ToolMode } from '@/features/editor';
+import type { SourceCodeEditorApplyRequest } from '@/features/code-editor';
 import { buildBridgePreviewWorkspace } from '@/features/assembly';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 
@@ -447,10 +450,27 @@ export function AppLayout({
     t,
   });
 
-  const { handleCodeChange } = useEditableSourceCodeApply({
+  const { handleCodeChange: handleComponentCodeChange } = useEditableSourceCodeApply({
     allFileContents,
     availableFiles,
   });
+  const { handleCodeChange: handleGroupCodeChange } = useFlattenedGroupSourceApply();
+  const handleCodeChange = useCallback(
+    (
+      newCode: string,
+      target?: SourceCodeDocumentChangeTarget,
+      applyRequest?: SourceCodeEditorApplyRequest,
+    ): Promise<boolean> => {
+      if (target?.kind === 'component') {
+        return handleComponentCodeChange(newCode, target, applyRequest);
+      }
+      if (target?.kind === 'group') {
+        return handleGroupCodeChange(newCode, target, applyRequest);
+      }
+      return Promise.resolve(false);
+    },
+    [handleComponentCodeChange, handleGroupCodeChange],
+  );
   const sourceCodeEditorDocuments = useSourceCodeEditorDocuments(
     canonicalSource.documents,
     handleCodeChange,
