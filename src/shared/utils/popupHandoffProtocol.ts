@@ -109,7 +109,9 @@ export const HANDOFF_BROADCAST_CHANNEL = 'botworld-handoff';
 
 export type HandoffBroadcastMessage =
   | { type: 'import-request'; assetId: string; fromOrigin: string }
-  | { type: 'import-accepted'; assetId: string };
+  | { type: 'import-accepted'; assetId: string }
+  | { type: 'plugin-launch-request'; toolKey: string }
+  | { type: 'plugin-launch-accepted'; toolKey: string };
 
 /** How long a new tab waits for an existing tab to claim the import (ms). */
 export const HANDOFF_BROADCAST_TIMEOUT_MS = 1000;

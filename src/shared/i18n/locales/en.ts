@@ -776,6 +776,7 @@ export const en: TranslationKeys = {
   botWorldImportImporting: 'Importing files…',
   botWorldImportWaiting: 'Waiting for editor response…',
   botWorldImportTitleBlink: 'New asset import - URDF Studio',
+  pluginLaunchedTitleBlink: 'Plugin launched - URDF Studio',
   appErrorBoundaryTitle: 'Something went wrong',
   appErrorBoundaryMessage:
     'Rendering was interrupted. Reload the page; if the issue continues, share the error details below with the development team.',
