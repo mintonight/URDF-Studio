@@ -12,6 +12,24 @@ export interface StepIndexedMesh {
   indices: number[];
 }
 
+/** Result of cleaning and indexing a raw flat-vertex mesh. */
+export interface PreparedStepMesh {
+  mesh: StepIndexedMesh;
+  components: number[][];
+  boundaryVertices: number[];
+  weldTolerance: number;
+  stats: {
+    inputTriangles: number;
+    weldedVertices: number;
+    removedNonFiniteTriangles: number;
+    removedDegenerateTriangles: number;
+    removedDuplicateTriangles: number;
+    connectedComponents: number;
+    boundaryEdges: number;
+    nonManifoldEdges: number;
+  };
+}
+
 /** Per-mesh diagnostics reported back to the UI. */
 export interface StepMeshDiagnostics {
   linkId: string;
