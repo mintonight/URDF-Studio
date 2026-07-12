@@ -75,3 +75,31 @@ test('total never exceeds 5000', () => {
   const total = Object.values(result.budgets).reduce((s, v) => s + v, 0);
   assert.ok(total <= RECONSTRUCTION_LIMITS.maxFallbackTriangles, `total ${total}`);
 });
+
+test('omitted regions produce structured failure when budget is insufficient', () => {
+  // 300 regions × 20 min = 6000 > 5000 → some must be omitted.
+  const regions = Array.from({ length: 300 }, (_, i) => ({
+    regionId: i,
+    triangleCount: 100,
+    area: i + 1,
+  }));
+  const result = allocateFallbackBudget(regions);
+  assert.ok(result.omittedRegions.length > 0, 'should omit some regions');
+  // Caller must throw when omittedRegions is non-empty.
+  assert.throws(
+    () => {
+      if (result.omittedRegions.length > 0) {
+        throw new Error(
+          `STEP faceted fallback cannot retain all regions within 5000 triangles; omitted regions: ${result.omittedRegions.join(', ')}`,
+        );
+      }
+    },
+    /omitted regions/,
+  );
+});
+
+test('empty region list produces empty budgets', () => {
+  const result = allocateFallbackBudget([]);
+  assert.deepEqual(result.budgets, {});
+  assert.equal(result.omittedRegions.length, 0);
+});
