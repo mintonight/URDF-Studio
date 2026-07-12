@@ -38,7 +38,7 @@ function createWorkerError(event: ErrorEvent | { error?: unknown; message?: stri
 export interface ExportStepWithWorkerParams {
   robotName: string;
   links: StepLinkPayload[];
-  meshMode?: import('./stepMeshTypes').StepMeshMode;
+  experimentalAnalyticReconstruction?: boolean;
 }
 
 export async function exportStepWithWorker(
@@ -57,7 +57,7 @@ export async function exportStepWithWorker(
     type: 'build',
     links: params.links,
     robotName: params.robotName,
-    meshMode: params.meshMode,
+    experimentalAnalyticReconstruction: params.experimentalAnalyticReconstruction,
   };
 
   return new Promise<StepWorkerResult>((resolve, reject) => {
