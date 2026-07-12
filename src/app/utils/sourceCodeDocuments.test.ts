@@ -16,9 +16,14 @@ import {
   buildCanonicalWorkspaceSourceDocuments,
   buildSourceCodeDocuments,
 } from './sourceCodeDocuments.ts';
+import type { SourceCodeDocumentChangeTarget } from './sourceCodeDocuments.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
+
+function componentTargetId(target: SourceCodeDocumentChangeTarget | undefined): string | null {
+  return target?.kind === 'component' ? target.componentId : null;
+}
 
 function robot(name: string): RobotData {
   return {
@@ -59,6 +64,7 @@ test('primary source apply target always carries explicit component ownership', 
   });
 
   assert.deepEqual(documents[0].changeTarget, {
+    kind: 'component',
     componentId: 'arm-instance',
     name: 'robots/arm.urdf',
     format: 'urdf',
@@ -117,7 +123,7 @@ test('canonical source contract routes a matching single-component draft explici
   assert.equal(result.content, content);
   assert.equal(result.directComponentDocument, result.documents[0]);
   assert.equal(result.documents[0].readOnly, false);
-  assert.equal(result.documents[0].changeTarget?.componentId, 'arm-instance');
+  assert.equal(componentTargetId(result.documents[0].changeTarget), 'arm-instance');
 });
 
 test('disconnected component instances each expose an isolated editable tab', () => {
@@ -160,9 +166,9 @@ test('disconnected component instances each expose an isolated editable tab', ()
   assert.equal(left.documents.length, 2);
   assert.ok(left.documents.every((document) => document.readOnly === false));
   assert.equal(left.directComponentDocument?.content, '<mujoco model="left_draft"/>');
-  assert.equal(left.directComponentDocument?.changeTarget?.componentId, 'left');
+  assert.equal(componentTargetId(left.directComponentDocument?.changeTarget), 'left');
   assert.equal(right.directComponentDocument?.content, '<mujoco model="right_draft"/>');
-  assert.equal(right.directComponentDocument?.changeTarget?.componentId, 'right');
+  assert.equal(componentTargetId(right.directComponentDocument?.changeTarget), 'right');
 });
 
 test('stale single-component drafts remain editable while missing drafts use a read-only projection', () => {
@@ -194,7 +200,7 @@ test('stale single-component drafts remain editable while missing drafts use a r
   assert.equal(staleResult.content, staleDraft.content);
   assert.equal(staleResult.documents[0].readOnly, false);
   assert.equal(staleResult.directComponentDocument, staleResult.documents[0]);
-  assert.equal(staleResult.documents[0].changeTarget?.componentId, 'left');
+  assert.equal(componentTargetId(staleResult.documents[0].changeTarget), 'left');
 
   const missingResult = buildCanonicalWorkspaceSourceDocuments({
     workspace,
@@ -254,7 +260,7 @@ test('multi-component and bridged workspaces expose a transformed read-only proj
   assert.ok(Object.values(parsed.joints).some((joint) => joint.origin.xyz.x === 3));
 });
 
-test('bridged urdf components graft into one read-only tab preserving the master source', () => {
+test('bridged urdf components graft into one editable group tab preserving the master source', () => {
   const workspace = sharedSourceWorkspace();
   workspace.name = 'bridged_assembly';
   workspace.bridges.mount = {
@@ -297,7 +303,15 @@ test('bridged urdf components graft into one read-only tab preserving the master
 
   assert.equal(result.mode, 'assembly');
   assert.equal(result.documents.length, 1);
-  assert.equal(result.documents[0].readOnly, true);
+  assert.equal(result.documents[0].readOnly, false);
+  const target = result.documents[0].changeTarget;
+  assert.equal(target?.kind, 'group');
+  if (target?.kind === 'group') {
+    assert.equal(target.rootComponentId, 'left');
+    assert.deepEqual(target.groupComponentIds, ['left', 'right']);
+    assert.equal(target.provenance.masterComponentId, 'left');
+    assert.equal(target.provenance.linkOwnerByName.get('Right_instance__base')?.componentId, 'right');
+  }
   // Master URDF text is preserved verbatim at the top of the flattened document.
   assert.ok(result.content.startsWith('<?xml version="1.0"?>\n<robot name="left_robot">'));
   assert.ok(result.content.includes('  <link name="base" />'));

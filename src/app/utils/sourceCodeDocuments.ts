@@ -18,6 +18,7 @@ import {
   graftAssemblyGroupUrdfSource,
   resolveAssemblyGroupMasterComponentId,
 } from './assemblyUrdfSourceGraft.ts';
+import type { GraftAssemblyGroupUrdfSourceProvenance } from './assemblyUrdfSourceGraft.ts';
 
 type SourceFileFormat = RobotFile['format'] | null;
 
@@ -28,13 +29,25 @@ interface SourceTextFileEntry {
   blobUrl?: string;
 }
 
-export interface SourceCodeDocumentChangeTarget {
+export interface ComponentSourceCodeDocumentChangeTarget {
+  kind: 'component';
   componentId: string;
   name: string;
   format: SourceFileFormat;
   content?: string;
   persistContent?: boolean;
 }
+
+export interface GroupSourceCodeDocumentChangeTarget {
+  kind: 'group';
+  rootComponentId: string;
+  groupComponentIds: string[];
+  provenance: GraftAssemblyGroupUrdfSourceProvenance;
+}
+
+export type SourceCodeDocumentChangeTarget =
+  | ComponentSourceCodeDocumentChangeTarget
+  | GroupSourceCodeDocumentChangeTarget;
 
 export interface SourceCodeDocumentDescriptor {
   id: string;
@@ -512,6 +525,7 @@ export function buildSourceCodeDocuments({
         changeTarget:
           !isReadOnly && generatedDocumentFormat
             ? {
+                kind: 'component',
                 name: 'robot.urdf',
                 componentId,
                 format: generatedDocumentFormat,
@@ -541,6 +555,7 @@ export function buildSourceCodeDocuments({
         forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor)
           ? undefined
           : {
+              kind: 'component',
               componentId,
               name: activeSourceFile.name,
               format: activeSourceFile.format,
@@ -710,9 +725,9 @@ function buildGroupSubAssembly(workspace: AssemblyState, componentIds: string[])
 }
 
 /**
- * One read-only URDF document per bridge-connected group. Prefers a source-preserving
- * graft (master text verbatim + re-rooted slaves injected); falls back to a fully
- * re-serialized projection when the group cannot be expressed that way.
+ * One URDF document per bridge-connected group. A source-preserving graft is
+ * editable through provenance partitioning; unsupported shapes fall back to a
+ * fully re-serialized read-only projection.
  */
 function buildGroupMergedDocument(
   workspace: AssemblyState,
@@ -734,7 +749,7 @@ function buildGroupMergedDocument(
         masterComponentId,
         masterSourceUrdfText: masterDraft.content,
       });
-      if (grafted.ok && grafted.urdfText != null) {
+      if (grafted.ok && grafted.urdfText != null && grafted.provenance) {
         return {
           id: documentId,
           fileName,
@@ -742,8 +757,14 @@ function buildGroupMergedDocument(
           filePath: null,
           content: grafted.urdfText,
           documentFlavor: 'urdf',
-          readOnly: true,
+          readOnly: false,
           validationEnabled: true,
+          changeTarget: {
+            kind: 'group',
+            rootComponentId: masterComponentId,
+            groupComponentIds: [...componentIds],
+            provenance: grafted.provenance,
+          },
         };
       }
     }
@@ -771,9 +792,9 @@ function buildGroupMergedDocument(
 
 /**
  * Canonical source-editor contract. Components with no bridge each get their own
- * editable tab; bridge-connected components collapse into a single read-only
- * flattened URDF tab per connected group. Mutation routing is always
- * component-owned; assembled documents are derived, read-only projections.
+ * editable tab; bridge-connected components collapse into one flattened URDF tab
+ * per connected group. Successful grafts route edits through group provenance;
+ * fallback projections remain read-only.
  */
 export function buildCanonicalWorkspaceSourceDocuments({
   workspace,

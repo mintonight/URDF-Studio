@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
 
 import {
   DEFAULT_JOINT,
@@ -13,9 +14,16 @@ import {
   type UrdfLink,
 } from '@/types';
 import {
+  createSourceSemanticRobotHash,
+} from '@/core/robot';
+import {
   graftAssemblyGroupUrdfSource,
   resolveAssemblyGroupMasterComponentId,
 } from './assemblyUrdfSourceGraft.ts';
+import { partitionFlattenedGroupEdit } from './assemblyUrdfSourcePartition.ts';
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>');
+globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 
 function makeLink(id: string, name = id): UrdfLink {
   return { ...DEFAULT_LINK, id, name };
@@ -88,6 +96,24 @@ function masterRobot(): RobotData {
   };
 }
 
+function basicAssembly(): AssemblyState {
+  const slave: RobotData = {
+    name: 'slave',
+    rootLinkId: 's_base',
+    links: { s_base: makeLink('s_base'), s_tip: makeLink('s_tip') },
+    joints: { sj1: makeJoint('sj1', 's_base', 's_tip') },
+  };
+  return {
+    name: 'ws',
+    transform: { position: { x: 0, y: 0, z: 0 }, rotation: { r: 0, p: 0, y: 0 } },
+    components: {
+      m: makeComponent('m', 'master', masterRobot()),
+      s: makeComponent('s', 'slave', slave),
+    },
+    bridges: { b1: makeBridge('b1', 'm', 'tip', 's', 's_base') },
+  };
+}
+
 test('preserves master source text verbatim and injects the slave under the bridge', () => {
   const slave: RobotData = {
     name: 'slave',
@@ -126,6 +152,118 @@ test('preserves master source text verbatim and injects the slave under the brid
   assert.match(urdf, /<joint name="b1"[\s\S]*?<child link="s_base" \/>/);
   // Single closing tag at the very end.
   assert.equal(urdf.match(/<\/robot>/g)?.length, 1);
+  assert.equal(result.provenance?.masterComponentId, 'm');
+  assert.deepEqual(result.provenance?.linkOwnerByName.get('s_base'), {
+    componentId: 's',
+    originalName: 's_base',
+  });
+  assert.deepEqual(result.provenance?.jointOwnerByName.get('b1'), {
+    kind: 'bridge',
+    bridgeId: 'b1',
+  });
+  assert.deepEqual(result.provenance?.slaveById.get('s'), {
+    originalRootLinkId: 's_base',
+  });
+});
+
+test('partitions a master semantic edit into only the master component robot', () => {
+  const assembly = basicAssembly();
+  const grafted = graftAssemblyGroupUrdfSource({
+    assembly,
+    groupComponentIds: ['m', 's'],
+    masterComponentId: 'm',
+    masterSourceUrdfText: MASTER_TEXT,
+  });
+  assert.ok(grafted.urdfText && grafted.provenance);
+
+  const partitioned = partitionFlattenedGroupEdit(
+    grafted.urdfText.replace('<robot name="master">', '<robot name="master_edited">'),
+    grafted.provenance,
+  );
+
+  assert.equal(partitioned.ok, true, partitioned.reason);
+  assert.equal(partitioned.componentRobots?.size, 1);
+  assert.equal(partitioned.componentRobots?.get('m')?.name, 'master_edited');
+  assert.equal(partitioned.componentRobots?.has('s'), false);
+  assert.deepEqual(partitioned.bridgeJointEdits, []);
+});
+
+test('partitions a bridge origin edit into a source-local bridge joint', () => {
+  const assembly = basicAssembly();
+  const grafted = graftAssemblyGroupUrdfSource({
+    assembly,
+    groupComponentIds: ['m', 's'],
+    masterComponentId: 'm',
+    masterSourceUrdfText: MASTER_TEXT,
+  });
+  assert.ok(grafted.urdfText && grafted.provenance);
+  const editedText = grafted.urdfText.replace(
+    /(<joint name="b1"[\s\S]*?<origin xyz=")[^"]+/,
+    (_match, prefix: string) => `${prefix}1 2 3`,
+  );
+
+  const partitioned = partitionFlattenedGroupEdit(editedText, grafted.provenance);
+
+  assert.equal(partitioned.ok, true, partitioned.reason);
+  assert.equal(partitioned.componentRobots?.size, 0);
+  assert.equal(partitioned.bridgeJointEdits?.length, 1);
+  assert.equal(partitioned.bridgeJointEdits?.[0].bridgeId, 'b1');
+  assert.deepEqual(partitioned.bridgeJointEdits?.[0].joint.origin.xyz, { x: 1, y: 2, z: 3 });
+  assert.equal(partitioned.bridgeJointEdits?.[0].joint.parentLinkId, 'tip');
+  assert.equal(partitioned.bridgeJointEdits?.[0].joint.childLinkId, 's_base');
+});
+
+test('rejects slave edits and unattributed entities in Phase 1', () => {
+  const assembly = basicAssembly();
+  const grafted = graftAssemblyGroupUrdfSource({
+    assembly,
+    groupComponentIds: ['m', 's'],
+    masterComponentId: 'm',
+    masterSourceUrdfText: MASTER_TEXT,
+  });
+  assert.ok(grafted.urdfText && grafted.provenance);
+
+  const slaveEdit = partitionFlattenedGroupEdit(
+    grafted.urdfText.replace('<link name="s_base">', '<link name="s_base" type="edited">'),
+    grafted.provenance,
+  );
+  assert.equal(slaveEdit.ok, false);
+  assert.match(slaveEdit.reason ?? '', /slave component/);
+
+  const unattributed = partitionFlattenedGroupEdit(
+    grafted.urdfText.replace('</robot>', '  <link name="new_link" />\n</robot>'),
+    grafted.provenance,
+  );
+  assert.equal(unattributed.ok, false);
+  assert.match(unattributed.reason ?? '', /no component provenance/);
+});
+
+test('unchanged graft partitions without semantic drift or writeback targets', () => {
+  const assembly = basicAssembly();
+  const originalHashes = new Map(
+    Object.entries(assembly.components).map(([id, component]) => [
+      id,
+      createSourceSemanticRobotHash(component.robot),
+    ]),
+  );
+  const grafted = graftAssemblyGroupUrdfSource({
+    assembly,
+    groupComponentIds: ['m', 's'],
+    masterComponentId: 'm',
+    masterSourceUrdfText: MASTER_TEXT,
+  });
+  assert.ok(grafted.urdfText && grafted.provenance);
+
+  const partitioned = partitionFlattenedGroupEdit(grafted.urdfText, grafted.provenance);
+
+  assert.equal(partitioned.ok, true, partitioned.reason);
+  assert.equal(partitioned.componentRobots?.size, 0);
+  assert.deepEqual(partitioned.bridgeJointEdits, []);
+  for (const [componentId, originalHash] of originalHashes) {
+    const unchangedRobot: RobotData = partitioned.componentRobots?.get(componentId)
+      ?? assembly.components[componentId].robot;
+    assert.equal(createSourceSemanticRobotHash(unchangedRobot), originalHash);
+  }
 });
 
 test('re-roots the slave when the bridge attaches to a non-root link and reverses the axis', () => {

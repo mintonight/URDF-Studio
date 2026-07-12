@@ -14,12 +14,16 @@
  * serializer back into core/robot would create a dependency cycle.
  */
 import type { AssemblyState, BridgeJoint, RobotData, UrdfJoint, UrdfLink } from '@/types';
-import { generateURDF } from '@/core/parsers';
+import { generateURDF, parseURDF } from '@/core/parsers';
 import { rerootAssemblyComponentRobot } from '@/core/robot/assemblyReroot';
 import {
   buildAssemblyParentByChildComponentId,
   wouldCreateAssemblyComponentCycle,
 } from '@/core/robot/assemblyBridgeTopology';
+import {
+  createFlattenedComponentPartitionHash,
+  toRobotData,
+} from './assemblyUrdfSourcePartitionModel.ts';
 
 export interface GraftAssemblyGroupUrdfSourceParams {
   assembly: AssemblyState;
@@ -32,8 +36,45 @@ export interface GraftAssemblyGroupUrdfSourceParams {
 export interface GraftAssemblyGroupUrdfSourceResult {
   ok: boolean;
   urdfText?: string;
+  provenance?: GraftAssemblyGroupUrdfSourceProvenance;
   /** Present when `ok` is false; explains why the caller must fall back. */
   reason?: string;
+}
+
+export interface GraftComponentEntityOwner {
+  componentId: string;
+  originalName: string;
+}
+
+export type GraftJointEntityOwner =
+  | ({ kind: 'component' } & GraftComponentEntityOwner)
+  | { kind: 'bridge'; bridgeId: string };
+
+export interface GraftSlaveProvenance {
+  originalRootLinkId: string;
+}
+
+export interface GraftBridgeProvenance {
+  bridge: BridgeJoint;
+  flattenedParentLinkName: string;
+  flattenedChildLinkName: string;
+}
+
+/**
+ * Transient edit-routing data for one flattened group document. Robot and bridge
+ * snapshots are captured with the name maps so partitioning can detect semantic
+ * changes without consulting mutable stores.
+ */
+export interface GraftAssemblyGroupUrdfSourceProvenance {
+  masterComponentId: string;
+  masterRobotName: string;
+  masterRobotVersion?: string;
+  linkOwnerByName: Map<string, GraftComponentEntityOwner>;
+  jointOwnerByName: Map<string, GraftJointEntityOwner>;
+  slaveById: Map<string, GraftSlaveProvenance>;
+  componentRobotById: Map<string, RobotData>;
+  flattenedComponentHashById: Map<string, string>;
+  bridgeById: Map<string, GraftBridgeProvenance>;
 }
 
 const CLOSING_ROBOT_TAG = /\s*<\/robot>\s*$/;
@@ -84,6 +125,7 @@ function uniquifyName(name: string, used: Set<string>, prefix: string): string {
 interface NamespacedRobot {
   robot: RobotData;
   linkNameByOldId: Map<string, string>;
+  jointNameByOldId: Map<string, string>;
 }
 
 /**
@@ -108,13 +150,21 @@ function namespaceRobotOnCollision(
   }
 
   const joints: Record<string, UrdfJoint> = {};
+  const jointNameByOldId = new Map<string, string>();
   for (const [jointId, joint] of Object.entries(robot.joints)) {
     const finalName = uniquifyName(joint.name, usedJointNames, prefix);
     usedJointNames.add(finalName);
+    jointNameByOldId.set(jointId, finalName);
     joints[jointId] = finalName === joint.name ? joint : { ...joint, name: finalName };
   }
 
-  return { robot: { ...robot, links, joints }, linkNameByOldId };
+  return { robot: { ...robot, links, joints }, linkNameByOldId, jointNameByOldId };
+}
+
+function addUniqueOwner<T>(owners: Map<string, T>, name: string, owner: T): boolean {
+  if (owners.has(name)) return false;
+  owners.set(name, owner);
+  return true;
 }
 
 function stripRobotWrapper(urdf: string): string {
@@ -168,6 +218,22 @@ function serializeBridgeJointXml(
 interface GroupTopology {
   bridgeByChildComponentId: Map<string, BridgeJoint>;
   orderedChildComponentIds: string[];
+}
+
+interface GraftBuildContext {
+  assembly: AssemblyState;
+  masterComponentId: string;
+  masterSourceUrdfText: string;
+  bridgeByChildComponentId: Map<string, BridgeJoint>;
+  usedLinkNames: Set<string>;
+  usedJointNames: Set<string>;
+  linkNameByOldIdByComponent: Map<string, Map<string, string>>;
+  linkObjectsByComponent: Map<string, Record<string, UrdfLink>>;
+  provenance: GraftAssemblyGroupUrdfSourceProvenance;
+}
+
+interface GraftedSlaveFragment {
+  fragment: string;
 }
 
 /** Classify group bridges into a single-rooted tree, or fail on shapes URDF can't express. */
@@ -228,6 +294,177 @@ function resolveGroupTopology(
   return { bridgeByChildComponentId, orderedChildComponentIds };
 }
 
+function createGraftBuildContext(
+  params: GraftAssemblyGroupUrdfSourceParams,
+  masterRobot: RobotData,
+  topology: GroupTopology,
+): GraftBuildContext | GraftAssemblyGroupUrdfSourceResult {
+  const { assembly, groupComponentIds, masterComponentId, masterSourceUrdfText } = params;
+  const usedLinkNames = new Set(Object.values(masterRobot.links).map((link) => link.name));
+  const usedJointNames = new Set(Object.values(masterRobot.joints).map((joint) => joint.name));
+  const linkOwnerByName = new Map<string, GraftComponentEntityOwner>();
+  const jointOwnerByName = new Map<string, GraftJointEntityOwner>();
+  for (const link of Object.values(masterRobot.links)) {
+    const owner = { componentId: masterComponentId, originalName: link.name };
+    if (!addUniqueOwner(linkOwnerByName, link.name, owner)) {
+      return fail(`master has duplicate link name "${link.name}"`);
+    }
+  }
+  for (const joint of Object.values(masterRobot.joints)) {
+    const owner: GraftJointEntityOwner = {
+      kind: 'component',
+      componentId: masterComponentId,
+      originalName: joint.name,
+    };
+    if (!addUniqueOwner(jointOwnerByName, joint.name, owner)) {
+      return fail(`master has duplicate joint name "${joint.name}"`);
+    }
+  }
+  for (const bridge of topology.bridgeByChildComponentId.values()) {
+    const owner: GraftJointEntityOwner = { kind: 'bridge', bridgeId: bridge.id };
+    if (!addUniqueOwner(jointOwnerByName, bridge.name, owner)) {
+      return fail(`bridge joint name "${bridge.name}" conflicts with another joint`);
+    }
+    usedJointNames.add(bridge.name);
+  }
+
+  const componentRobotById = new Map<string, RobotData>();
+  for (const componentId of groupComponentIds) {
+    const robot = assembly.components[componentId]?.robot;
+    if (!robot) return fail(`component "${componentId}" has no robot`);
+    componentRobotById.set(componentId, structuredClone(robot));
+  }
+  const parsedMaster = parseURDF(masterSourceUrdfText);
+  if (!parsedMaster) return fail('master source text could not be parsed');
+  const flattenedComponentHashById = new Map<string, string>([[
+    masterComponentId,
+    createFlattenedComponentPartitionHash(toRobotData(parsedMaster)),
+  ]]);
+  return {
+    assembly,
+    masterComponentId,
+    masterSourceUrdfText,
+    bridgeByChildComponentId: topology.bridgeByChildComponentId,
+    usedLinkNames,
+    usedJointNames,
+    linkNameByOldIdByComponent: new Map([[
+      masterComponentId,
+      new Map(Object.entries(masterRobot.links).map(([id, link]) => [id, link.name])),
+    ]]),
+    linkObjectsByComponent: new Map([[masterComponentId, masterRobot.links]]),
+    provenance: {
+      masterComponentId,
+      masterRobotName: parsedMaster.name,
+      masterRobotVersion: parsedMaster.version,
+      linkOwnerByName,
+      jointOwnerByName,
+      slaveById: new Map(),
+      componentRobotById,
+      flattenedComponentHashById,
+      bridgeById: new Map(),
+    },
+  };
+}
+
+function registerSlaveOwners(
+  context: GraftBuildContext,
+  childComponentId: string,
+  childRobot: RobotData,
+  namespaced: NamespacedRobot,
+): string | null {
+  for (const [linkId, finalName] of namespaced.linkNameByOldId) {
+    const originalName = childRobot.links[linkId]?.name;
+    const owner = originalName ? { componentId: childComponentId, originalName } : null;
+    if (!owner || !addUniqueOwner(context.provenance.linkOwnerByName, finalName, owner)) {
+      return `cannot attribute slave link "${finalName}"`;
+    }
+  }
+  for (const [jointId, finalName] of namespaced.jointNameByOldId) {
+    const originalName = childRobot.joints[jointId]?.name;
+    const owner: GraftJointEntityOwner | null = originalName
+      ? { kind: 'component', componentId: childComponentId, originalName }
+      : null;
+    if (!owner || !addUniqueOwner(context.provenance.jointOwnerByName, finalName, owner)) {
+      return `cannot attribute slave joint "${finalName}"`;
+    }
+  }
+  return null;
+}
+
+function graftSlaveComponent(
+  childComponentId: string,
+  context: GraftBuildContext,
+): GraftedSlaveFragment | GraftAssemblyGroupUrdfSourceResult {
+  const bridge = context.bridgeByChildComponentId.get(childComponentId);
+  if (!bridge) return fail(`missing bridge for component "${childComponentId}"`);
+  const childRobot = context.assembly.components[childComponentId]?.robot;
+  if (!childRobot) return fail(`child component "${childComponentId}" has no robot`);
+  if (!childRobot.links[bridge.childLinkId]) {
+    return fail(`bridge "${bridge.id}" child link "${bridge.childLinkId}" is missing`);
+  }
+
+  const parentLinkName = context.linkNameByOldIdByComponent
+    .get(bridge.parentComponentId)?.get(bridge.parentLinkId);
+  const parentLink = context.linkObjectsByComponent
+    .get(bridge.parentComponentId)?.[bridge.parentLinkId];
+  if (!parentLinkName || !parentLink) {
+    return fail(`bridge "${bridge.id}" parent link "${bridge.parentLinkId}" is missing`);
+  }
+  if (
+    bridge.parentComponentId === context.masterComponentId
+    && !context.masterSourceUrdfText.includes(`name="${parentLinkName}"`)
+  ) {
+    return fail(`master link "${parentLinkName}" not found in preserved source text`);
+  }
+
+  const rerootedRobot = rerootAssemblyComponentRobot(
+    childRobot,
+    bridge.childLinkId,
+    childComponentId,
+  );
+  const prefix = sanitizeNamePrefix(
+    context.assembly.components[childComponentId]?.name ?? childComponentId,
+  );
+  const namespaced = namespaceRobotOnCollision(
+    rerootedRobot,
+    context.usedLinkNames,
+    context.usedJointNames,
+    prefix,
+  );
+  const ownerError = registerSlaveOwners(context, childComponentId, childRobot, namespaced);
+  if (ownerError) return fail(ownerError);
+
+  context.linkNameByOldIdByComponent.set(childComponentId, namespaced.linkNameByOldId);
+  context.linkObjectsByComponent.set(childComponentId, namespaced.robot.links);
+  context.provenance.slaveById.set(
+    childComponentId,
+    { originalRootLinkId: childRobot.rootLinkId },
+  );
+  const childRootLink = namespaced.robot.links[bridge.childLinkId];
+  const slaveUrdf = generateURDF(
+    { ...namespaced.robot, selection: { type: null, id: null } },
+    { preserveMeshPaths: true },
+  );
+  const parsedSlave = parseURDF(slaveUrdf);
+  if (!parsedSlave) return fail(`failed to parse grafted component "${childComponentId}"`);
+  context.provenance.flattenedComponentHashById.set(
+    childComponentId,
+    createFlattenedComponentPartitionHash(toRobotData(parsedSlave)),
+  );
+  const bridgeJointXml = serializeBridgeJointXml(
+    bridge,
+    parentLink,
+    parentLinkName,
+    childRootLink,
+  );
+  context.provenance.bridgeById.set(bridge.id, {
+    bridge: structuredClone(bridge),
+    flattenedParentLinkName: parentLinkName,
+    flattenedChildLinkName: childRootLink.name,
+  });
+  return { fragment: `${stripRobotWrapper(slaveUrdf)}\n\n${bridgeJointXml}` };
+}
+
 export function graftAssemblyGroupUrdfSource(
   params: GraftAssemblyGroupUrdfSourceParams,
 ): GraftAssemblyGroupUrdfSourceResult {
@@ -246,76 +483,13 @@ export function graftAssemblyGroupUrdfSource(
     if ('ok' in topology) {
       return topology;
     }
-    const { bridgeByChildComponentId, orderedChildComponentIds } = topology;
-
-    const usedLinkNames = new Set(Object.values(masterRobot.links).map((link) => link.name));
-    const usedJointNames = new Set(Object.values(masterRobot.joints).map((joint) => joint.name));
-
-    // Per-component maps used to resolve a bridge parent link's final name/object,
-    // whether the parent is the master or an already-processed ancestor slave.
-    const linkNameByOldIdByComponent = new Map<string, Map<string, string>>();
-    const linkObjectsByComponent = new Map<string, Record<string, UrdfLink>>();
-    linkNameByOldIdByComponent.set(
-      masterComponentId,
-      new Map(Object.entries(masterRobot.links).map(([id, link]) => [id, link.name])),
-    );
-    linkObjectsByComponent.set(masterComponentId, masterRobot.links);
-
+    const context = createGraftBuildContext(params, masterRobot, topology);
+    if ('ok' in context) return context;
     const injectionFragments: string[] = [];
-
-    for (const childComponentId of orderedChildComponentIds) {
-      const bridge = bridgeByChildComponentId.get(childComponentId);
-      if (!bridge) {
-        return fail(`missing bridge for component "${childComponentId}"`);
-      }
-      const childRobot = assembly.components[childComponentId]?.robot;
-      if (!childRobot) {
-        return fail(`child component "${childComponentId}" has no robot`);
-      }
-      if (!childRobot.links[bridge.childLinkId]) {
-        return fail(`bridge "${bridge.id}" child link "${bridge.childLinkId}" is missing`);
-      }
-
-      const parentLinkNames = linkNameByOldIdByComponent.get(bridge.parentComponentId);
-      const parentLinkObjects = linkObjectsByComponent.get(bridge.parentComponentId);
-      const parentLinkName = parentLinkNames?.get(bridge.parentLinkId);
-      const parentLink = parentLinkObjects?.[bridge.parentLinkId];
-      if (!parentLinkName || !parentLink) {
-        return fail(`bridge "${bridge.id}" parent link "${bridge.parentLinkId}" is missing`);
-      }
-      // When the parent is the verbatim master, its link name must actually exist in
-      // the preserved text (guards against id != name components).
-      if (
-        bridge.parentComponentId === masterComponentId &&
-        !masterSourceUrdfText.includes(`name="${parentLinkName}"`)
-      ) {
-        return fail(`master link "${parentLinkName}" not found in preserved source text`);
-      }
-
-      const rerootedRobot = rerootAssemblyComponentRobot(
-        childRobot,
-        bridge.childLinkId,
-        childComponentId,
-      );
-      const prefix = sanitizeNamePrefix(assembly.components[childComponentId]?.name ?? childComponentId);
-      const { robot: namespacedRobot, linkNameByOldId } = namespaceRobotOnCollision(
-        rerootedRobot,
-        usedLinkNames,
-        usedJointNames,
-        prefix,
-      );
-      linkNameByOldIdByComponent.set(childComponentId, linkNameByOldId);
-      linkObjectsByComponent.set(childComponentId, namespacedRobot.links);
-
-      const childRootLink = namespacedRobot.links[bridge.childLinkId];
-      const slaveBody = stripRobotWrapper(
-        generateURDF(
-          { ...namespacedRobot, selection: { type: null, id: null } },
-          { preserveMeshPaths: true },
-        ),
-      );
-      const bridgeJointXml = serializeBridgeJointXml(bridge, parentLink, parentLinkName, childRootLink);
-      injectionFragments.push(`${slaveBody}\n\n${bridgeJointXml}`);
+    for (const childComponentId of topology.orderedChildComponentIds) {
+      const graftedSlave = graftSlaveComponent(childComponentId, context);
+      if ('ok' in graftedSlave) return graftedSlave;
+      injectionFragments.push(graftedSlave.fragment);
     }
 
     if (injectionFragments.length === 0) {
@@ -327,7 +501,11 @@ export function graftAssemblyGroupUrdfSource(
       CLOSING_ROBOT_TAG,
       `\n\n${injection}\n\n</robot>\n`,
     );
-    return { ok: true, urdfText };
+    return {
+      ok: true,
+      urdfText,
+      provenance: context.provenance,
+    };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }
