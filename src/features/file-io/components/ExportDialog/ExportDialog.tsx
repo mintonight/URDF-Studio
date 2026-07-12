@@ -775,17 +775,29 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     />
                   </Row>
                   {config.step.includeMeshes && (
-                    <STLQualitySelector
-                      compressSTL={config.step.compressMeshes}
-                      stlQuality={config.step.meshQuality}
-                      mode={qualityModes.step}
-                      t={t}
-                      label={t.exportCompressMeshes}
-                      description={null}
-                      onCompressChange={(v) => updateStep('compressMeshes', v)}
-                      onQualityChange={(v) => updateStep('meshQuality', v)}
-                      onModeChange={(mode) => updateQualityMode('step', mode)}
-                    />
+                    <Row label={t.exportStepMeshMode} stacked={isStackedLayout}>
+                      <SegmentedChoiceField
+                        value={config.step.meshMode}
+                        options={[
+                          { value: 'lightweight', label: t.exportStepMeshModeLightweight },
+                          { value: 'cad-repair', label: t.exportStepMeshModeCadRepair },
+                        ]}
+                        onChange={(value) => updateStep('meshMode', value)}
+                      />
+                    </Row>
+                  )}
+                  {config.step.includeMeshes && (
+                    <Row label={t.exportStepMeshPreset} stacked={isStackedLayout}>
+                      <SegmentedChoiceField
+                        value={config.step.meshPreset}
+                        options={[
+                          { value: 'small', label: t.exportStepMeshPresetSmall },
+                          { value: 'balanced', label: t.exportStepMeshPresetBalanced },
+                          { value: 'high', label: t.exportStepMeshPresetHigh },
+                        ]}
+                        onChange={(value) => updateStep('meshPreset', value)}
+                      />
+                    </Row>
                   )}
                 </div>
                 <p className="mt-2 text-[11px] leading-5 text-text-tertiary">

@@ -84,6 +84,13 @@ export const enWorkflow: TranslationWorkflowKeys = {
   exportStepIncludeMeshesDesc:
     'Export mesh visuals as tessellated polyhedral shells alongside analytic primitives.',
   exportStepFormatHint: 'Single .step file — for mechanical / industrial design reference in CAD software.',
+  exportStepMeshMode: 'Mesh Export Mode',
+  exportStepMeshModeLightweight: 'Lightweight',
+  exportStepMeshModeCadRepair: 'CAD Repair',
+  exportStepMeshPreset: 'Detail Level',
+  exportStepMeshPresetSmall: 'Small File',
+  exportStepMeshPresetBalanced: 'Balanced',
+  exportStepMeshPresetHigh: 'High Detail',
   exportProgressPreparingSimulationMeshes: 'Preparing simulation meshes',
   exportProgressPreparingSimulationMeshesDetail:
     'Converting unsupported meshes into MJCF-friendly assets.',

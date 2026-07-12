@@ -71,6 +71,13 @@ export interface TranslationExportDialogKeys {
   exportStepIncludeMeshes: string;
   exportStepIncludeMeshesDesc: string;
   exportStepFormatHint: string;
+  exportStepMeshMode: string;
+  exportStepMeshModeLightweight: string;
+  exportStepMeshModeCadRepair: string;
+  exportStepMeshPreset: string;
+  exportStepMeshPresetSmall: string;
+  exportStepMeshPresetBalanced: string;
+  exportStepMeshPresetHigh: string;
   exportProgressPreparingSimulationMeshes: string;
   exportProgressPreparingSimulationMeshesDetail: string;
   exportProgressCollectingAssets: string;
