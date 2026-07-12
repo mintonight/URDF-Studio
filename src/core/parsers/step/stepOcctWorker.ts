@@ -16,7 +16,7 @@ import openCascadeFactory from 'opencascade.js/dist/opencascade.wasm.js';
 import openCascadeWasmUrl from 'opencascade.js/dist/opencascade.wasm.wasm?url';
 
 import { isDegenerateTriangle } from './stepOcctUtils';
-import { shouldUseAnalyticReconstruction } from './stepReconstructionFeatureGate';
+import { shouldUseAnalyticReconstruction, isAnalyticSurfaceEnabled } from './stepReconstructionFeatureGate';
 
 export type StepPrimitiveType = 'box' | 'cylinder' | 'sphere' | 'capsule' | 'mesh';
 
@@ -224,54 +224,6 @@ function buildSphere(oc: any, radius: number): any {
 }
 
 // ---------------------------------------------------------------------------
-// Triangle face builder — creates a real TopoDS_Face from 3 vertices.
-// ---------------------------------------------------------------------------
-
-/**
- * Build a real OCCT triangle face from 3 vertices using verified
- * BRepBuilderAPI_MakePolygon_1 → Wire → BRepBuilderAPI_MakeFace_15.
- * Never returns polygon.Shape() (which is only a wire, not a face).
- */
-function buildTriangleFace(
-  oc: any,
-  ax: number, ay: number, az: number,
-  bx: number, by: number, bz: number,
-  cx: number, cy: number, cz: number,
-): any | null {
-  let p1: any = null, p2: any = null, p3: any = null;
-  let polygon: any = null;
-  let wire: any = null;
-  let faceMaker: any = null;
-
-  try {
-    p1 = new oc.gp_Pnt_3(ax, ay, az);
-    p2 = new oc.gp_Pnt_3(bx, by, bz);
-    p3 = new oc.gp_Pnt_3(cx, cy, cz);
-    polygon = new oc.BRepBuilderAPI_MakePolygon_1();
-    polygon.Add_1(p1);
-    polygon.Add_1(p2);
-    polygon.Add_1(p3);
-    polygon.Close();
-    wire = polygon.Wire();
-    if (!wire || wire.IsNull()) return null;
-
-    faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, true);
-    if (!faceMaker.IsDone()) return null;
-
-    const face = faceMaker.Face();
-    if (!face || face.IsNull()) return null;
-    return face;
-  } finally {
-    faceMaker?.delete?.();
-    wire?.delete?.();
-    polygon?.delete?.();
-    p3?.delete?.();
-    p2?.delete?.();
-    p1?.delete?.();
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Mesh shell builder — each triangle becomes a real face.
 // ---------------------------------------------------------------------------
 
@@ -403,12 +355,19 @@ async function handleBuild(
 
           if (shouldUseAnalyticReconstruction(request.experimentalAnalyticReconstruction)) {
             // Experimental analytic reconstruction path — disabled by default.
-            // Import lazily so the default path never loads these modules.
+            // When enabled, only plane surfaces produce OCCT faces from boundary
+            // loops. All other types route to faceted fallback with a 5,000-face
+            // global budget enforced by allocateFallbackBudget.
             const { prepareStepMeshTopology } = await import('./stepMeshTopology');
             const { analyzeMeshTopology } = await import('./stepMeshAnalysis');
+            const { checkResourceLimits } = await import('./stepFallbackBudget');
             const { computeTolerances } = await import('./stepMeshRegionTypes');
             const { growPlanarRegions } = await import('./stepRegionGrowing');
             const { reconstructSurfaces } = await import('./stepSurfaceReconstruction');
+            const { extractRegionBoundary } = await import('./stepRegionBoundary');
+            const { buildOcctPlanarRegionFace, buildOcctTriangleFace } = await import('./stepOcctFaceFactory');
+            const { allocateFallbackBudget } = await import('./stepFallbackBudget');
+            const { simplifyStepMesh } = await import('./stepMeshSimplifier');
 
             const prepared = prepareStepMeshTopology({ vertices: positions });
             if (prepared.mesh.indices.length === 0) {
@@ -416,32 +375,153 @@ async function handleBuild(
               continue;
             }
 
+            const triangleCount = prepared.mesh.indices.length / 3;
+            // Resource limit violations throw — never fall back to raw mesh export.
+            checkResourceLimits({ inputTriangles: triangleCount, candidateRegions: 1 });
+
             const analysis = analyzeMeshTopology(prepared);
             const tolerances = computeTolerances(analysis.diagonal);
             const grown = growPlanarRegions(prepared, analysis, tolerances);
             const regions = reconstructSurfaces(prepared, analysis, grown, tolerances);
 
-            // Build OCCT faces from reconstructed regions.
+            // Separate into analytic (plane only) and fallback regions.
+            const analyticRegions = regions.filter(
+              (r) => r.accepted && isAnalyticSurfaceEnabled(r.type),
+            );
+            const fallbackRegions = regions.filter(
+              (r) => !r.accepted || !isAnalyticSurfaceEnabled(r.type),
+            );
+
+            // Allocate fallback budget. Omitted regions fail closed — never export
+            // an incomplete mesh silently.
+            const fallbackInfos = fallbackRegions.map((r) => ({
+              regionId: r.id,
+              triangleCount: r.triangleIds.length,
+              area: r.quality.coveredArea,
+            }));
+            const budgetResult = allocateFallbackBudget(fallbackInfos);
+            if (budgetResult.omittedRegions.length > 0) {
+              throw new Error(
+                `STEP faceted fallback cannot retain all regions within 5000 triangles; omitted regions: ${budgetResult.omittedRegions.join(', ')}`,
+              );
+            }
+            const budget = budgetResult.budgets;
+
+            // Build OCCT faces.
             const meshBuilder = new oc.BRep_Builder();
             const meshCompound = new oc.TopoDS_Compound();
             meshBuilder.MakeCompound(meshCompound);
 
-            for (const region of regions) {
-              // Every triangle must become a real face, not a wire.
-              for (const tId of region.triangleIds) {
-                const a = prepared.mesh.indices[tId * 3] * 3;
-                const b = prepared.mesh.indices[tId * 3 + 1] * 3;
-                const c = prepared.mesh.indices[tId * 3 + 2] * 3;
-                const faceResult = buildTriangleFace(
-                  oc,
-                  prepared.mesh.vertices[a], prepared.mesh.vertices[a + 1], prepared.mesh.vertices[a + 2],
-                  prepared.mesh.vertices[b], prepared.mesh.vertices[b + 1], prepared.mesh.vertices[b + 2],
-                  prepared.mesh.vertices[c], prepared.mesh.vertices[c + 1], prepared.mesh.vertices[c + 2],
-                );
-                if (faceResult) {
-                  meshBuilder.Add(meshCompound, faceResult);
+            let analyticCount = 0;
+            let fallbackCount = 0;
+
+            // Accepted planar regions: extract boundary → single OCCT face.
+            for (const region of analyticRegions) {
+              const boundaryResult = extractRegionBoundary(
+                prepared.mesh.indices,
+                region.triangleIds,
+              );
+              if (!boundaryResult.ok) {
+                // Boundary extraction failed — route entire region to faceted fallback.
+                for (const tId of region.triangleIds) {
+                  const a = prepared.mesh.indices[tId * 3] * 3;
+                  const b = prepared.mesh.indices[tId * 3 + 1] * 3;
+                  const c = prepared.mesh.indices[tId * 3 + 2] * 3;
+                  const faceResult = buildOcctTriangleFace(oc, [
+                    prepared.mesh.vertices[a], prepared.mesh.vertices[a + 1], prepared.mesh.vertices[a + 2],
+                    prepared.mesh.vertices[b], prepared.mesh.vertices[b + 1], prepared.mesh.vertices[b + 2],
+                    prepared.mesh.vertices[c], prepared.mesh.vertices[c + 1], prepared.mesh.vertices[c + 2],
+                  ]);
+                  if (faceResult) {
+                    meshBuilder.Add(meshCompound, faceResult.shape);
+                    fallbackCount++;
+                  }
+                }
+                continue;
+              }
+
+              const faceResult = buildOcctPlanarRegionFace(
+                oc,
+                prepared.mesh.vertices,
+                boundaryResult.boundary,
+              );
+              if (faceResult) {
+                meshBuilder.Add(meshCompound, faceResult.shape);
+                analyticCount++;
+              } else {
+                // Face construction failed — route to faceted fallback.
+                for (const tId of region.triangleIds) {
+                  const a = prepared.mesh.indices[tId * 3] * 3;
+                  const b = prepared.mesh.indices[tId * 3 + 1] * 3;
+                  const c = prepared.mesh.indices[tId * 3 + 2] * 3;
+                  const faceResult2 = buildOcctTriangleFace(oc, [
+                    prepared.mesh.vertices[a], prepared.mesh.vertices[a + 1], prepared.mesh.vertices[a + 2],
+                    prepared.mesh.vertices[b], prepared.mesh.vertices[b + 1], prepared.mesh.vertices[b + 2],
+                    prepared.mesh.vertices[c], prepared.mesh.vertices[c + 1], prepared.mesh.vertices[c + 2],
+                  ]);
+                  if (faceResult2) {
+                    meshBuilder.Add(meshCompound, faceResult2.shape);
+                    fallbackCount++;
+                  }
                 }
               }
+            }
+
+            // Fallback regions: simplify to budget, then per-triangle faces.
+            for (const region of fallbackRegions) {
+              const regionBudget = budget[region.id];
+              if (regionBudget === undefined || regionBudget <= 0) continue;
+
+              // Build a sub-mesh for this region (indexed).
+              const regionVertices: number[] = [];
+              const regionIndices: number[] = [];
+              const vertexMap = new Map<number, number>();
+              for (const tId of region.triangleIds) {
+                for (let j = 0; j < 3; j++) {
+                  const srcIdx = prepared.mesh.indices[tId * 3 + j];
+                  let newIdx = vertexMap.get(srcIdx);
+                  if (newIdx === undefined) {
+                    newIdx = regionVertices.length / 3;
+                    vertexMap.set(srcIdx, newIdx);
+                    regionVertices.push(
+                      prepared.mesh.vertices[srcIdx * 3],
+                      prepared.mesh.vertices[srcIdx * 3 + 1],
+                      prepared.mesh.vertices[srcIdx * 3 + 2],
+                    );
+                  }
+                  regionIndices.push(newIdx);
+                }
+              }
+
+              let regionPrepared = prepareStepMeshTopology({
+                vertices: regionVertices,
+                indices: regionIndices,
+              });
+              if (regionPrepared.mesh.indices.length / 3 > regionBudget) {
+                const simplified = simplifyStepMesh(regionPrepared, regionBudget);
+                regionPrepared = simplified.mesh;
+              }
+
+              for (let t = 0; t < regionPrepared.mesh.indices.length / 3; t++) {
+                const a = regionPrepared.mesh.indices[t * 3] * 3;
+                const b = regionPrepared.mesh.indices[t * 3 + 1] * 3;
+                const c = regionPrepared.mesh.indices[t * 3 + 2] * 3;
+                const faceResult = buildOcctTriangleFace(oc, [
+                  regionPrepared.mesh.vertices[a], regionPrepared.mesh.vertices[a + 1], regionPrepared.mesh.vertices[a + 2],
+                  regionPrepared.mesh.vertices[b], regionPrepared.mesh.vertices[b + 1], regionPrepared.mesh.vertices[b + 2],
+                  regionPrepared.mesh.vertices[c], regionPrepared.mesh.vertices[c + 1], regionPrepared.mesh.vertices[c + 2],
+                ]);
+                if (faceResult) {
+                  meshBuilder.Add(meshCompound, faceResult.shape);
+                  fallbackCount++;
+                }
+              }
+            }
+
+            if (analyticCount > 0 || fallbackCount > 0) {
+              warnings.push(
+                `Link "${link.linkName}" reconstructed ${analyticCount} analytic face(s), ${fallbackCount} faceted fallback triangle(s).`,
+              );
             }
             rawShape = meshCompound;
           } else {
