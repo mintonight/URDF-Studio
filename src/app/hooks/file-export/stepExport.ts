@@ -104,8 +104,6 @@ export async function executeStepExport({
 
     const geometryProvider: StepGeometryProvider = createStepMeshGeometryProvider({
       assets: mergedAssets,
-      meshMode: config.step.meshMode,
-      meshPreset: config.step.meshPreset,
     });
     const result = await generateSTEP(robot, {
       provider: geometryProvider,

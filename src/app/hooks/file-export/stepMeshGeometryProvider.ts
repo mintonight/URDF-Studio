@@ -10,7 +10,6 @@ import * as THREE from 'three';
 
 import { createLoadingManager, createMeshLoader } from '@/core/loaders/meshLoader';
 import type { StepGeometryProvider, StepGeometryPayload } from '@/core/parsers';
-import type { StepMeshMode, StepMeshPreset } from '@/core/parsers/step/stepMeshTypes';
 import type { UrdfVisual } from '@/types';
 
 /** Wrap the loaded object in a scale group matching `visual.dimensions`. */
@@ -79,8 +78,6 @@ function loadMeshAsPromise(
 export interface CreateStepMeshGeometryProviderParams {
   assets: Record<string, string>;
   urdfDir?: string;
-  meshMode?: StepMeshMode;
-  meshPreset?: StepMeshPreset;
 }
 
 /**
@@ -95,11 +92,10 @@ export function createStepMeshGeometryProvider(
   const meshLoader = createMeshLoader(params.assets, manager, urdfDir, {
     allowPlaceholderMeshes: false,
   });
-  void params.meshMode;
-  void params.meshPreset;
-
   /** Cache the loaded Object3D per mesh path so each unique asset loads once. */
   const objectCache = new Map<string, Promise<THREE.Object3D>>();
+  /** Cache flattened geometry so repeated link instances reuse one payload. */
+  const geometryCache = new Map<string, Promise<StepGeometryPayload | null>>();
 
   const loadObject = (meshPath: string): Promise<THREE.Object3D> => {
     let pending = objectCache.get(meshPath);
@@ -121,15 +117,24 @@ export function createStepMeshGeometryProvider(
       const meshPath = String(visual.meshPath ?? '').trim();
       if (!meshPath) return null;
 
-      try {
-        const object = await loadObject(meshPath);
-        // Clone so per-visual scale doesn't mutate the cached object.
-        const scaled = applyVisualMeshScale(object.clone(true), visual);
-        const positions = extractFlattenedTriangles(scaled);
-        return positions.length >= 9 ? { positions } : null;
-      } catch {
-        return null;
-      }
+      const dimensions = visual.dimensions;
+      const cacheKey = `${meshPath}|${dimensions.x},${dimensions.y},${dimensions.z}`;
+      const cachedGeometry = geometryCache.get(cacheKey);
+      if (cachedGeometry) return cachedGeometry;
+
+      const pending = (async (): Promise<StepGeometryPayload | null> => {
+        try {
+          const object = await loadObject(meshPath);
+          // Clone so per-visual scale doesn't mutate the cached object.
+          const scaled = applyVisualMeshScale(object.clone(true), visual);
+          const positions = extractFlattenedTriangles(scaled);
+          return positions.length >= 9 ? { positions } : null;
+        } catch {
+          return null;
+        }
+      })();
+      geometryCache.set(cacheKey, pending);
+      return pending;
     },
   };
 }

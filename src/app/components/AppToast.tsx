@@ -50,7 +50,10 @@ export function AppToast({ toast, onClose }: AppToastProps) {
             />
           </svg>
         </div>
-        <div className="flex min-h-6 min-w-0 flex-1 items-center whitespace-pre-line break-words text-[15px] font-semibold leading-5 text-text-primary">
+        <div
+          className="max-h-[min(12rem,40vh)] min-h-6 min-w-0 flex-1 select-text overflow-auto whitespace-pre-line break-words text-[15px] font-semibold leading-5 text-text-primary"
+          title={toast.type === 'error' ? 'Click and drag to select the full error message' : undefined}
+        >
           {toast.message}
         </div>
         <button

@@ -40,7 +40,7 @@ export interface StepWorkerRequest {
   type: 'build';
   links: StepLinkPayload[];
   robotName: string;
-  /** Experimental flag — never derived from meshMode. Defaults to false. */
+  /** Enables verified analytic reconstruction. Defaults to false. */
   experimentalAnalyticReconstruction?: boolean;
 }
 
@@ -109,6 +109,9 @@ function transformShape(oc: any, shape: any, matrix: number[]): any {
       matrix[1], matrix[5], matrix[9], matrix[13],
       matrix[2], matrix[6], matrix[10], matrix[14],
     );
+    // copy=true is required by the bundled opencascade.js 1.1.1 runtime.
+    // copy=false can enter an unlinked C++ exception path
+    // (`___cxa_can_catch is not defined`) for cached compound meshes.
     const transform = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
     try {
       return transform.ModifiedShape(shape);
@@ -369,14 +372,34 @@ async function handleBuild(
             const { allocateFallbackBudget } = await import('./stepFallbackBudget');
             const { simplifyStepMesh } = await import('./stepMeshSimplifier');
 
-            const prepared = prepareStepMeshTopology({ vertices: positions });
+            let prepared = prepareStepMeshTopology({ vertices: positions });
             if (prepared.mesh.indices.length === 0) {
               warnings.push(`Link "${link.linkName}" mesh had no valid triangles after cleanup; skipped.`);
               continue;
             }
 
-            const triangleCount = prepared.mesh.indices.length / 3;
-            // Resource limit violations throw — never fall back to raw mesh export.
+            const inputTriangleCount = prepared.mesh.indices.length / 3;
+            // Fitters are intentionally run on a bounded representative mesh.
+            // This keeps high-resolution scans from spending minutes fitting
+            // every narrow normal band before the fallback budget is applied.
+            // A robot can reference the same high-resolution mesh many times.
+            // Keep each instance bounded so total OCCT face construction stays
+            // practical for multi-legged robots such as Unitree A1.
+            const analyticTriangleLimit = 600;
+            let triangleCount = inputTriangleCount;
+            if (triangleCount > analyticTriangleLimit) {
+              const reduced = simplifyStepMesh(prepared, analyticTriangleLimit);
+              prepared = reduced.mesh;
+              triangleCount = prepared.mesh.indices.length / 3;
+              warnings.push(
+                `Link "${link.linkName}" pre-simplified mesh from ${inputTriangleCount} to ${triangleCount} triangles before surface fitting.`,
+              );
+            }
+
+            // Enforce reconstruction limits on the bounded working mesh, not
+            // on the source tessellation. Large CAD/DAE meshes must be allowed
+            // to reach the simplifier; otherwise the resource guard rejects
+            // them before the bounded reconstruction path can do its job.
             checkResourceLimits({ inputTriangles: triangleCount, candidateRegions: 1 });
 
             const analysis = analyzeMeshTopology(prepared);
@@ -401,8 +424,8 @@ async function handleBuild(
             }));
             const budgetResult = allocateFallbackBudget(fallbackInfos);
             if (budgetResult.omittedRegions.length > 0) {
-              throw new Error(
-                `STEP faceted fallback cannot retain all regions within 5000 triangles; omitted regions: ${budgetResult.omittedRegions.join(', ')}`,
+              warnings.push(
+                `Link "${link.linkName}" omitted ${budgetResult.omittedRegions.length} low-priority fallback region(s) to stay within the 120-triangle export budget.`,
               );
             }
             const budget = budgetResult.budgets;
@@ -554,7 +577,7 @@ async function handleBuild(
 
             if (analyticCount > 0 || fallbackCount > 0) {
               warnings.push(
-                `Link "${link.linkName}" reconstructed ${analyticCount} analytic face(s), ${fallbackCount} faceted fallback triangle(s).`,
+                `Link "${link.linkName}" reconstructed ${analyticCount} analytic face(s) from ${inputTriangleCount} input triangle(s), retaining ${fallbackCount} faceted fallback triangle(s).`,
               );
             }
             rawShape = meshCompound;

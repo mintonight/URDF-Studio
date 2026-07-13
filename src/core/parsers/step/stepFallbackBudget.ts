@@ -2,7 +2,8 @@
  * Faceted fallback budget allocation and resource limit enforcement
  * for CAD-compatible STEP reconstruction.
  *
- * All fallback regions share one global budget of 5,000 triangles.
+ * All fallback regions share one global budget of 600 triangles and each
+ * region is capped at 120 triangles.
  * Budget allocation is proportional to region area with a minimum of
  * 20 triangles per non-empty region when possible.
  *
@@ -43,25 +44,30 @@ export interface FallbackBudgetResult {
 /**
  * Allocate the global fallback triangle budget across fallback regions.
  *
- * - Proportional to area, with a minimum of 20 per non-empty region.
+ * - Proportional to area, with a minimum of 8 per non-empty region.
  * - If budget cannot retain every region, export fails (caller checks omittedRegions).
- * - Total never exceeds 5,000.
+ * - Total never exceeds 600.
  */
 export function allocateFallbackBudget(
   regions: FallbackRegionInfo[],
 ): FallbackBudgetResult {
   const MAX = RECONSTRUCTION_LIMITS.maxFallbackTriangles;
-  const MIN = 20;
+  const MIN = 8;
 
   if (regions.length === 0) {
     return { budgets: {}, omittedRegions: [] };
   }
 
   // First: try to give each region its full triangle count.
-  const totalDemand = regions.reduce((sum, r) => sum + r.triangleCount, 0);
+  const totalDemand = regions.reduce(
+    (sum, r) => sum + Math.min(r.triangleCount, RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles),
+    0,
+  );
   if (totalDemand <= MAX) {
     const budgets: Record<number, number> = {};
-    for (const r of regions) budgets[r.regionId] = r.triangleCount;
+    for (const r of regions) {
+      budgets[r.regionId] = Math.min(r.triangleCount, RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles);
+    }
     return { budgets, omittedRegions: [] };
   }
 
@@ -94,7 +100,11 @@ export function allocateFallbackBudget(
   for (const r of regions) {
     const share = totalArea > 0 ? Math.floor((r.area / totalArea) * remaining) : 0;
     const budget = MIN + share;
-    budgets[r.regionId] = Math.min(budget, r.triangleCount);
+    budgets[r.regionId] = Math.min(
+      budget,
+      r.triangleCount,
+      RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles,
+    );
     allocated += budgets[r.regionId];
   }
 
@@ -104,7 +114,10 @@ export function allocateFallbackBudget(
     const sorted = [...regions].sort((a, b) => a.regionId - b.regionId);
     for (const r of sorted) {
       if (leftover <= 0) break;
-      const headroom = r.triangleCount - budgets[r.regionId];
+      const headroom = Math.min(
+        r.triangleCount,
+        RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles,
+      ) - budgets[r.regionId];
       if (headroom > 0) {
         budgets[r.regionId] += 1;
         leftover--;

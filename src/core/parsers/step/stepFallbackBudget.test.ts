@@ -6,11 +6,11 @@ import { RECONSTRUCTION_LIMITS } from './stepMeshRegionTypes';
 
 test('allocates full triangles when under budget', () => {
   const result = allocateFallbackBudget([
-    { regionId: 1, triangleCount: 100, area: 1 },
-    { regionId: 2, triangleCount: 200, area: 2 },
+    { regionId: 1, triangleCount: 30, area: 1 },
+    { regionId: 2, triangleCount: 40, area: 2 },
   ]);
-  assert.equal(result.budgets[1], 100);
-  assert.equal(result.budgets[2], 200);
+  assert.equal(result.budgets[1], 30);
+  assert.equal(result.budgets[2], 40);
   assert.equal(result.omittedRegions.length, 0);
 });
 
@@ -26,8 +26,8 @@ test('proportionally reduces when over budget', () => {
 });
 
 test('omits smallest regions when minimums cannot be met', () => {
-  // 300 regions × 20 min = 6000 > 5000 → some must be omitted.
-  const regions = Array.from({ length: 300 }, (_, i) => ({
+  // 100 regions × 8 min = 800 > the global budget → some must be omitted.
+  const regions = Array.from({ length: 100 }, (_, i) => ({
     regionId: i,
     triangleCount: 100,
     area: i + 1,
@@ -65,8 +65,8 @@ test('checkResourceLimits throws on memory estimate', () => {
   );
 });
 
-test('total never exceeds 5000', () => {
-  const regions = Array.from({ length: 20 }, (_, i) => ({
+test('total never exceeds the configured global fallback budget', () => {
+  const regions = Array.from({ length: 8 }, (_, i) => ({
     regionId: i,
     triangleCount: 1000,
     area: 1,
@@ -74,11 +74,12 @@ test('total never exceeds 5000', () => {
   const result = allocateFallbackBudget(regions);
   const total = Object.values(result.budgets).reduce((s, v) => s + v, 0);
   assert.ok(total <= RECONSTRUCTION_LIMITS.maxFallbackTriangles, `total ${total}`);
+  assert.ok(Object.values(result.budgets).every((budget) => budget <= RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles));
 });
 
 test('omitted regions produce structured failure when budget is insufficient', () => {
-  // 300 regions × 20 min = 6000 > 5000 → some must be omitted.
-  const regions = Array.from({ length: 300 }, (_, i) => ({
+  // 100 regions × 8 min = 800 > the global budget → some must be omitted.
+  const regions = Array.from({ length: 100 }, (_, i) => ({
     regionId: i,
     triangleCount: 100,
     area: i + 1,
@@ -90,7 +91,7 @@ test('omitted regions produce structured failure when budget is insufficient', (
     () => {
       if (result.omittedRegions.length > 0) {
         throw new Error(
-          `STEP faceted fallback cannot retain all regions within 5000 triangles; omitted regions: ${result.omittedRegions.join(', ')}`,
+          `STEP faceted fallback cannot retain all regions within ${RECONSTRUCTION_LIMITS.maxFallbackTriangles} triangles; omitted regions: ${result.omittedRegions.join(', ')}`,
         );
       }
     },

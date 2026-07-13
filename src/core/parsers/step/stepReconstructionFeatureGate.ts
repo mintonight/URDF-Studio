@@ -23,7 +23,7 @@ export const ENABLED_STEP_ANALYTIC_SURFACES: ReadonlySet<SurfaceType> = new Set(
 
 /**
  * Returns true only when an explicit experimental flag enables analytic
- * reconstruction. The flag is never derived from meshMode.
+ * reconstruction. The flag is controlled by the STEP export pipeline.
  */
 export function shouldUseAnalyticReconstruction(
   experimentalEnabled: boolean | undefined,

@@ -775,29 +775,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     />
                   </Row>
                   {config.step.includeMeshes && (
-                    <Row label={t.exportStepMeshMode} stacked={isStackedLayout}>
-                      <SegmentedChoiceField
-                        value={config.step.meshMode}
-                        options={[
-                          { value: 'lightweight', label: t.exportStepMeshModeLightweight },
-                          { value: 'cad-repair', label: t.exportStepMeshModeCadRepair },
-                        ]}
-                        onChange={(value) => updateStep('meshMode', value)}
-                      />
-                    </Row>
-                  )}
-                  {config.step.includeMeshes && (
-                    <Row label={t.exportStepMeshPreset} stacked={isStackedLayout}>
-                      <SegmentedChoiceField
-                        value={config.step.meshPreset}
-                        options={[
-                          { value: 'small', label: t.exportStepMeshPresetSmall },
-                          { value: 'balanced', label: t.exportStepMeshPresetBalanced },
-                          { value: 'high', label: t.exportStepMeshPresetHigh },
-                        ]}
-                        onChange={(value) => updateStep('meshPreset', value)}
-                      />
-                    </Row>
+                    <p className="px-1 py-2 text-[11px] leading-5 text-text-tertiary">
+                      {t.exportStepAggressiveMeshHint}
+                    </p>
                   )}
                 </div>
                 <p className="mt-2 text-[11px] leading-5 text-text-tertiary">

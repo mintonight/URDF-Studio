@@ -11,7 +11,7 @@ import test from 'node:test';
 
 import { prepareStepMeshTopology } from './stepMeshTopology';
 import { analyzeMeshTopology } from './stepMeshAnalysis';
-import { computeTolerances } from './stepMeshRegionTypes';
+import { computeTolerances, RECONSTRUCTION_LIMITS } from './stepMeshRegionTypes';
 import { growPlanarRegions } from './stepRegionGrowing';
 import { reconstructSurfaces } from './stepSurfaceReconstruction';
 import { extractRegionBoundary } from './stepRegionBoundary';
@@ -185,5 +185,5 @@ test('fallback budget covers all non-plane regions without omission for small me
   const budget = allocateFallbackBudget(infos);
   assert.equal(budget.omittedRegions.length, 0, 'small mesh must not omit any region');
   const total = Object.values(budget.budgets).reduce((s, v) => s + v, 0);
-  assert.ok(total <= 5000);
+  assert.ok(total <= RECONSTRUCTION_LIMITS.maxFallbackTriangles);
 });

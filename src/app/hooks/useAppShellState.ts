@@ -52,7 +52,7 @@ export function useAppShellState() {
     setToast({ show: true, message, type });
     toastTimerRef.current = setTimeout(() => {
       setToast((prev) => ({ ...prev, show: false }));
-    }, 5000);
+    }, type === 'error' ? 30_000 : 5_000);
   }, []);
 
   const closeToast = useCallback(() => {

@@ -84,7 +84,8 @@ export const RECONSTRUCTION_LIMITS = {
   maxInputTriangles: 100_000,
   maxRegionTriangles: 30_000,
   maxCandidateRegions: 200,
-  maxFallbackTriangles: 5_000,
+  maxFallbackTriangles: 120,
+  maxFallbackRegionTriangles: 40,
   maxWorkerMemoryMB: 512,
   maxProcessingTimeMs: 5 * 60 * 1000,
 } as const;

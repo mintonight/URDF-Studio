@@ -738,6 +738,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         }
         setIsExportDialogOpen(false);
       } catch (error) {
+        console.error('[Export] Export failed:', error);
         showToast(
           resolveExportErrorMessage(error, {
             exportFailedParse: t.exportFailedParse,

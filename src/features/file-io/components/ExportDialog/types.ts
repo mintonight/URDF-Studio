@@ -1,6 +1,5 @@
 import type { ExportProgressState } from '../../types';
 import type { MjcfActuatorType } from '@/core/parsers/mjcf/mjcfGenerator';
-import type { StepMeshMode, StepMeshPreset } from '@/core/parsers/step/stepMeshTypes';
 
 export type ExportFormat = 'project' | 'mjcf' | 'urdf' | 'xacro' | 'sdf' | 'usd' | 'step';
 export type MeshExportFormat = Exclude<ExportFormat, 'project'>;
@@ -55,8 +54,6 @@ export interface UsdExportConfig {
 
 export interface StepExportConfig {
   includeMeshes: boolean;
-  meshMode: StepMeshMode;
-  meshPreset: StepMeshPreset;
 }
 
 export interface ExportDialogConfig {

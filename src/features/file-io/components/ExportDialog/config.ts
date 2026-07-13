@@ -53,8 +53,6 @@ export const DEFAULT_CONFIG: ExportDialogConfig = {
   },
   step: {
     includeMeshes: true,
-    meshMode: 'lightweight',
-    meshPreset: 'balanced',
   },
 };
 

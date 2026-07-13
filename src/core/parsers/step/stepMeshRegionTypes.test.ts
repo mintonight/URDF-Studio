@@ -24,7 +24,8 @@ test('RECONSTRUCTION_LIMITS has correct values', () => {
   assert.equal(RECONSTRUCTION_LIMITS.maxInputTriangles, 100_000);
   assert.equal(RECONSTRUCTION_LIMITS.maxRegionTriangles, 30_000);
   assert.equal(RECONSTRUCTION_LIMITS.maxCandidateRegions, 200);
-  assert.equal(RECONSTRUCTION_LIMITS.maxFallbackTriangles, 5_000);
+  assert.equal(RECONSTRUCTION_LIMITS.maxFallbackTriangles, 120);
+  assert.equal(RECONSTRUCTION_LIMITS.maxFallbackRegionTriangles, 40);
   assert.equal(RECONSTRUCTION_LIMITS.maxWorkerMemoryMB, 512);
   assert.equal(RECONSTRUCTION_LIMITS.maxProcessingTimeMs, 5 * 60 * 1000);
 });
