@@ -1078,7 +1078,9 @@ function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
 
 function applyVisualToLink(link: UrdfLink, visual: ParsedSdfVisual): UrdfLink {
   const fallbackColor =
-    visual.geometry.type === GeometryType.MESH ? UNAUTHORED_VISUAL_COLOR : DEFAULT_LINK.visual.color;
+    visual.geometry.type === GeometryType.MESH
+      ? UNAUTHORED_VISUAL_COLOR
+      : DEFAULT_LINK.visual.color;
 
   return {
     ...link,
@@ -1555,6 +1557,30 @@ function parseSdfModel(
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
     const mimic = parseJointMimic(axisEl, namespacePrefix);
 
+    // SDF revolute joints with no effective angle bounds describe unlimited
+    // rotation. This covers two cases the parser must treat identically:
+    //   1. no <limit> element at all, and
+    //   2. a <limit> element that omits <lower> and <upper> — e.g. youbot
+    //      wheels/casters declare <limit><effort>1.0</effort></limit> with no
+    //      angle bounds, which Gazebo reads as unlimited rotation.
+    // URDF expresses unlimited rotation via the `continuous` joint type with no
+    // limit object; convert to that so the canonical workspace validator does
+    // not reject the -Infinity / +Infinity placeholders that the limit-parsing
+    // fallback below would otherwise produce.
+    const limitContainerEl = limitEl ?? axisEl ?? jointEl;
+    const parsedLower = parseFloatSafe(
+      getFirstDirectChild(limitContainerEl, 'lower')?.textContent,
+      -Infinity,
+    );
+    const parsedUpper = parseFloatSafe(
+      getFirstDirectChild(limitContainerEl, 'upper')?.textContent,
+      Infinity,
+    );
+    const isUnlimitedRevolute =
+      jointType === JointType.REVOLUTE &&
+      (!Number.isFinite(parsedLower) || !Number.isFinite(parsedUpper));
+    const effectiveJointType = isUnlimitedRevolute ? JointType.CONTINUOUS : jointType;
+
     // Resolve the axis direction.
     // Modern SDFormat uses <xyz expressed_in="...">. Older Gazebo models use
     // <use_parent_model_frame>; keep that fallback for source compatibility.
@@ -1594,31 +1620,27 @@ function parseSdfModel(
       ...DEFAULT_JOINT,
       id: jointId,
       name: jointId,
-      type: jointType,
+      type: effectiveJointType,
       parentLinkId,
       childLinkId,
       origin,
       axis,
-      limit: LIMIT_IMPORT_TYPES.has(jointType)
-        ? {
-            lower: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent,
-              -Infinity,
-            ),
-            upper: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent,
-              Infinity,
-            ),
-            effort: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent,
-              0,
-            ),
-            velocity: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent,
-              0,
-            ),
-          }
-        : undefined,
+      limit: isUnlimitedRevolute
+        ? undefined
+        : LIMIT_IMPORT_TYPES.has(effectiveJointType)
+          ? {
+              lower: parsedLower,
+              upper: parsedUpper,
+              effort: parseFloatSafe(
+                getFirstDirectChild(limitContainerEl, 'effort')?.textContent,
+                0,
+              ),
+              velocity: parseFloatSafe(
+                getFirstDirectChild(limitContainerEl, 'velocity')?.textContent,
+                0,
+              ),
+            }
+          : undefined,
       dynamics: {
         damping: parseFloatSafe(
           getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent,

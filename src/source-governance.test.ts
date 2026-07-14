@@ -17,7 +17,7 @@ const oversizedRuntimeFileLineBudgets: Record<string, number> = {
   'src/core/parsers/mjcf/mjcfParser.ts': 2005,
   'src/core/parsers/mjcf/mjcfGenerator.ts': 1905,
   'src/app/utils/importPreparation.ts': 1803,
-  'src/core/parsers/sdf/sdfParser.ts': 1815,
+  'src/core/parsers/sdf/sdfParser.ts': 1828,
   'src/core/parsers/mjcf/mjcfMeshBackedPrimitiveResolver.ts': 1627,
   'src/core/robot/closedLoops.ts': 1609,
   'src/core/parsers/mjcf/mjcfModel.ts': 1573,

@@ -1608,6 +1608,48 @@ test('findAssetByIndex ranks filename-only package fallbacks by the closest urdf
   );
 });
 
+test('findAssetByIndex does not substitute a same-stem mesh file for a missing image/texture request', () => {
+  // Regression: when a Collada mesh (wing.dae) is present but its referenced
+  // texture (wing.png) is missing from the asset index, the mesh-extension
+  // candidate fallback (Strategy 7) used to return wing.dae as the texture
+  // path. The runtime then tried to load the .dae as an image and errored.
+  const assets = {
+    'zephyr_delta_wing/meshes/wing.dae': 'blob:wing-mesh',
+  };
+  const index = buildAssetIndex(assets, 'zephyr_delta_wing/meshes/');
+
+  assert.equal(
+    findAssetByIndex(
+      'http://localhost/zephyr_delta_wing/meshes/zephyr_delta_wing/materials/textures/wing.png',
+      index,
+      'zephyr_delta_wing/meshes/',
+    ),
+    null,
+  );
+  // The mesh itself still resolves normally for genuine mesh requests.
+  assert.equal(
+    findAssetByIndex('zephyr_delta_wing/meshes/wing.dae', index, 'zephyr_delta_wing/meshes/'),
+    'blob:wing-mesh',
+  );
+});
+
+test('findAssetByIndex still resolves a present texture even when a same-stem mesh exists', () => {
+  const assets = {
+    'zephyr_delta_wing/meshes/wing.dae': 'blob:wing-mesh',
+    'zephyr_delta_wing/materials/textures/wing.png': 'blob:wing-texture',
+  };
+  const index = buildAssetIndex(assets, 'zephyr_delta_wing/meshes/');
+
+  assert.equal(
+    findAssetByIndex(
+      'http://localhost/zephyr_delta_wing/meshes/zephyr_delta_wing/materials/textures/wing.png',
+      index,
+      'zephyr_delta_wing/meshes/',
+    ),
+    'blob:wing-texture',
+  );
+});
+
 test('findAssetByIndex preserves visual versus collision mesh selection for same-filename folder-import assets', () => {
   const assets = {
     'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae':
