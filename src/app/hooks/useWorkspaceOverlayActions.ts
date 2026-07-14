@@ -12,6 +12,7 @@ import type { BridgeJoint, RobotFile } from '@/types';
 
 interface UseWorkspaceOverlayActionsTranslations {
   addedComponent: string;
+  addedComponentRecovered: string;
   loadingRobot: string;
   preparingAssemblyComponent: string;
   addingAssemblyComponentToWorkspace: string;
@@ -66,15 +67,24 @@ export function useWorkspaceOverlayActions({
           }
           clearAssemblyComponentPreparationOverlay();
           if (outcome?.status === 'committed') {
+            const recoveredItemCount =
+              outcome.component.robot.inspectionContext?.recovery?.recoveredItemCount ?? 0;
             showToast(
-              t.addedComponent.replace('{name}', outcome.component.name),
+              (recoveredItemCount > 0
+                ? t.addedComponentRecovered
+                    .replace('{name}', outcome.component.name)
+                    .replace('{count}', String(recoveredItemCount))
+                : t.addedComponent.replace('{name}', outcome.component.name)),
               'success',
             );
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           clearAssemblyComponentPreparationOverlay();
-          showToast(`Failed to add assembly component: ${file.name}`, 'info');
+          const detail = error instanceof Error && error.message.trim()
+            ? ` ${error.message.trim()}`
+            : '';
+          showToast(`Failed to add assembly component: ${file.name}.${detail}`, 'info');
         });
     },
     [

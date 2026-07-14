@@ -147,13 +147,19 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
     jointType !== JointType.PLANAR &&
     jointType !== JointType.BALL;
   const defaultLimit = getDefaultJointLimit(jointType);
-  const resolvedLimit = normalizeJointLimitOrder({ ...defaultLimit, ...data.limit });
+  const displayLimit = normalizeJointLimitOrder({ ...defaultLimit, ...data.limit });
   const limitUnit = getJointValueUnitLabel(jointType, 'rad');
   const velocityUnit = getJointVelocityUnitLabel(jointType);
   const effortUnit = getJointEffortUnitLabel(jointType);
 
   const updateJoint = (updates: Partial<JointData>) => {
     onUpdate('joint', selection.id!, { ...data, ...updates } as WorkspaceJointPropertyPatch);
+  };
+
+  const updateLimitValue = (key: 'lower' | 'upper' | 'effort' | 'velocity', value: number) => {
+    updateJoint({
+      limit: normalizeJointLimitOrder({ ...(data.limit ?? {}), [key]: value }),
+    });
   };
 
   const handleJointTypeChange = (nextType: JointType) => {
@@ -167,9 +173,10 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
       nextData.limit = getDefaultJointLimit(nextType);
     }
     if (EFFORT_VELOCITY_ONLY_TYPES.has(nextType)) {
+      const nextDefaultLimit = getDefaultJointLimit(nextType);
       nextData.limit = {
-        ...getDefaultJointLimit(nextType),
-        ...nextData.limit,
+        effort: nextData.limit?.effort ?? nextDefaultLimit.effort,
+        velocity: nextData.limit?.velocity ?? nextDefaultLimit.velocity,
       };
     }
     onUpdate('joint', selection.id!, nextData);
@@ -411,12 +418,8 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                     labelWidthClassName={sectionUnitInlineLabelWidthClassName}
                   >
                     <NumberInput
-                      value={resolvedLimit.lower}
-                      onChange={(v: number) =>
-                        updateJoint({
-                          limit: normalizeJointLimitOrder({ ...resolvedLimit, lower: v }),
-                        })
-                      }
+                      value={displayLimit.lower}
+                      onChange={(v: number) => updateLimitValue('lower', v)}
                     />
                   </InlineInputGroup>
                   <InlineInputGroup
@@ -425,12 +428,8 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                     labelWidthClassName={sectionUnitInlineLabelWidthClassName}
                   >
                     <NumberInput
-                      value={resolvedLimit.upper}
-                      onChange={(v: number) =>
-                        updateJoint({
-                          limit: normalizeJointLimitOrder({ ...resolvedLimit, upper: v }),
-                        })
-                      }
+                      value={displayLimit.upper}
+                      onChange={(v: number) => updateLimitValue('upper', v)}
                     />
                   </InlineInputGroup>
                 </>
@@ -441,13 +440,9 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                 labelWidthClassName={sectionUnitInlineLabelWidthClassName}
               >
                 <NumberInput
-                  value={resolvedLimit.velocity}
+                  value={displayLimit.velocity}
                   min={0}
-                  onChange={(v: number) =>
-                    updateJoint({
-                      limit: normalizeJointLimitOrder({ ...resolvedLimit, velocity: v }),
-                    })
-                  }
+                  onChange={(v: number) => updateLimitValue('velocity', v)}
                 />
               </InlineInputGroup>
               <InlineInputGroup
@@ -456,13 +451,9 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                 labelWidthClassName={sectionUnitInlineLabelWidthClassName}
               >
                 <NumberInput
-                  value={resolvedLimit.effort}
+                  value={displayLimit.effort}
                   min={0}
-                  onChange={(v: number) =>
-                    updateJoint({
-                      limit: normalizeJointLimitOrder({ ...resolvedLimit, effort: v }),
-                    })
-                  }
+                  onChange={(v: number) => updateLimitValue('effort', v)}
                 />
               </InlineInputGroup>
             </div>

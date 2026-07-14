@@ -213,7 +213,6 @@ export interface AppLayoutOverlaysSectionProps {
   theme: ViewerProps['theme'];
   lang: Language;
   labels: {
-    loadingEditor: string;
     loadingOptimizer: string;
     loadingBridgeDialog: string;
   };

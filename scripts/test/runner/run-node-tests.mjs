@@ -20,6 +20,13 @@ const FAST_APP_TESTS = [
   'src/app/hooks/asset_import_from_url.test.ts',
 ];
 
+const CONFIG_TESTS = [
+  'vite.config.test.ts',
+  'scripts/test/quality_gates.test.mjs',
+  'src/architecture-boundaries.test.ts',
+  'src/source-governance.test.ts',
+];
+
 function toPosixPath(filePath) {
   return filePath.split(path.sep).join('/');
 }
@@ -93,8 +100,8 @@ const suiteDefinitions = {
     files: () => requireExisting(['vite.config.test.ts', ...FAST_APP_TESTS], 'fast'),
   },
   config: {
-    description: 'Vite/dev-server configuration tests.',
-    files: () => requireExisting(['vite.config.test.ts'], 'config'),
+    description: 'Repository configuration and canonical quality-gate tests.',
+    files: () => requireExisting(CONFIG_TESTS, 'config'),
   },
   'app-hooks': {
     description: 'App orchestration hook/util tests from the fast lane.',
@@ -183,10 +190,7 @@ function resolveFiles(positional) {
 
   return {
     label: 'explicit-files',
-    files: requireExisting(
-      dedupeAndSort(positional.flatMap(expandExplicitPath)),
-      'explicit-files',
-    ),
+    files: requireExisting(dedupeAndSort(positional.flatMap(expandExplicitPath)), 'explicit-files'),
   };
 }
 

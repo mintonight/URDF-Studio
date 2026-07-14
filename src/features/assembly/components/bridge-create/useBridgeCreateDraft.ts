@@ -6,7 +6,11 @@ import {
   normalizeBridgeQuaternion,
 } from '../../utils/bridgePreview';
 import type { BridgePickTarget } from '../../utils/bridgeSelection';
-import type { BridgeEulerAxisKey, BridgeRotationDisplayMode } from './bridgeCreateModalTypes';
+import type {
+  BridgeEndpointInputMode,
+  BridgeEulerAxisKey,
+  BridgeRotationDisplayMode,
+} from './bridgeCreateModalTypes';
 import { BRIDGE_ROTATION_SHORTCUT_DEGREES } from './bridgeCreateModalStyles';
 import { normalizeBridgeDegreesAngle } from './bridgeCreateModalUtils';
 
@@ -28,6 +32,7 @@ export function useBridgeCreateDraft({
   const [parentLinkId, setParentLinkId] = useState('');
   const [childCompId, setChildCompId] = useState('');
   const [childLinkId, setChildLinkId] = useState('');
+  const [endpointInputMode, setEndpointInputMode] = useState<BridgeEndpointInputMode>('geometry');
   const [jointType, setJointType] = useState<JointType>(JointType.FIXED);
   const [hardwareInterface, setHardwareInterface] = useState<JointHardwareInterface>('position');
   const [originX, setOriginX] = useState(0);
@@ -141,6 +146,7 @@ export function useBridgeCreateDraft({
     setParentLinkId('');
     setChildCompId('');
     setChildLinkId('');
+    setEndpointInputMode('geometry');
     setJointType(JointType.FIXED);
     setHardwareInterface('position');
     setOriginX(0);
@@ -177,6 +183,7 @@ export function useBridgeCreateDraft({
     axisZ,
     childCompId,
     childLinkId,
+    endpointInputMode,
     handleOriginXChange,
     handleOriginYChange,
     handleOriginZChange,
@@ -209,6 +216,7 @@ export function useBridgeCreateDraft({
     setAxisZ,
     setChildCompId,
     setChildLinkId,
+    setEndpointInputMode,
     setHardwareInterface,
     setJointType,
     setLimitEffort,

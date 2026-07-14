@@ -2,15 +2,8 @@
  * SourceCodeEditor - Unified Monaco source window for editable and read-only code.
  * Supports URDF, Xacro, MJCF, USD text, and equivalent MJCF previews in one reusable shell.
  */
-import React, {
-  Suspense,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  startTransition,
-} from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
+import MonacoEditor from '@monaco-editor/react';
 import {
   AlertCircle,
   Check,
@@ -168,10 +161,6 @@ const HEADER_ACTION_CLASS =
   'inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover';
 const HEADER_PRIMARY_ACTION_CLASS =
   'inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors';
-const MonacoEditor = React.lazy(() =>
-  import('@monaco-editor/react').then((module) => ({ default: module.default })),
-);
-
 const formatContentSize = (content: string): string => {
   const bytes = new Blob([content]).size;
   if (bytes < 1024) {
@@ -329,10 +318,7 @@ const attachFindWidgetTooltipSuppression = (
   };
 };
 
-const toWorkerValidationError = (
-  error: unknown,
-  t: TranslationKeys,
-): ValidationError[] => [
+const toWorkerValidationError = (error: unknown, t: TranslationKeys): ValidationError[] => [
   {
     line: 1,
     column: 1,
@@ -1269,38 +1255,36 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           </div>
         ) : null}
 
-        <Suspense fallback={null}>
-          <MonacoEditor
-            key={activeDocument.id}
-            height="100%"
-            defaultLanguage={documentMeta.language}
-            defaultValue={activeDocumentCode}
-            theme={theme === 'dark' ? 'vs-dark' : 'light'}
-            onMount={handleEditorMount}
-            onChange={handleEditorChange}
-            options={{
-              minimap: { enabled: false },
-              fontSize: codeEditorFontSize,
-              fontFamily: resolveCodeEditorFontFamily(codeEditorFontFamily),
-              fontLigatures: true,
-              scrollBeyondLastLine: false,
-              wordWrap: 'off',
-              stickyScroll: { enabled: false },
-              scrollbar: { horizontal: 'auto', vertical: 'auto' },
-              automaticLayout: false,
-              tabSize: 2,
-              formatOnPaste: !isReadOnly && documentMeta.isXmlLike,
-              formatOnType: !isReadOnly && documentMeta.isXmlLike,
-              lineNumbersMinChars: 4,
-              padding: { top: 12, bottom: 14 },
-              renderLineHighlight: 'all',
-              readOnly: isReadOnly,
-              domReadOnly: isReadOnly,
-              glyphMargin: validationEnabled,
-              renderValidationDecorations: validationEnabled ? 'editable' : 'off',
-            }}
-          />
-        </Suspense>
+        <MonacoEditor
+          key={activeDocument.id}
+          height="100%"
+          defaultLanguage={documentMeta.language}
+          defaultValue={activeDocumentCode}
+          theme={theme === 'dark' ? 'vs-dark' : 'light'}
+          onMount={handleEditorMount}
+          onChange={handleEditorChange}
+          options={{
+            minimap: { enabled: false },
+            fontSize: codeEditorFontSize,
+            fontFamily: resolveCodeEditorFontFamily(codeEditorFontFamily),
+            fontLigatures: true,
+            scrollBeyondLastLine: false,
+            wordWrap: 'off',
+            stickyScroll: { enabled: false },
+            scrollbar: { horizontal: 'auto', vertical: 'auto' },
+            automaticLayout: false,
+            tabSize: 2,
+            formatOnPaste: !isReadOnly && documentMeta.isXmlLike,
+            formatOnType: !isReadOnly && documentMeta.isXmlLike,
+            lineNumbersMinChars: 4,
+            padding: { top: 12, bottom: 14 },
+            renderLineHighlight: 'all',
+            readOnly: isReadOnly,
+            domReadOnly: isReadOnly,
+            glyphMargin: validationEnabled,
+            renderValidationDecorations: validationEnabled ? 'editable' : 'off',
+          }}
+        />
       </div>
 
       <div className="source-code-editor-chrome flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border-black px-3 text-[10px] select-none">

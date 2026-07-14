@@ -86,6 +86,9 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   bridgeSnapKindCircleCenter: string;
   bridgeSnapKindObjectCenter: string;
   bridgeSnapKindFaceCenter: string;
+  bridgeSnapKindVertex: string;
+  bridgeSnapKindEdgeMidpoint: string;
+  bridgeSnapKindSurface: string;
   bridgePickActiveParent: string;
   bridgePickActiveChild: string;
   bridgeSelectRelationFirst: string;
@@ -103,6 +106,15 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   bridgePositionUpperLimit: string;
   bridgeBaseSnapped: string;
   bridgeAttachSnapped: string;
+  bridgeInputMode: string;
+  bridgeGeometryMode: string;
+  bridgeLinkListMode: string;
+  bridgeAdvancedSettings: string;
+  bridgePickEndpoint: string;
+  bridgePickEndpointActive: string;
+  bridgePickEndpointInactive: string;
+  bridgeRepickBase: string;
+  bridgeRepickAttach: string;
 
   // Property Editor
   properties: string;
@@ -630,6 +642,9 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   sourceCodeModified: string;
   sourceCodeApplyFailed: string;
   sourceCodeApplyFailedMessage: string;
+  sourceCodeLoadErrorTitle: string;
+  sourceCodeLoadErrorMessage: string;
+  sourceCodeLoadErrorLogPrefix: string;
   sourceCodeReadOnlyView: string;
   sourceCodeGenerated: string;
   sourceCodeMaximized: string;
@@ -729,6 +744,7 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   jointName: string;
   motorType: string;
   addedComponent: string;
+  addedComponentRecovered: string;
   noCollisionOptimizationApplied: string;
   collisionOptimizationApplied: string;
   renamedFolder: string;

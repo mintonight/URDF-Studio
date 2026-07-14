@@ -562,7 +562,9 @@ function assertAlmostEqual(actual: number | undefined, expected: number, epsilon
 
 function resetSelectionStore() {
   const state = useSelectionStore.getState();
-  state.setHoverFrozen(false);
+  state.interactionHoverFreezeOwners.forEach((owner) => {
+    useSelectionStore.getState().setHoverFrozen(owner, false);
+  });
   state.clearHover();
   state.setHoveredSelection(null);
 }
@@ -1606,6 +1608,28 @@ test('setIsDragging freezes hover updates without clearing the visible hover for
       root.unmount();
     });
   }
+});
+
+test('inactive viewer cleanup does not release another viewer hover freeze owner', async () => {
+  resetSelectionStore();
+  const primaryViewer = Symbol('primary-viewer');
+  useSelectionStore.getState().setHoverFrozen(primaryViewer, true);
+  const { root } = await mountControllerWithProps({ active: false });
+
+  try {
+    assert.equal(useSelectionStore.getState().interactionHoverFrozen, true);
+    assert.deepEqual(
+      [...useSelectionStore.getState().interactionHoverFreezeOwners],
+      [primaryViewer],
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+
+  assert.equal(useSelectionStore.getState().interactionHoverFrozen, true);
+  useSelectionStore.getState().setHoverFrozen(primaryViewer, false);
 });
 
 test('handleJointAngleChange batches closed-loop slider preview into one frame-aligned update', async () => {
