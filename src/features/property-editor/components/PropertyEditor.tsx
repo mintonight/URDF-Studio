@@ -351,7 +351,10 @@ export function ComponentProperties({
 
   return (
     <div data-testid="component-properties" className="space-y-1.5">
-      <StaticSection title={t.structureGraphComponent}>
+      <StaticSection
+        title={t.structureGraphComponent}
+        contentClassName="grid gap-y-1 border-t border-border-black bg-panel-bg p-1.5"
+      >
         <label data-testid="component-name-row" className={COMPONENT_PROPERTY_ROW_CLASS}>
           <span className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 truncate`}>
             {t.componentDisplayName}

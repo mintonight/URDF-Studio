@@ -1034,6 +1034,11 @@ export async function buildRuntimeRobotFromState({
       );
     }
     joint.jointType = resolveRuntimeJointType(jointData.type);
+    const hasFinitePositionLimits =
+      Number.isFinite(jointData.limit?.lower) && Number.isFinite(jointData.limit?.upper);
+    if (jointData.type === JointType.REVOLUTE || jointData.type === JointType.PRISMATIC) {
+      joint.ignoreLimits = !hasFinitePositionLimits;
+    }
 
     if (jointData.axis) {
       joint.axis = new THREE.Vector3(jointData.axis.x, jointData.axis.y, jointData.axis.z);
@@ -1043,16 +1048,20 @@ export async function buildRuntimeRobotFromState({
     }
 
     if (jointData.limit) {
-      const motionLimit = normalizeJointLimitOrder({
-        lower: getJointMotionAngleFromActualAngle(jointData, jointData.limit.lower),
-        upper: getJointMotionAngleFromActualAngle(jointData, jointData.limit.upper),
-        effort: jointData.limit.effort,
-        velocity: jointData.limit.velocity,
-      });
-      joint.limit.lower = motionLimit.lower;
-      joint.limit.upper = motionLimit.upper;
-      joint.limit.effort = motionLimit.effort;
-      joint.limit.velocity = motionLimit.velocity;
+      if (hasFinitePositionLimits) {
+        const motionLimit = normalizeJointLimitOrder({
+          lower: getJointMotionAngleFromActualAngle(jointData, Number(jointData.limit.lower)),
+          upper: getJointMotionAngleFromActualAngle(jointData, Number(jointData.limit.upper)),
+        });
+        joint.limit.lower = motionLimit.lower;
+        joint.limit.upper = motionLimit.upper;
+      }
+      joint.limit.effort = Number.isFinite(jointData.limit.effort)
+        ? Number(jointData.limit.effort)
+        : undefined;
+      joint.limit.velocity = Number.isFinite(jointData.limit.velocity)
+        ? Number(jointData.limit.velocity)
+        : undefined;
     }
 
     if (joint instanceof URDFMimicJoint && jointData.mimic) {

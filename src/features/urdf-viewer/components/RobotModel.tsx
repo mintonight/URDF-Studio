@@ -38,6 +38,7 @@ import type { RobotModelProps, ViewerDocumentLoadEvent, ViewerPaintFaceHit } fro
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { useSelectionStore, useUIStore } from '@/store';
+import type { HoverFreezeOwner } from '@/store/selectionStore';
 import { GeometryType, type RobotFile } from '@/types';
 
 import { useRendererBackend } from '../hooks/useRendererBackend';
@@ -46,6 +47,7 @@ import { useCameraFocus } from '../hooks/useCameraFocus';
 import { useMouseInteraction } from '../hooks/useMouseInteraction';
 import { useHoverDetection } from '../hooks/useHoverDetection';
 import { useVisualizationEffects } from '../hooks/useVisualizationEffects';
+import { useAssemblyComponentAutoGrounding } from '../hooks/useAssemblyComponentAutoGrounding';
 import { resolveCameraAutoFrameLoadScopeKey } from '../utils/cameraAutoFrame';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
@@ -242,12 +244,25 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     onAssemblyTransform,
     onComponentTransform,
     onBridgeTransform,
+    pendingAutoGroundComponentIds,
+    onAssemblyComponentAutoGroundResolved,
   }) => {
     const { gl, invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
     const showMjcfWorldLink = useUIStore((state) => state.viewOptions.showMjcfWorldLink);
     const cameraProjection = useUIStore((state) => state.viewOptions.cameraProjection);
     const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
+    const hoverFreezeOwner = useRef<HoverFreezeOwner>(Symbol('robot-model')).current;
+    const setOwnedHoverFrozen = useCallback(
+      (frozen: boolean) => setHoverFrozen(hoverFreezeOwner, frozen),
+      [hoverFreezeOwner, setHoverFrozen],
+    );
+    useEffect(() => {
+      if (!interactionEnabled) {
+        setOwnedHoverFrozen(false);
+      }
+      return () => setOwnedHoverFrozen(false);
+    }, [interactionEnabled, setOwnedHoverFrozen]);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
     const [assemblyRoot, setAssemblyRoot] = useState<Group | null>(null);
     const [directComponentRoot, setDirectComponentRoot] = useState<Group | null>(null);
@@ -783,7 +798,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         throttleJointChangeDuringDrag: true,
         deferDirectJointRuntimeUpdate: Boolean(ikRobotState?.closedLoopConstraints?.length),
         setIsDragging,
-        setHoverFrozen,
+        setHoverFrozen: interactionEnabled ? setOwnedHoverFrozen : undefined,
         setActiveJoint,
         justSelectedRef,
         isOrbitDragging,
@@ -946,6 +961,16 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       },
       [boundingBoxNeedsUpdateRef, gl, invalidate, needsRaycastRef, robot],
     );
+
+    useAssemblyComponentAutoGrounding({
+      groundPlaneOffset,
+      onResolved: onAssemblyComponentAutoGroundResolved,
+      pendingComponentIds: pendingAutoGroundComponentIds,
+      requestSceneRefresh,
+      runtimeRobot: robot,
+      scenePlacement,
+      workspace,
+    });
 
     useEffect(() => {
       registerSceneRefresh?.(requestSceneRefresh);

@@ -14,7 +14,6 @@ export interface CollisionOptimizationCandidateListLabels {
   collisionIndex: string;
   component: string;
   jointPair: string;
-  mergeTo: string;
   noCandidates: string;
   selectedCount: string;
 }
@@ -80,31 +79,21 @@ function FlowSourceChip({
   target,
   labels,
   isFocused,
-  onSelectTarget,
-  onHoverTarget,
-  formatGeometryType,
 }: {
   target: CollisionTargetRef;
   labels: CollisionOptimizationCandidateListLabels;
   isFocused: boolean;
-  onSelectTarget?: (target: CollisionTargetRef) => void;
-  onHoverTarget?: (target: CollisionTargetRef | null) => void;
-  formatGeometryType: (type: GeometryType | null | undefined) => string;
 }) {
   const toneClass = isFocused
     ? 'border-system-blue/35 bg-system-blue/10'
-    : 'border-border-black bg-panel-bg hover:bg-element-hover';
+    : 'border-border-black bg-panel-bg';
   const slotLabel = target.isPrimary
     ? null
     : `${labels.collisionIndex} ${target.sequenceIndex + 1}`;
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelectTarget?.(target)}
-      onMouseEnter={() => onHoverTarget?.(target)}
-      onMouseLeave={() => onHoverTarget?.(null)}
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border px-1.25 py-0.75 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${toneClass}`}
+    <div
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border px-1.25 py-0.75 text-left ${toneClass}`}
     >
       <div className="flex h-5.5 w-5.5 items-center justify-center rounded-md border border-border-black bg-element-bg text-[6.5px] font-semibold tracking-[0.1em] text-text-secondary">
         {getPrimitiveMonogram(target.geometry.type)}
@@ -115,17 +104,17 @@ function FlowSourceChip({
           {target.linkName}
         </span>
         {slotLabel ? (
-          <span className="shrink-0 rounded-full border border-border-black bg-element-bg px-1.25 py-0.5 text-[6.5px] font-medium text-text-tertiary">
+          <span className="hidden shrink-0 rounded-full border border-border-black bg-element-bg px-1.25 py-0.5 text-[6.5px] font-medium text-text-tertiary @[340px]:inline">
             {slotLabel}
           </span>
         ) : null}
         {target.componentName ? (
-          <span className="truncate text-[6.5px] text-text-tertiary">
+          <span className="hidden truncate text-[6.5px] text-text-tertiary @[380px]:inline">
             {labels.component}: {target.componentName}
           </span>
         ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -157,15 +146,15 @@ export function CollisionOptimizationCandidateList({
         const isChecked = checkedCandidateKeys.has(candidateKey);
         const sources = getFlowSources(candidate);
         const effectiveType = candidate.suggestedType ?? candidate.currentType;
-        const currentLabel = formatGeometryType(candidate.currentType);
         const targetLabel = formatGeometryType(effectiveType);
+        const currentLabel = formatGeometryType(candidate.currentType);
         const statusLabel = getStatusLabel(candidate);
         const isFocused = sources.some((target) => isFocusedTarget(selection, target));
         const isActive = activeCandidateKey === candidateKey;
         const toneClass = isActive
-          ? 'border-system-blue/35 bg-system-blue/8 ring-1 ring-system-blue/15'
+          ? 'border-system-blue/35 bg-system-blue/8 ring-1 ring-system-blue/15 hover:border-system-blue/45 hover:bg-system-blue/12'
           : isFocused
-            ? 'border-system-blue/20 bg-system-blue/6'
+            ? 'border-system-blue/20 bg-system-blue/6 hover:border-system-blue/35 hover:bg-system-blue/10'
             : 'border-border-black bg-panel-bg hover:bg-element-hover';
 
         return (
@@ -188,12 +177,25 @@ export function CollisionOptimizationCandidateList({
                 className="mt-0.5 shrink-0"
               />
 
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                <div className="flex min-w-0 items-center gap-0.75 overflow-hidden">
+              <button
+                type="button"
+                aria-pressed={isActive}
+                aria-label={`${sources.map((source) => source.linkName).join(' + ')}: ${currentLabel} → ${targetLabel}`}
+                onClick={() => {
+                  onActivateCandidate?.(candidateKey, candidate);
+                  onSelectTarget?.(candidate.target);
+                }}
+                onMouseEnter={() => onHoverTarget?.(candidate.target)}
+                onMouseLeave={() => onHoverTarget?.(null)}
+                className="group flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-md text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-0.75 overflow-hidden">
                   {sources.map((source, index) => (
                     <div
                       key={source.id}
-                      className="flex min-w-0 items-center gap-0.75 overflow-hidden"
+                      className={`min-w-0 items-center gap-0.75 overflow-hidden ${
+                        index === 0 ? 'flex' : 'hidden @[360px]:flex'
+                      }`}
                     >
                       {index > 0 ? (
                         <span className="shrink-0 text-[8px] font-semibold text-text-tertiary">
@@ -204,60 +206,41 @@ export function CollisionOptimizationCandidateList({
                         target={source}
                         labels={labels}
                         isFocused={isFocusedTarget(selection, source)}
-                        onSelectTarget={(target) => {
-                          onActivateCandidate?.(candidateKey, candidate);
-                          onSelectTarget?.(target);
-                        }}
-                        onHoverTarget={onHoverTarget}
-                        formatGeometryType={formatGeometryType}
                       />
                     </div>
                   ))}
+                  {sources.length > 1 ? (
+                    <span className="shrink-0 rounded-full border border-border-black bg-element-bg px-1 py-0.5 text-[7px] font-semibold text-text-tertiary @[360px]:hidden">
+                      +{sources.length - 1}
+                    </span>
+                  ) : null}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1 text-[8px] text-text-tertiary">
-                  <span className="whitespace-nowrap">{labels.mergeTo}</span>
-                  <ArrowRight className="h-3 w-3" />
-                </div>
+                <ArrowRight className="h-3 w-3 shrink-0 text-text-tertiary" />
 
-                <div className="min-w-0 flex-1 rounded-md border border-system-blue/20 bg-system-blue/8 px-1.25 py-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onActivateCandidate?.(candidateKey, candidate);
-                      onSelectTarget?.(candidate.target);
-                    }}
-                    onMouseEnter={() => onHoverTarget?.(candidate.target)}
-                    onMouseLeave={() => onHoverTarget?.(null)}
-                    className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-                  >
-                    <div className="flex min-w-0 items-center justify-between gap-1">
-                      <div className="min-w-0 flex items-center gap-1">
-                        <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-md border border-system-blue/25 bg-panel-bg px-0.75 text-[6px] font-semibold tracking-[0.08em] text-system-blue">
-                          {getPrimitiveMonogram(effectiveType)}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="truncate text-[9px] font-semibold text-text-primary">
-                            <span>{currentLabel}</span>
-                            <ArrowRight className="mx-0.5 inline h-2.5 w-2.5 text-text-tertiary" />
-                            <span className="text-text-primary">{targetLabel}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <span
-                        className={`shrink-0 rounded-full border px-1.25 py-0.5 text-[6px] font-medium ${
-                          candidate.eligible
-                            ? 'border-system-blue/20 bg-panel-bg text-system-blue'
-                            : 'border-border-black bg-panel-bg text-text-tertiary'
-                        }`}
-                      >
-                        {candidate.secondaryTarget ? `${sources.length} Links` : statusLabel}
+                <div className="min-w-0 flex-1 rounded-md border border-system-blue/20 bg-system-blue/8 px-1 py-1">
+                  <div className="flex min-w-0 items-center justify-between gap-1">
+                    <div className="min-w-0 flex items-center gap-1">
+                      <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-md border border-system-blue/25 bg-panel-bg px-0.75 text-[6px] font-semibold tracking-[0.08em] text-system-blue">
+                        {getPrimitiveMonogram(effectiveType)}
+                      </span>
+                      <span className="hidden truncate text-[9px] font-semibold text-text-primary @[250px]:inline">
+                        {targetLabel}
                       </span>
                     </div>
-                  </button>
+
+                    <span
+                      className={`hidden shrink-0 rounded-full border px-1.25 py-0.5 text-[6px] font-medium @[390px]:inline ${
+                        candidate.eligible
+                          ? 'border-system-blue/20 bg-panel-bg text-system-blue'
+                          : 'border-border-black bg-panel-bg text-text-tertiary'
+                      }`}
+                    >
+                      {candidate.secondaryTarget ? `${sources.length} Links` : statusLabel}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
         );

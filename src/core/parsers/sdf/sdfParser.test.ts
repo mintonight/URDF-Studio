@@ -62,6 +62,50 @@ test('parseSDF resolves joint axis xyz expressed_in frames into the joint frame'
   assert.ok(Math.abs(axis.z) < 1e-9);
 });
 
+test('parseSDF preserves tuple positions when an authored token is malformed', () => {
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.12">
+  <model name="malformed_tuple_demo">
+    <link name="base">
+      <pose>1 broken 3 0 0 0</pose>
+      <visual name="visual">
+        <geometry><box><size>2 broken 4</size></box></geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.links.base.visual.dimensions, { x: 2, y: 0, z: 4 });
+  assert.deepEqual(robot.links.base.visual.origin.xyz, { x: 0, y: 0, z: 0 });
+});
+
+test('parseSDF omits unbounded and malformed joint limit values', () => {
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.12">
+  <model name="unbounded_joint_demo">
+    <link name="base" />
+    <link name="tip" />
+    <joint name="spin" type="revolute">
+      <parent>base</parent>
+      <child>tip</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-inf</lower>
+          <upper>inf</upper>
+          <effort>broken</effort>
+          <velocity>4</velocity>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.joints.spin.limit, { velocity: 4 });
+});
+
 test('parseSDF preserves additional visuals and collisions on the same link', () => {
   const robot = parseSDF(`<?xml version="1.0"?>
 <sdf version="1.7">

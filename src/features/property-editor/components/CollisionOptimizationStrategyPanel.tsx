@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRight, MousePointerClick } from 'lucide-react';
-import { Checkbox } from '@/shared/components/ui';
+import { Checkbox, PanelSegmentedControl } from '@/shared/components/ui';
 import { GeometryType } from '@/types';
 import type {
   CollisionOptimizationCandidate,
@@ -9,7 +9,6 @@ import type {
 
 export interface CollisionOptimizationStrategyPanelLabels {
   current: string;
-  excludeCandidate: string;
   includeCandidate: string;
   reason: string;
   selectCandidateHint: string;
@@ -45,30 +44,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div className="mb-1 text-[8.5px] font-semibold tracking-[0.02em] text-text-tertiary">
       {children}
     </div>
-  );
-}
-
-function StrategyOptionButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-6.5 rounded-md border px-1.75 py-1 text-[9.5px] font-medium leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
-        active
-          ? 'border-border-black bg-white text-text-primary shadow-sm dark:bg-segmented-active'
-          : 'border-transparent bg-transparent text-text-secondary hover:bg-element-hover hover:text-text-primary'
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -161,10 +136,10 @@ export function CollisionOptimizationStrategyPanel({
                 checked={isChecked}
                 onChange={() => onToggleCandidate?.(activeCandidateKey)}
                 disabled={!activeCandidate.eligible}
-                ariaLabel={isChecked ? labels.excludeCandidate : labels.includeCandidate}
+                ariaLabel={labels.includeCandidate}
                 label={
                   <span className="text-[9px] font-medium text-text-primary">
-                    {isChecked ? labels.excludeCandidate : labels.includeCandidate}
+                    {labels.includeCandidate}
                   </span>
                 }
                 className="shrink-0"
@@ -199,19 +174,18 @@ export function CollisionOptimizationStrategyPanel({
               ) : null}
 
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {getCandidateOverrideOptions(activeCandidate).map((type) => {
-                  const effectiveType =
-                    activeCandidate.suggestedType ?? activeCandidate.currentType;
-                  return (
-                    <StrategyOptionButton
-                      key={`${activeCandidateKey}-${type}`}
-                      active={effectiveType === type}
-                      onClick={() => onSetCandidateOverride(activeCandidate, type)}
-                    >
-                      {formatGeometryType(type)}
-                    </StrategyOptionButton>
-                  );
-                })}
+                <PanelSegmentedControl
+                  value={activeCandidate.suggestedType ?? activeCandidate.currentType}
+                  onChange={(type) => onSetCandidateOverride(activeCandidate, type)}
+                  options={getCandidateOverrideOptions(activeCandidate).map((type) => ({
+                    value: type,
+                    label: formatGeometryType(type),
+                  }))}
+                  stretch
+                  ariaLabel={strategyField.label}
+                  className="w-full"
+                  itemClassName="min-h-8 min-w-0 flex-1 px-1.5 py-1.5 text-[10px] font-semibold @[320px]:px-2.5"
+                />
               </div>
             </div>
           ) : null}

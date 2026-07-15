@@ -814,10 +814,12 @@ test('parseColladaSceneData round-trips textureless Collada scenes through Objec
   assert.equal(restoredScene.children.length > 0, true);
 
   const referenceLoader = new ColladaLoader();
-  const referenceScene = referenceLoader.parse(
+  const referenceDae = referenceLoader.parse(
     normalizeColladaUpAxis(colladaText).content,
     THREE.LoaderUtils.extractUrlBase(meshPath),
-  ).scene;
+  );
+  assert.ok(referenceDae);
+  const referenceScene = referenceDae.scene;
 
   const restoredBox = getWorldBox(restoredScene);
   const referenceBox = getWorldBox(referenceScene);

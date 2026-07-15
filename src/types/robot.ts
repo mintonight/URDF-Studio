@@ -2,7 +2,7 @@
  * Robot model related types
  */
 
-import type { UsdSceneMaterialRecord } from './usd';
+import type { UsdSceneMaterialRecord } from './usdMaterial';
 import type { Euler, QuaternionXYZW, UrdfOrigin, UrdfVisual, Vector3 } from './geometry';
 import type { InteractionSelection } from './ui';
 
@@ -134,7 +134,12 @@ export interface UrdfJoint {
   childLinkId: string;
   origin: UrdfOrigin;
   axis?: Vector3;
-  limit?: { lower: number; upper: number; effort: number; velocity: number };
+  limit?: {
+    lower?: number;
+    upper?: number;
+    effort?: number;
+    velocity?: number;
+  };
   dynamics: UrdfJointDynamics;
   hardware: UrdfJointHardware;
   mimic?: UrdfJointMimic;
@@ -240,6 +245,19 @@ export interface RobotSourceDiagnostic {
   };
 }
 
+export type RobotImportRecoveryAction = 'omitted' | 'defaulted' | 'downgraded';
+
+export interface RobotImportRecoveryDiagnostic extends RobotSourceDiagnostic {
+  action: RobotImportRecoveryAction;
+}
+
+export interface RobotImportRecoveryReport {
+  diagnostics: RobotImportRecoveryDiagnostic[];
+  diagnosticCounts: Record<RobotSourceDiagnosticSeverity, number>;
+  recoveredItemCount: number;
+  omittedDiagnosticCount?: number;
+}
+
 export interface RobotUrdfInspectionFacts {
   linkCount: number;
   jointCount: number;
@@ -261,6 +279,7 @@ export interface RobotUrdfInspectionContext {
 
 export interface RobotInspectionContext {
   sourceFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | 'mesh';
+  recovery?: RobotImportRecoveryReport;
   urdf?: RobotUrdfInspectionContext;
   mjcf?: {
     siteCount: number;

@@ -1038,7 +1038,7 @@ export function AIInspectionModal({
                               onClick={() =>
                                 onOpenConversationWithReport(inspectionReport, reportRobot)
                               }
-                              className="h-8 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-medium text-system-blue shadow-sm transition-colors hover:bg-element-bg dark:bg-element-bg"
+                              className="h-8 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-medium text-system-blue shadow-sm transition-colors hover:bg-element-hover dark:bg-element-bg dark:hover:bg-element-hover"
                             >
                               <span className="flex items-center gap-2">
                                 <MessageCircle className="w-4 h-4" />
