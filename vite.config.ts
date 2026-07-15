@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { createRequire } from 'node:module';
 import path from 'path';
 import { defineConfig, loadEnv, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -7,7 +8,8 @@ import tailwindcss from '@tailwindcss/vite';
 const appPackageVersion =
   JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')).version ?? '0.0.0';
 
-const threeRoot = path.resolve(__dirname, 'node_modules/three');
+const requireFromApp = createRequire(path.resolve(__dirname, 'package.json'));
+const threeRoot = path.resolve(path.dirname(requireFromApp.resolve('three')), '..');
 const threeModuleEntry = path.resolve(threeRoot, 'build/three.module.js');
 const threeExamplesDir = path.resolve(threeRoot, 'examples/jsm');
 const DEFAULT_VITE_CACHE_DIR = path.resolve(__dirname, 'node_modules/.vite/urdf-studio-app');

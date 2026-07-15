@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
@@ -156,6 +157,18 @@ test('dev server listens on IPv4 loopback by default and supports host overrides
   });
 
   assert.equal(remoteDevConfig.server?.host, '0.0.0.0');
+});
+
+test('vite config resolves Three from the active dependency graph', async () => {
+  const config = await loadViteConfigWithDevServerEnv({});
+  const aliases = config.resolve?.alias;
+
+  assert.ok(Array.isArray(aliases));
+  const threeAlias = aliases.find(
+    (alias) => typeof alias === 'object' && String(alias.find) === String(/^three$/),
+  );
+  assert.ok(threeAlias && typeof threeAlias === 'object');
+  assert.equal(existsSync(String(threeAlias.replacement)), true);
 });
 
 test('dev server accepts a comma-separated preview host allow-list', async () => {

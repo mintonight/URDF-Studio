@@ -58,6 +58,7 @@
 
 ## 6. Shared Three.js 工具
 
+- `vite.config.ts` 从 Node 当前可解析的依赖图定位 Three：Core 独立安装时使用自身 `node_modules`，被宿主仓直接编译或运行配置测试时可使用上层锁定安装，不要求伪造 `core/node_modules`
 - 通用 THREE 释放：`src/shared/utils/three/dispose.ts`
 - `src/features/urdf-viewer/utils/dispose.ts`：兼容层 re-export
 - viewer backend lifecycle：`src/features/urdf-viewer/renderers/`，包括 `ThreeJsBackend`、`createRendererBackend`、`loadedRobotSceneSync`、source format / metadata / fallback policy
