@@ -9,6 +9,10 @@ import {
   type FileDownloadInfo,
 } from './useAssetImportFromUrl.ts';
 import {
+  resolveAssetDownloadEndpoint,
+  setAssetDownloadEndpointResolver,
+} from './assetDownloadEndpoint.ts';
+import {
   isAllowedHandoffOrigin,
   normalizeHandoffOrigin,
 } from '@/shared/utils/popupHandoffProtocol.ts';
@@ -19,6 +23,40 @@ test('resolveAllowedRemoteImportOrigin rejects userinfo origin confusion', () =>
     resolveAllowedRemoteImportOrigin('https://botworld.enkeebot.com'),
     'https://botworld.enkeebot.com',
   );
+});
+
+test('asset download endpoint defaults to the validated handoff origin', () => {
+  setAssetDownloadEndpointResolver(null);
+
+  assert.equal(
+    resolveAssetDownloadEndpoint('https://botworld.enkeebot.com').toString(),
+    'https://botworld.enkeebot.com/api/download-asset',
+  );
+});
+
+test('hosting shells can inject a same-origin asset download endpoint', () => {
+  const receivedOrigins: string[] = [];
+  setAssetDownloadEndpointResolver((remoteImportOrigin) => {
+    receivedOrigins.push(remoteImportOrigin);
+    return new URL('/api/download-asset', 'https://studio.example');
+  });
+
+  try {
+    assert.equal(
+      resolveAssetDownloadEndpoint('https://botworld.enkeebot.com').toString(),
+      'https://studio.example/api/download-asset',
+    );
+    assert.deepEqual(receivedOrigins, ['https://botworld.enkeebot.com']);
+  } finally {
+    setAssetDownloadEndpointResolver(null);
+  }
+});
+
+test('asset import never embeds a Vite service credential in browser code', async () => {
+  const source = await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL('./useAssetImportFromUrl.ts', import.meta.url), 'utf8'),
+  );
+  assert.doesNotMatch(source, /VITE_API_TOKEN|BOTBASE_API_TOKEN/);
 });
 
 test('remote import file list rejects excessive file counts before download', () => {

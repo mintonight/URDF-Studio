@@ -18,6 +18,8 @@ const FAST_APP_TESTS = [
   'src/app/utils/importPreparation.workerSafe.test.ts',
   'src/app/components/UnifiedViewer.typecheck.test.ts',
   'src/app/hooks/asset_import_from_url.test.ts',
+  'src/app/Providers.test.tsx',
+  'src/app/utils/initialLanguage.test.ts',
 ];
 
 const CONFIG_TESTS = [

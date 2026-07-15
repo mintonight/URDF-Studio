@@ -294,31 +294,41 @@ function bridgeEditableSnapshot(joint: UrdfJoint): string {
   });
 }
 
+type BuildBridgeEditResult =
+  | { ok: true; edit: FlattenedBridgeJointEdit | null }
+  | { ok: false; reason: string };
+
 function buildBridgeEdit(
   parsedJoint: UrdfJoint,
   bridgeId: string,
   provenance: GraftAssemblyGroupUrdfSourceProvenance,
-): FlattenedBridgeJointEdit | PartitionFlattenedGroupEditResult | null {
+): BuildBridgeEditResult {
   const baseline = provenance.bridgeById.get(bridgeId);
-  if (!baseline) return fail(`bridge "${bridgeId}" has no provenance`);
+  if (!baseline) return { ok: false, reason: `bridge "${bridgeId}" has no provenance` };
   if (
     parsedJoint.parentLinkId !== baseline.flattenedParentLinkName
     || parsedJoint.childLinkId !== baseline.flattenedChildLinkName
   ) {
-    return fail(`bridge "${bridgeId}" endpoints cannot be edited in the flattened view`);
+    return {
+      ok: false,
+      reason: `bridge "${bridgeId}" endpoints cannot be edited in the flattened view`,
+    };
   }
   if (bridgeEditableSnapshot(parsedJoint) === bridgeEditableSnapshot(baseline.bridge.joint)) {
-    return null;
+    return { ok: true, edit: null };
   }
   return {
-    bridgeId,
-    joint: {
-      ...baseline.bridge.joint,
-      type: parsedJoint.type,
-      origin: structuredClone(parsedJoint.origin),
-      axis: parsedJoint.axis ? structuredClone(parsedJoint.axis) : undefined,
-      limit: parsedJoint.limit ? structuredClone(parsedJoint.limit) : undefined,
-      dynamics: structuredClone(parsedJoint.dynamics),
+    ok: true,
+    edit: {
+      bridgeId,
+      joint: {
+        ...baseline.bridge.joint,
+        type: parsedJoint.type,
+        origin: structuredClone(parsedJoint.origin),
+        axis: parsedJoint.axis ? structuredClone(parsedJoint.axis) : undefined,
+        limit: parsedJoint.limit ? structuredClone(parsedJoint.limit) : undefined,
+        dynamics: structuredClone(parsedJoint.dynamics),
+      },
     },
   };
 }
@@ -410,9 +420,11 @@ function collectBridgeEdits(
   for (const joint of Object.values(parsedRobot.joints)) {
     const owner = provenance.jointOwnerByName.get(joint.name);
     if (owner?.kind !== 'bridge') continue;
-    const edit = buildBridgeEdit(joint, owner.bridgeId, provenance);
-    if (edit && 'ok' in edit) return { reason: edit.reason ?? 'bridge edit is invalid' };
-    if (edit) edits.push(edit);
+    const result = buildBridgeEdit(joint, owner.bridgeId, provenance);
+    if (result.ok === false) {
+      return { reason: result.reason };
+    }
+    if (result.edit) edits.push(result.edit);
     seenBridgeIds.add(owner.bridgeId);
   }
   const missingBridgeId = Array.from(provenance.bridgeById.keys()).find(

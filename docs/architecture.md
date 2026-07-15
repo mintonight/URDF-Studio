@@ -47,6 +47,7 @@
 ## 5. Canonical Data Sources
 
 - `DEFAULT_MOTOR_LIBRARY` canonical source：`src/shared/data/defaultMotorLibrary.json`
+- 宿主注入状态 canonical source：`src/shared/hostIntegrationState.ts`；`src/hostIntegrations.ts` 只做稳定 facade，feature 不得反向依赖 app facade
 - `src/shared/data/motorLibrary.ts`：仅负责验证、标准化与导入路径检测
 - `src/features/hardware-config/index.ts`：兼容层 re-export
 - 应用机器人领域状态 canonical source：`src/store/workspaceStore.ts` 中非空 `workspace: AssemblyState`

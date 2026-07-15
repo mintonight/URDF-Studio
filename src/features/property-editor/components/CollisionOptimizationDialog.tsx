@@ -1266,7 +1266,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                               label={copy.meshStrategyLabel}
                               desc={copy.meshStrategyDesc}
                             >
-                              <PanelSegmentedControl
+                              <PanelSegmentedControl<MeshOptimizationStrategy>
                                 value={meshStrategy}
                                 onChange={setMeshStrategy}
                                 options={meshStrategyOptions}
@@ -1280,7 +1280,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                               label={copy.cylinderStrategyLabel}
                               desc={copy.cylinderStrategyDesc}
                             >
-                              <PanelSegmentedControl
+                              <PanelSegmentedControl<CylinderOptimizationStrategy>
                                 value={cylinderStrategy}
                                 onChange={setCylinderStrategy}
                                 options={cylinderStrategyOptions}
@@ -1295,7 +1295,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                                 label={copy.rodBoxStrategyLabel}
                                 desc={copy.rodBoxStrategyDesc}
                               >
-                                <PanelSegmentedControl
+                                <PanelSegmentedControl<RodBoxOptimizationStrategy>
                                   value={rodBoxStrategy}
                                   onChange={setRodBoxStrategy}
                                   options={rodBoxStrategyOptions}
@@ -1311,7 +1311,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                                 label={copy.coaxialMergeStrategyLabel}
                                 desc={copy.coaxialMergeStrategyDesc}
                               >
-                                <PanelSegmentedControl
+                                <PanelSegmentedControl<CoaxialJointMergeStrategy>
                                   value={coaxialJointMergeStrategy}
                                   onChange={setCoaxialJointMergeStrategy}
                                   options={coaxialMergeStrategyOptions}
