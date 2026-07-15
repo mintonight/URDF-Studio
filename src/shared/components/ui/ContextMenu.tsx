@@ -1,5 +1,37 @@
-import React, { cloneElement, isValidElement } from 'react';
+import React, {
+  cloneElement,
+  isValidElement,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
+
+interface ContextMenuSize {
+  width: number;
+  height: number;
+}
+
+interface ContextMenuViewport {
+  width: number;
+  height: number;
+}
+
+const CONTEXT_MENU_VIEWPORT_GUTTER = 8;
+
+export function resolveContextMenuPosition(
+  position: { x: number; y: number },
+  menu: ContextMenuSize,
+  viewport: ContextMenuViewport,
+  gutter = CONTEXT_MENU_VIEWPORT_GUTTER,
+) {
+  const maxX = Math.max(gutter, viewport.width - menu.width - gutter);
+  const maxY = Math.max(gutter, viewport.height - menu.height - gutter);
+  return {
+    x: Math.min(Math.max(gutter, position.x), maxX),
+    y: Math.min(Math.max(gutter, position.y), maxY),
+  };
+}
 
 interface ContextMenuFrameProps {
   position: { x: number; y: number } | null;
@@ -20,12 +52,34 @@ export const ContextMenuFrame: React.FC<ContextMenuFrameProps> = ({
   widthClassName = 'w-[170px]',
   className = '',
 }) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [resolvedPosition, setResolvedPosition] = useState(position);
+
+  useLayoutEffect(() => {
+    if (!position || !menuRef.current) return;
+    const bounds = menuRef.current.getBoundingClientRect();
+    const nextPosition = resolveContextMenuPosition(
+      position,
+      { width: bounds.width, height: bounds.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    setResolvedPosition((current) => (
+      current?.x === nextPosition.x && current.y === nextPosition.y
+        ? current
+        : nextPosition
+    ));
+  });
+
   if (!position) return null;
 
   const menu = (
     <div
-      className={`fixed z-[120] ${widthClassName} rounded-md border border-border-black bg-panel-bg p-1 shadow-xl ${className}`.trim()}
-      style={{ left: `${position.x}px`, top: `${position.y}px` }}
+      ref={menuRef}
+      className={`fixed z-[120] max-h-[calc(100vh-1rem)] overflow-y-auto ${widthClassName} rounded-md border border-border-black bg-panel-bg p-1 shadow-xl ${className}`.trim()}
+      style={{
+        left: `${resolvedPosition?.x ?? position.x}px`,
+        top: `${resolvedPosition?.y ?? position.y}px`,
+      }}
       role="menu"
       tabIndex={-1}
       onClick={(event) => event.stopPropagation()}

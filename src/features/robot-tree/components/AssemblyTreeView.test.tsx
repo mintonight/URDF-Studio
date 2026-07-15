@@ -153,6 +153,23 @@ async function click(dom: JSDOM, element: Element | null, message: string) {
   });
 }
 
+async function openContextMenu(dom: JSDOM, element: Element | null, message: string) {
+  assert.ok(element, message);
+  await act(async () => {
+    element.dispatchEvent(new dom.window.MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 24,
+      clientY: 36,
+    }));
+  });
+}
+
+function getContextMenuItem(label: string): Element | null {
+  return Array.from(document.querySelectorAll('[role="menuitem"]'))
+    .find((item) => item.textContent?.trim() === label) ?? null;
+}
+
 async function activateWithKey(
   dom: JSDOM,
   element: Element | null,
@@ -415,6 +432,8 @@ test('geometry bodies and CRUD callbacks keep component ownership and object ind
     assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-visual-1"]'));
     assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-collision"]'));
     assert.ok(container.querySelector('[data-testid="tree-geometry-left-base_link-collision-1"]'));
+    assert.equal(container.querySelector('[aria-label="add-child-left-base_link"]'), null);
+    assert.equal(container.querySelector('[aria-label="delete-link-left-base_link"]'), null);
     await click(
       dom,
       container.querySelector('[data-testid="tree-geometry-left-base_link-visual-1"]'),
@@ -431,13 +450,24 @@ test('geometry bodies and CRUD callbacks keep component ownership and object ind
       objectIndex: 1,
     });
 
-    await click(dom, container.querySelector('[aria-label="add-child-left-base_link"]'), 'add child');
-    await click(
-      dom,
-      container.querySelector('[aria-label="add-collision-left-base_link"]'),
-      'add collision',
+    const linkRow = container.querySelector('[data-testid="tree-link-left-base_link"] > div');
+    const jointRow = container.querySelector('[data-testid="tree-joint-left-hinge"]');
+    await openContextMenu(dom, linkRow, 'open first link context menu');
+    assert.equal(document.querySelectorAll('[role="menu"]').length, 1);
+    await openContextMenu(dom, jointRow, 'replace link context menu with joint context menu');
+    assert.equal(
+      document.querySelectorAll('[role="menu"]').length,
+      1,
+      'opening a second tree context menu must close the first one',
     );
-    await click(dom, container.querySelector('[aria-label="delete-link-left-base_link"]'), 'delete link');
+    assert.equal(getContextMenuItem(translations.en.deleteVisualGeometry), null);
+
+    await openContextMenu(dom, linkRow, 'open link context menu for add child');
+    await click(dom, getContextMenuItem(translations.en.addChildLink), 'add child menu item');
+    await openContextMenu(dom, linkRow, 'open link context menu for add collision');
+    await click(dom, getContextMenuItem(translations.en.addCollisionBody), 'add collision menu item');
+    await openContextMenu(dom, linkRow, 'open link context menu for delete');
+    await click(dom, getContextMenuItem(translations.en.deleteBranch), 'delete link menu item');
     const expectedRef = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
     assert.deepEqual(addedChildren, [expectedRef]);
     assert.deepEqual(addedCollisions, [expectedRef]);
@@ -491,11 +521,12 @@ test('duplicate local IDs, tendon, bridge, hover, focus and updates keep explici
       entity: { type: 'link', componentId: 'right', entityId: 'base_link' },
     });
 
-    await click(
-      dom,
-      container.querySelector('[aria-label="focus-link-right-base_link"]'),
-      'right focus',
-    );
+    await act(async () => {
+      rightLink.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
     assert.deepEqual(focuses.at(-1), {
       type: 'link', componentId: 'right', entityId: 'base_link',
     });
