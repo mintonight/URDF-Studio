@@ -84,7 +84,7 @@ function isFreePointOverride(event: MouseEvent): boolean {
 
 function visibleCandidates(snap: ResolvedJointSnap): ResolvedJointSnapCandidate[] {
   return snap.candidates.filter(
-    (candidate) => candidate.kind !== 'surface' && candidate.kind !== 'bboxCenter',
+    (candidate) => candidate.kind !== 'surface',
   );
 }
 

@@ -127,12 +127,16 @@ export interface RegressionJointPickOverlaySummary {
 export interface RegressionJointPickHoverSummary {
   boundaryLoopCount: number;
   candidateCount: number;
+  candidateKinds: string[];
   chosenKind: string;
   componentId: string;
+  confidence: number;
+  featureKind: 'surface' | 'planar' | 'cylindrical';
   linkId: string;
   recommendedKind: string;
   side: 'parent' | 'child' | null;
   triangleCount: number;
+  truncated: boolean;
   valid: boolean;
 }
 

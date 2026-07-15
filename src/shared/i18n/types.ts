@@ -84,6 +84,7 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   bridgeSnapHintSmart: string;
   bridgeSnapHintFreePoint: string;
   bridgeSnapKindCircleCenter: string;
+  bridgeSnapKindCylinderAxis: string;
   bridgeSnapKindObjectCenter: string;
   bridgeSnapKindFaceCenter: string;
   bridgeSnapKindVertex: string;

@@ -161,6 +161,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     childCompId,
     childLinkId,
     endpointInputMode,
+    handleNameBlur,
+    handleNameChange,
     handleOriginXChange,
     handleOriginYChange,
     handleOriginZChange,
@@ -200,11 +202,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     setLimitLower,
     setLimitUpper,
     setLimitVelocity,
-    setName,
     setParentCompId,
     setParentLinkId,
     setPickTarget,
     setRotationDisplayMode,
+    syncSuggestedName,
     yawDeg,
   } = useBridgeCreateDraft({
     defaultLimitEffort,
@@ -314,7 +316,9 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     surface: t.bridgeSnapKindSurface,
     faceCenter: t.bridgeSnapKindFaceCenter,
     bboxCenter: t.bridgeSnapKindObjectCenter,
+    geometryCenter: t.bridgeSnapKindObjectCenter,
     circleCenter: t.bridgeSnapKindCircleCenter,
+    cylinderAxis: t.bridgeSnapKindCylinderAxis,
     vertex: t.bridgeSnapKindVertex,
     edgeMidpoint: t.bridgeSnapKindEdgeMidpoint,
   } as const;
@@ -648,7 +652,13 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       : t.bridgePickEndpointInactive;
   };
 
-  const namePlaceholder = suggestedBridgeName || t.bridgeJointNamePlaceholder;
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    syncSuggestedName(suggestedBridgeName);
+  }, [isOpen, suggestedBridgeName, syncSuggestedName]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -818,8 +828,9 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 id={nameInputId}
                 type="text"
                 value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={namePlaceholder}
+                onChange={(event) => handleNameChange(event.target.value)}
+                onBlur={() => handleNameBlur(suggestedBridgeName)}
+                placeholder={t.bridgeJointNamePlaceholder}
                 className={BRIDGE_SELECT_CLASS}
               />
             </BridgeInlineFieldRow>
@@ -915,7 +926,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           <BridgeSection
             title={t.bridgeAdvancedSettings}
             collapsible
-            defaultCollapsed
             collapsedSummary="XYZ · RPY"
             stateDataAttribute="bridge-advanced"
           >

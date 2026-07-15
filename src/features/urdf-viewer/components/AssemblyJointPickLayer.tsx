@@ -90,6 +90,7 @@ const FrameAxes = memo(({
     >
       <CoordinateAxes
         size={FRAME_SIZE}
+        profile="slim"
         depthTest={false}
         renderOrder={PICK_RENDER_ORDER}
         opacity={opacity}
@@ -437,12 +438,18 @@ export const AssemblyJointPickLayer = memo(
           ? [{
               boundaryLoopCount: current.snap.region.boundaryLoops.length,
               candidateCount: current.snap.candidates.length,
+              candidateKinds: [...new Set(
+                current.snap.candidates.map((candidate) => candidate.kind),
+              )].sort(),
               chosenKind: current.chosen.kind,
               componentId: current.snap.componentId,
+              confidence: current.snap.region.confidence,
+              featureKind: current.snap.region.featureKind,
               linkId: current.snap.linkId,
               recommendedKind: current.snap.recommended.kind,
               side: current.side,
               triangleCount: current.snap.region.trianglesWorld.length / 3,
+              truncated: current.snap.region.truncated,
               valid: current.valid,
             }]
           : [];

@@ -6,12 +6,19 @@ import {
   getFaceCenter,
   getFaceNormal,
   getFaceVertices,
+  getGeometryCenter,
   type SnapPointKind,
 } from '@/core/geometry/meshSnapPoints';
 import {
   detectPlanarFaceRegion,
+  getGeometryFaceCount,
+  DEFAULT_MESH_FEATURE_MAX_FACES,
   type PlanarFaceRegion,
 } from '@/core/geometry/planarFaceRegion';
+import {
+  detectCylinderFaceRegion,
+  type CylinderFaceRegion,
+} from '@/core/geometry/cylinderFaceRegion';
 import { makeFrameFromPointAndNormal } from '@/core/geometry/snapGeometry';
 
 import { getObjectWorldCenter, getObjectWorldPoseMatrix } from './measurements.ts';
@@ -23,6 +30,7 @@ export interface ResolvedJointSnapCandidate {
   poseWorld: THREE.Matrix4;
   boundaryLoopIndex?: number;
   isHole?: boolean;
+  confidence?: number;
 }
 
 export interface ResolvedJointSnapBoundaryCircle {
@@ -48,6 +56,18 @@ export interface ResolvedJointSnapRegion {
   outerBoundaryLoopIndex: number | null;
   centerWorld: THREE.Vector3;
   normalWorld: THREE.Vector3;
+  featureKind: 'surface' | 'planar' | 'cylindrical';
+  confidence: number;
+  truncated: boolean;
+  cylinderAxis?: {
+    candidateId: string;
+    originWorld: THREE.Vector3;
+    directionWorld: THREE.Vector3;
+    radiusLocal: number;
+    heightLocal: number;
+    coverageRadians: number;
+    rmsRatio: number;
+  };
   /** True when face-budget/degenerate fallback could only describe the hit triangle. */
   isFallback: boolean;
 }
@@ -100,6 +120,8 @@ interface LocalResolvedCandidate {
   normalLocal?: THREE.Vector3;
   boundaryLoopIndex?: number;
   isHole?: boolean;
+  confidence?: number;
+  orientationKind?: 'surfaceNormal' | 'axisDirection';
 }
 
 interface ResolveRegionToWorldInput {
@@ -109,18 +131,39 @@ interface ResolveRegionToWorldInput {
   normalMatrix: THREE.Matrix3;
   loopCandidateIds: Map<number, string>;
   isFallback: boolean;
+  truncated: boolean;
+  cylinderRegion?: CylinderFaceRegion;
+}
+
+interface CollectLocalCandidatesInput {
+  geometry: THREE.BufferGeometry;
+  faceIndex: number;
+  localHit: THREE.Vector3;
+  snapFilter: SnapPointKind[] | null;
+  truncated: boolean;
+  detectedRegion: PlanarFaceRegion | null;
+  cylinderRegion: CylinderFaceRegion | null;
+}
+
+interface ResolveWorldCandidatesInput {
+  candidates: LocalResolvedCandidate[];
+  matrixWorld: THREE.Matrix4;
+  normalMatrix: THREE.Matrix3;
+  hintTangentWorld: THREE.Vector3;
 }
 
 const SNAP_PROFILE: Record<SnapPointKind, { priority: number; radiusPx: number }> = {
   // Outer circular faces are region-level origins. Circular holes use a finite
   // radius in `snapProfileForCandidate` so they do not steal a whole plate.
   circleCenter: { priority: 100, radiusPx: Number.POSITIVE_INFINITY },
+  cylinderAxis: { priority: 110, radiusPx: Number.POSITIVE_INFINITY },
   // Once a planar region is highlighted, clicking anywhere on it commits its
   // stable area center. Ctrl/Cmd is the explicit escape hatch to a raw point.
   faceCenter: { priority: 60, radiusPx: Number.POSITIVE_INFINITY },
   vertex: { priority: 55, radiusPx: 16 },
   edgeMidpoint: { priority: 50, radiusPx: 16 },
   bboxCenter: { priority: 45, radiusPx: 200 },
+  geometryCenter: { priority: 48, radiusPx: 200 },
   surface: { priority: 0, radiusPx: 0 },
 };
 
@@ -128,6 +171,9 @@ function snapProfileForCandidate(
   candidate: ResolvedJointSnapCandidate,
 ): { priority: number; radiusPx: number } {
   if (candidate.kind === 'circleCenter' && candidate.isHole === true) {
+    return { priority: SNAP_PROFILE.circleCenter.priority, radiusPx: 24 };
+  }
+  if (candidate.kind === 'circleCenter' && (candidate.confidence ?? 1) < 0.85) {
     return { priority: SNAP_PROFILE.circleCenter.priority, radiusPx: 24 };
   }
   return SNAP_PROFILE[candidate.kind];
@@ -257,10 +303,67 @@ function appendCircleCandidates(
       normalLocal: circle.normal.clone(),
       boundaryLoopIndex: circle.boundaryLoopIndex,
       isHole: circle.isHole,
+      confidence: circle.confidence,
     });
     loopCandidateIds.set(circle.boundaryLoopIndex, id);
   }
   return loopCandidateIds;
+}
+
+function appendLogicalBoundaryCandidates(
+  region: PlanarFaceRegion,
+  localHit: THREE.Vector3,
+  candidates: LocalResolvedCandidate[],
+  filter: SnapPointKind[] | null,
+) {
+  const includeVertex = !filter || filter.includes('vertex');
+  const includeEdge = !filter || filter.includes('edgeMidpoint');
+  if ((!includeVertex && !includeEdge) || region.boundaryLoops.length === 0) {
+    return;
+  }
+
+  let nearestVertex: { point: THREE.Vector3; id: string; distance: number } | null = null;
+  let nearestEdge: { point: THREE.Vector3; id: string; distance: number } | null = null;
+  for (let loopIndex = 0; loopIndex < region.boundaryLoops.length; loopIndex += 1) {
+    const loop = region.boundaryLoops[loopIndex];
+    for (let pointIndex = 0; pointIndex < loop.points.length; pointIndex += 1) {
+      const point = loop.points[pointIndex];
+      const vertexDistance = point.distanceToSquared(localHit);
+      if (!nearestVertex || vertexDistance < nearestVertex.distance) {
+        nearestVertex = {
+          point,
+          id: `vertex:${loopIndex}:${pointIndex}`,
+          distance: vertexDistance,
+        };
+      }
+      const next = loop.points[(pointIndex + 1) % loop.points.length];
+      const midpoint = point.clone().add(next).multiplyScalar(0.5);
+      const edgeDistance = midpoint.distanceToSquared(localHit);
+      if (!nearestEdge || edgeDistance < nearestEdge.distance) {
+        nearestEdge = {
+          point: midpoint,
+          id: `edgeMidpoint:${loopIndex}:${pointIndex}`,
+          distance: edgeDistance,
+        };
+      }
+    }
+  }
+  if (includeVertex && nearestVertex) {
+    candidates.push({
+      id: nearestVertex.id,
+      kind: 'vertex',
+      pointLocal: nearestVertex.point.clone(),
+      normalLocal: region.normal.clone(),
+    });
+  }
+  if (includeEdge && nearestEdge) {
+    candidates.push({
+      id: nearestEdge.id,
+      kind: 'edgeMidpoint',
+      pointLocal: nearestEdge.point,
+      normalLocal: region.normal.clone(),
+    });
+  }
 }
 
 function resolveRegionToWorld(input: ResolveRegionToWorldInput): ResolvedJointSnapRegion {
@@ -271,10 +374,15 @@ function resolveRegionToWorld(input: ResolveRegionToWorldInput): ResolvedJointSn
     normalMatrix,
     loopCandidateIds,
     isFallback,
+    truncated,
+    cylinderRegion,
   } = input;
-  const id = resolvedRegionId(geometry, matrixWorld, localRegion.faceIndices);
-  const normalWorld = localRegion.normal.clone().applyMatrix3(normalMatrix).normalize();
-  const boundaryLoops = localRegion.boundaryLoops.map((loop, boundaryLoopIndex) => {
+  const featureFaceIndices = cylinderRegion?.faceIndices ?? localRegion.faceIndices;
+  const id = resolvedRegionId(geometry, matrixWorld, featureFaceIndices);
+  const normalWorld = cylinderRegion
+    ? cylinderRegion.axis.clone().transformDirection(matrixWorld)
+    : localRegion.normal.clone().applyMatrix3(normalMatrix).normalize();
+  const boundaryLoops = cylinderRegion ? [] : localRegion.boundaryLoops.map((loop, boundaryLoopIndex) => {
     const circle = localRegion.circleCandidates.find(
       (candidate) => candidate.boundaryLoopIndex === boundaryLoopIndex,
     );
@@ -297,14 +405,185 @@ function resolveRegionToWorld(input: ResolveRegionToWorldInput): ResolvedJointSn
   });
   return {
     id,
-    faceIndices: [...localRegion.faceIndices],
-    trianglesWorld: localRegion.triangles.map((point) => point.clone().applyMatrix4(matrixWorld)),
+    faceIndices: [...featureFaceIndices],
+    trianglesWorld: (cylinderRegion?.triangles ?? localRegion.triangles)
+      .map((point) => point.clone().applyMatrix4(matrixWorld)),
     boundaryLoops,
-    outerBoundaryLoopIndex: localRegion.outerBoundaryLoopIndex,
-    centerWorld: localRegion.center.clone().applyMatrix4(matrixWorld),
+    outerBoundaryLoopIndex: cylinderRegion ? null : localRegion.outerBoundaryLoopIndex,
+    centerWorld: (cylinderRegion?.center ?? localRegion.center).clone().applyMatrix4(matrixWorld),
     normalWorld,
+    featureKind: truncated ? 'surface' : cylinderRegion ? 'cylindrical' : isFallback ? 'surface' : 'planar',
+    confidence: truncated ? 0 : cylinderRegion?.confidence ?? (isFallback ? 0 : 1),
+    truncated,
+    ...(cylinderRegion
+      ? {
+          cylinderAxis: {
+            candidateId: 'cylinderAxis',
+            originWorld: cylinderRegion.center.clone().applyMatrix4(matrixWorld),
+            directionWorld: cylinderRegion.axis.clone().transformDirection(matrixWorld),
+            radiusLocal: cylinderRegion.radius,
+            heightLocal: cylinderRegion.height,
+            coverageRadians: cylinderRegion.coverageRadians,
+            rmsRatio: cylinderRegion.rmsRatio,
+          },
+        }
+      : {}),
     isFallback,
   };
+}
+
+function appendPlanarFeatureCandidates(input: {
+  region: PlanarFaceRegion;
+  cylinderRegion: CylinderFaceRegion | null;
+  localHit: THREE.Vector3;
+  snapFilter: SnapPointKind[] | null;
+  candidates: LocalResolvedCandidate[];
+}): Map<number, string> {
+  const { region, cylinderRegion, localHit, snapFilter, candidates } = input;
+  if (cylinderRegion) {
+    return new Map();
+  }
+  appendLogicalBoundaryCandidates(region, localHit, candidates, snapFilter);
+  if (!snapFilter || snapFilter.includes('faceCenter')) {
+    candidates.push({
+      id: 'faceCenter',
+      kind: 'faceCenter',
+      pointLocal: region.center.clone(),
+      normalLocal: region.normal.clone(),
+    });
+  }
+  return !snapFilter || snapFilter.includes('circleCenter')
+    ? appendCircleCandidates(region, candidates)
+    : new Map();
+}
+
+function appendCylinderAxisCandidate(
+  region: CylinderFaceRegion | null,
+  snapFilter: SnapPointKind[] | null,
+  candidates: LocalResolvedCandidate[],
+) {
+  if (!region || (snapFilter && !snapFilter.includes('cylinderAxis'))) {
+    return;
+  }
+  candidates.push({
+    id: 'cylinderAxis',
+    kind: 'cylinderAxis',
+    pointLocal: region.center.clone(),
+    normalLocal: region.axis.clone(),
+    confidence: region.confidence,
+    orientationKind: 'axisDirection',
+  });
+}
+
+function appendGeometryCenterCandidate(input: {
+  geometry: THREE.BufferGeometry;
+  detectedRegion: PlanarFaceRegion | null;
+  cylinderRegion: CylinderFaceRegion | null;
+  snapFilter: SnapPointKind[] | null;
+  truncated: boolean;
+  candidates: LocalResolvedCandidate[];
+}) {
+  const { geometry, detectedRegion, cylinderRegion, snapFilter, truncated, candidates } = input;
+  if (
+    truncated
+    || (!detectedRegion && !cylinderRegion)
+    || (snapFilter && !snapFilter.includes('geometryCenter'))
+  ) {
+    return;
+  }
+  const center = getGeometryCenter(geometry);
+  if (!center) {
+    return;
+  }
+  candidates.push({
+    id: 'geometryCenter',
+    kind: 'geometryCenter',
+    pointLocal: center.pointLocal,
+    normalLocal: cylinderRegion?.axis.clone() ?? detectedRegion?.normal.clone(),
+    orientationKind: cylinderRegion ? 'axisDirection' : 'surfaceNormal',
+  });
+}
+
+function collectLocalFeatureCandidates(input: CollectLocalCandidatesInput): {
+  candidates: LocalResolvedCandidate[];
+  loopCandidateIds: Map<number, string>;
+} {
+  const {
+    geometry,
+    faceIndex,
+    localHit,
+    snapFilter,
+    truncated,
+    detectedRegion,
+    cylinderRegion,
+  } = input;
+  const primitiveFilter: SnapPointKind[] = truncated
+    ? ['surface']
+    : (snapFilter ?? ['surface']).filter((kind) => kind === 'surface');
+  const candidates: LocalResolvedCandidate[] = collectSnapCandidatesFromFace(
+    geometry,
+    faceIndex,
+    localHit,
+    primitiveFilter,
+  ).map((candidate) => ({
+    id: candidate.kind,
+    kind: candidate.kind,
+    pointLocal: candidate.pointLocal,
+    normalLocal: candidate.normalLocal,
+  }));
+
+  const loopCandidateIds = detectedRegion
+    ? appendPlanarFeatureCandidates({
+        region: detectedRegion,
+        cylinderRegion,
+        localHit,
+        snapFilter,
+        candidates,
+      })
+    : new Map<number, string>();
+  appendCylinderAxisCandidate(cylinderRegion, snapFilter, candidates);
+  appendGeometryCenterCandidate({
+    geometry,
+    detectedRegion,
+    cylinderRegion,
+    snapFilter,
+    truncated,
+    candidates,
+  });
+  return { candidates, loopCandidateIds };
+}
+
+function resolveWorldCandidates(
+  input: ResolveWorldCandidatesInput,
+): ResolvedJointSnapCandidate[] {
+  const { candidates, matrixWorld, normalMatrix, hintTangentWorld } = input;
+  return candidates.map((candidate) => {
+    const pointWorld = candidate.pointLocal.clone().applyMatrix4(matrixWorld);
+    const poseWorld = candidate.orientationKind === 'axisDirection' && candidate.normalLocal
+      ? makeFrameFromPointAndNormal(
+          pointWorld,
+          candidate.normalLocal.clone().transformDirection(matrixWorld),
+          hintTangentWorld,
+        )
+      : toWorldPose({
+          pointWorld,
+          normalLocal: candidate.normalLocal,
+          normalMatrix,
+          matrixWorld,
+          hintTangentWorld,
+        });
+    return {
+      id: candidate.id,
+      kind: candidate.kind,
+      pointWorld,
+      poseWorld,
+      ...(candidate.boundaryLoopIndex == null
+        ? {}
+        : { boundaryLoopIndex: candidate.boundaryLoopIndex }),
+      ...(candidate.isHole == null ? {} : { isHole: candidate.isHole }),
+      ...(candidate.confidence == null ? {} : { confidence: candidate.confidence }),
+    };
+  });
 }
 
 export function chooseSnapCandidate(
@@ -391,56 +670,27 @@ export function resolveJointSnapFromHit(
   // Use a stable in-plane hint so the snap frame's tangent does not jitter.
   const hintTangentWorld = new THREE.Vector3(1, 0, 0).transformDirection(linkObject.matrixWorld);
 
-  const detectedRegion = detectPlanarFaceRegion(geometry, hit.faceIndex);
+  const truncated = getGeometryFaceCount(geometry) > DEFAULT_MESH_FEATURE_MAX_FACES;
+  const detectedRegion = truncated ? null : detectPlanarFaceRegion(geometry, hit.faceIndex);
+  const cylinderRegion = truncated ? null : detectCylinderFaceRegion(geometry, hit.faceIndex);
   const localRegion = detectedRegion ?? fallbackRegionFromFace(geometry, hit.faceIndex, localHit);
-  const defaultPrimitiveFilter: SnapPointKind[] = detectedRegion
-    ? ['surface', 'vertex', 'edgeMidpoint']
-    : ['surface'];
-  const primitiveFilter = (snapFilter ?? defaultPrimitiveFilter)
-    .filter((kind) => kind !== 'faceCenter' && kind !== 'circleCenter' && kind !== 'bboxCenter');
-  const localCandidates: LocalResolvedCandidate[] = collectSnapCandidatesFromFace(
+  const { candidates: localCandidates, loopCandidateIds } = collectLocalFeatureCandidates({
     geometry,
-    hit.faceIndex,
+    faceIndex: hit.faceIndex,
     localHit,
-    primitiveFilter,
-  ).map((candidate) => ({
-    id: candidate.kind,
-    kind: candidate.kind,
-    pointLocal: candidate.pointLocal,
-    normalLocal: candidate.normalLocal,
-  }));
-  if (detectedRegion && (!snapFilter || snapFilter.includes('faceCenter'))) {
-    localCandidates.push({
-      id: 'faceCenter',
-      kind: 'faceCenter',
-      pointLocal: detectedRegion.center.clone(),
-      normalLocal: detectedRegion.normal.clone(),
-    });
-  }
-  const loopCandidateIds = detectedRegion && (!snapFilter || snapFilter.includes('circleCenter'))
-    ? appendCircleCandidates(detectedRegion, localCandidates)
-    : new Map<number, string>();
-  const candidates: ResolvedJointSnapCandidate[] = localCandidates.map((candidate) => {
-    const pointWorld = candidate.pointLocal.clone().applyMatrix4(matrixWorld);
-    return {
-      id: candidate.id,
-      kind: candidate.kind,
-      pointWorld,
-      poseWorld: toWorldPose({
-        pointWorld,
-        normalLocal: candidate.normalLocal,
-        normalMatrix,
-        matrixWorld,
-        hintTangentWorld,
-      }),
-      ...(candidate.boundaryLoopIndex == null
-        ? {}
-        : { boundaryLoopIndex: candidate.boundaryLoopIndex }),
-      ...(candidate.isHole == null ? {} : { isHole: candidate.isHole }),
-    };
+    snapFilter,
+    truncated,
+    detectedRegion,
+    cylinderRegion,
+  });
+  const candidates = resolveWorldCandidates({
+    candidates: localCandidates,
+    matrixWorld,
+    normalMatrix,
+    hintTangentWorld,
   });
 
-  if ((detectedRegion && !snapFilter) || snapFilter?.includes('bboxCenter')) {
+  if (!truncated && snapFilter?.includes('bboxCenter')) {
     const center = getObjectWorldCenter(linkObject);
     const faceNormalLocal = localCandidates.find((candidate) => candidate.normalLocal)?.normalLocal;
     candidates.push({
@@ -481,6 +731,8 @@ export function resolveJointSnapFromHit(
       normalMatrix,
       loopCandidateIds,
       isFallback: !detectedRegion,
+      truncated,
+      ...(cylinderRegion ? { cylinderRegion } : {}),
     }),
     recommended,
     chosen,

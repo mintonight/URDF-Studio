@@ -18,8 +18,47 @@ import {
 
 const CONFIRM = ['Confirm', '确认'];
 const CREATE_BRIDGE = ['Create Bridge', '创建拼接'];
-const CYLINDER_FILE = 'joint_pick_cylinder.urdf';
+const CYLINDER_FILE = 'joint_pick_stl_cylinder.urdf';
+const CYLINDER_MESH_FILE = 'meshes/joint_pick_stl_cylinder.stl';
 const BOX_FILE = 'joint_pick_box.urdf';
+
+function buildCylinderStl(radialSegments = 12) {
+  const facets = [];
+  const radius = 0.6;
+  const halfLength = 0.2;
+  const point = (index, z) => {
+    const angle = (index / radialSegments) * Math.PI * 2;
+    return [radius * Math.cos(angle), radius * Math.sin(angle), z];
+  };
+  const facet = (a, b, c) => {
+    facets.push(
+      '  facet normal 0 0 0',
+      '    outer loop',
+      `      vertex ${a.join(' ')}`,
+      `      vertex ${b.join(' ')}`,
+      `      vertex ${c.join(' ')}`,
+      '    endloop',
+      '  endfacet',
+    );
+  };
+
+  for (let index = 0; index < radialSegments; index += 1) {
+    const next = (index + 1) % radialSegments;
+    // A tiny exporter-like Z jitter exercises tolerant logical-face fitting
+    // while remaining visually indistinguishable from a planar cap.
+    const topA = point(index, halfLength + (index % 2 === 0 ? 2e-6 : -2e-6));
+    const topB = point(next, halfLength + (next % 2 === 0 ? 2e-6 : -2e-6));
+    const bottomA = point(index, -halfLength);
+    const bottomB = point(next, -halfLength);
+    facet([0, 0, halfLength], topA, topB);
+    facet([0, 0, -halfLength], bottomB, bottomA);
+    facet(bottomA, bottomB, topB);
+    facet(bottomA, topB, topA);
+  }
+  return ['solid joint_pick_stl_cylinder', ...facets, 'endsolid joint_pick_stl_cylinder'].join('\n');
+}
+
+const CYLINDER_STL = buildCylinderStl();
 
 const CYLINDER_URDF = `<?xml version="1.0"?>
 <robot name="joint_pick_cylinder">
@@ -27,7 +66,7 @@ const CYLINDER_URDF = `<?xml version="1.0"?>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.6" length="0.4"/>
+        <mesh filename="${CYLINDER_MESH_FILE}"/>
       </geometry>
       <material name="cyan"><color rgba="0.1 0.7 0.9 1"/></material>
     </visual>
@@ -64,9 +103,16 @@ async function seedJointPickFixtures(page) {
     { timeout: 30_000 },
   );
   await page.evaluate(
-    ({ cylinderFile, cylinderUrdf, boxFile, boxUrdf }) => {
+    ({ cylinderFile, cylinderMeshFile, cylinderStl, cylinderUrdf, boxFile, boxUrdf }) => {
       const api = window.__URDF_STUDIO_DEBUG__;
       api.resetFixtureFiles();
+      const cylinderBlobUrl = URL.createObjectURL(new Blob([cylinderStl], { type: 'model/stl' }));
+      api.seedFixtureFile({
+        name: cylinderMeshFile,
+        content: cylinderStl,
+        format: 'mesh',
+        blobUrl: cylinderBlobUrl,
+      });
       api.seedFixtureFile({
         name: cylinderFile,
         content: cylinderUrdf,
@@ -82,6 +128,8 @@ async function seedJointPickFixtures(page) {
     },
     {
       cylinderFile: CYLINDER_FILE,
+      cylinderMeshFile: CYLINDER_MESH_FILE,
+      cylinderStl: CYLINDER_STL,
       cylinderUrdf: CYLINDER_URDF,
       boxFile: BOX_FILE,
       boxUrdf: BOX_URDF,
@@ -306,7 +354,8 @@ async function main() {
     assertEqual(suite, initialModalProbe.inputMode, 'geometry', 'geometry snap is the default mode');
     assertEqual(suite, initialModalProbe.geometryRails, 2, 'geometry mode shows two endpoint rails');
     assertEqual(suite, initialModalProbe.linkEndpoints, 0, 'geometry mode hides link dropdowns');
-    assertEqual(suite, initialModalProbe.advanced, 'collapsed', 'advanced settings start collapsed');
+    assertEqual(suite, initialModalProbe.advanced, 'expanded', 'advanced settings start expanded');
+    const customBridgeName = 'editable_stl_joint';
 
     const switchedModes = await page.evaluate(() => {
       const relation = document.querySelector('[data-bridge-section-panel="relation"]');
@@ -376,6 +425,11 @@ async function main() {
       1,
       'hover exposes multiple smart candidate points',
     );
+    assert(
+      suite,
+      parentHover?.featureKind === 'planar' && parentHover?.truncated === false,
+      `real non-indexed STL cap resolves as a complete logical planar feature; summary=${JSON.stringify(parentHover)}`,
+    );
 
     await clickCanvasTarget(page, parentTarget); await delay(700);
     const parentClickProbe = {
@@ -401,6 +455,11 @@ async function main() {
       childHover?.triangleCount > 0 && childHover?.recommendedKind === 'faceCenter',
       `box hover recommends its connected face center; summary=${JSON.stringify(childHover)}`,
     );
+    assert(
+      suite,
+      childHover?.candidateKinds?.includes('geometryCenter'),
+      `object geometry center is exposed as a selectable candidate; summary=${JSON.stringify(childHover)}`,
+    );
     await clickCanvasTarget(page, childTarget); await delay(800);
     await page.waitForFunction(
       () => Boolean(window.__URDF_STUDIO_DEBUG__?.__jointPickSessionStore__?.getState?.()?.childSnap),
@@ -417,6 +476,30 @@ async function main() {
       suite,
       childSnap !== null && childSnap.kind !== 'surface',
       `box pick smart-snaps to a feature point (not raw surface); got ${childSnap?.kind ?? 'none'}`,
+    );
+    await page.waitForFunction(
+      () => document.querySelector('[data-bridge-inline-field="name"] input')?.value?.length > 0,
+      { timeout: 5000 },
+    );
+    const suggestedNameValue = await page.evaluate(() => {
+      const input = document.querySelector('[data-bridge-inline-field="name"] input');
+      return input instanceof HTMLInputElement ? input.value : '';
+    });
+    assert(
+      suite,
+      suggestedNameValue.length > 0,
+      `endpoint-based bridge name is stored as the input value; value=${suggestedNameValue}`,
+    );
+    await page.click('[data-bridge-inline-field="name"] input', { clickCount: 3 });
+    await page.type('[data-bridge-inline-field="name"] input', customBridgeName);
+    assertEqual(
+      suite,
+      await page.evaluate(() => {
+        const input = document.querySelector('[data-bridge-inline-field="name"] input');
+        return input instanceof HTMLInputElement ? input.value : '';
+      }),
+      customBridgeName,
+      'default bridge name can be edited directly',
     );
     // The preview bridge moves the child immediately. Both committed axes must
     // stay attached to their selected runtime links instead of leaving the
@@ -530,6 +613,7 @@ async function main() {
 
     const asm = await getAssemblyState(page);
     assertEqual(suite, asm.bridgeCount, 1, 'bridge created via pick flow');
+    assertEqual(suite, asm.bridges[0]?.name, customBridgeName, 'edited bridge name is committed');
     const afterChild = asm.components.find((c) => c.id === compB.id);
     assert(
       suite,

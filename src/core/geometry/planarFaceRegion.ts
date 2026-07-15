@@ -49,18 +49,19 @@ interface ResolvedOptions {
   maxCircleRmsRatio: number;
 }
 
-interface TopologyFace {
+export interface TopologyFace {
   sourceVertices: [number, number, number];
   weldedVertices: [number, number, number];
   normal: THREE.Vector3 | null;
   area: number;
 }
 
-interface WeldedTopology {
+export interface WeldedTopology {
   faces: TopologyFace[];
   faceNeighbors: number[][];
   edgeFaces: Map<string, number[]>;
   weldedPositions: THREE.Vector3[];
+  planarRegionCache: Map<string, PlanarFaceRegion | null>;
 }
 
 interface TopologyCache {
@@ -74,7 +75,7 @@ interface TopologyCache {
   topology: WeldedTopology;
 }
 
-interface PlaneBasis {
+export interface PlaneBasis {
   u: THREE.Vector3;
   v: THREE.Vector3;
 }
@@ -104,9 +105,9 @@ interface FitCircleCandidatesInput {
 }
 
 const TOPOLOGY_CACHE_KEY = '__planarRegionTopologyCache';
-const DEFAULT_COPLANAR_COS_THRESHOLD = Math.cos(THREE.MathUtils.degToRad(1));
-const DEFAULT_MAX_FACES = 4000;
-const DEFAULT_MIN_BOUNDARY_VERTICES = 8;
+const DEFAULT_COPLANAR_COS_THRESHOLD = Math.cos(THREE.MathUtils.degToRad(3));
+export const DEFAULT_MESH_FEATURE_MAX_FACES = 50000;
+const DEFAULT_MIN_BOUNDARY_VERTICES = 6;
 const DEFAULT_MAX_CIRCLE_RMS_RATIO = 0.05;
 const MIN_POSITION_TOLERANCE = 1e-8;
 const DEGENERATE_EPSILON_SQ = 1e-20;
@@ -167,6 +168,13 @@ function sourceFaceVertices(
     return null;
   }
   return vertices;
+}
+
+/** Number of complete triangles addressable by the geometry draw topology. */
+export function getGeometryFaceCount(geometry: THREE.BufferGeometry): number {
+  const position = geometry.getAttribute('position');
+  const elementCount = geometry.getIndex()?.count ?? position?.count ?? 0;
+  return elementCount % 3 === 0 ? elementCount / 3 : 0;
 }
 
 function measureBounds(
@@ -323,10 +331,16 @@ function buildTopology(
       }
     }
   }
-  return { faces, faceNeighbors, edgeFaces, weldedPositions };
+  return {
+    faces,
+    faceNeighbors,
+    edgeFaces,
+    weldedPositions,
+    planarRegionCache: new Map(),
+  };
 }
 
-function getCachedTopology(
+export function getCachedTopology(
   geometry: THREE.BufferGeometry,
   requestedWeldTolerance?: number,
 ): { topology: WeldedTopology; weldTolerance: number } | null {
@@ -392,8 +406,8 @@ function resolveOptions(
 ): ResolvedOptions {
   return {
     coplanarCosThreshold: options?.coplanarCosThreshold ?? DEFAULT_COPLANAR_COS_THRESHOLD,
-    planeDistanceTolerance: options?.planeDistanceTolerance ?? weldTolerance,
-    maxFaces: options?.maxFaces ?? DEFAULT_MAX_FACES,
+    planeDistanceTolerance: options?.planeDistanceTolerance ?? weldTolerance * 12,
+    maxFaces: options?.maxFaces ?? DEFAULT_MESH_FEATURE_MAX_FACES,
     minBoundaryVertices: options?.minBoundaryVertices ?? DEFAULT_MIN_BOUNDARY_VERTICES,
     maxCircleRmsRatio: options?.maxCircleRmsRatio ?? DEFAULT_MAX_CIRCLE_RMS_RATIO,
   };
@@ -556,7 +570,7 @@ function traceBoundaryLoops(
   return loops;
 }
 
-function buildPlaneBasis(normal: THREE.Vector3): PlaneBasis {
+export function buildPlaneBasis(normal: THREE.Vector3): PlaneBasis {
   const fallback = Math.abs(normal.x) < 0.9
     ? new THREE.Vector3(1, 0, 0)
     : new THREE.Vector3(0, 1, 0);
@@ -600,8 +614,9 @@ function replaceColumn(matrix: number[][], column: number, values: number[]): nu
 
 export function kasaCircleFit(
   points: Array<{ x: number; y: number }>,
+  weights?: number[],
 ): { center: { x: number; y: number }; radius: number } | null {
-  if (points.length < 3) {
+  if (points.length < 3 || (weights && weights.length !== points.length)) {
     return null;
   }
   let sumX = 0;
@@ -613,23 +628,30 @@ export function kasaCircleFit(
   let sumY3 = 0;
   let sumX2Y = 0;
   let sumXY2 = 0;
-  for (const point of points) {
+  let totalWeight = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const weight = weights?.[index] ?? 1;
+    if (!(weight > 0) || !Number.isFinite(weight)) {
+      return null;
+    }
     const x2 = point.x * point.x;
     const y2 = point.y * point.y;
-    sumX += point.x;
-    sumY += point.y;
-    sumX2 += x2;
-    sumY2 += y2;
-    sumXY += point.x * point.y;
-    sumX3 += x2 * point.x;
-    sumY3 += y2 * point.y;
-    sumX2Y += x2 * point.y;
-    sumXY2 += point.x * y2;
+    totalWeight += weight;
+    sumX += weight * point.x;
+    sumY += weight * point.y;
+    sumX2 += weight * x2;
+    sumY2 += weight * y2;
+    sumXY += weight * point.x * point.y;
+    sumX3 += weight * x2 * point.x;
+    sumY3 += weight * y2 * point.y;
+    sumX2Y += weight * x2 * point.y;
+    sumXY2 += weight * point.x * y2;
   }
   const matrix = [
     [sumX2, sumXY, sumX],
     [sumXY, sumY2, sumY],
-    [sumX, sumY, points.length],
+    [sumX, sumY, totalWeight],
   ];
   const rhs = [sumX3 + sumXY2, sumX2Y + sumY3, sumX2 + sumY2];
   const determinant = determinant3(matrix);
@@ -654,7 +676,17 @@ function fitCircleCandidates(input: FitCircleCandidatesInput): PlanarCircleCandi
       return;
     }
     const points2d = projectLoop(loop.points, origin, basis);
-    const fit = kasaCircleFit(points2d);
+    // Weight each sample by its local boundary support so uneven STL
+    // tessellation does not bias the fitted center toward dense short edges.
+    const weights = points2d.map((point, pointIndex) => {
+      const previous = points2d[(pointIndex - 1 + points2d.length) % points2d.length];
+      const next = points2d[(pointIndex + 1) % points2d.length];
+      return (
+        Math.hypot(point.x - previous.x, point.y - previous.y)
+        + Math.hypot(next.x - point.x, next.y - point.y)
+      ) * 0.5;
+    });
+    const fit = kasaCircleFit(points2d, weights);
     if (!fit) {
       return;
     }
@@ -674,12 +706,23 @@ function fitCircleCandidates(input: FitCircleCandidatesInput): PlanarCircleCandi
       normal: normal.clone(),
       radius: fit.radius,
       rmsRatio,
-      confidence: Math.max(0, 1 - rmsRatio / options.maxCircleRmsRatio),
+      confidence: Math.max(0, 1 - rmsRatio / options.maxCircleRmsRatio)
+        * (loop.points.length === 6 ? 0.6 : loop.points.length === 7 ? 0.75 : 1),
       boundaryLoopIndex,
       isHole: loop.isHole,
     });
   });
   return candidates;
+}
+
+function optionsCacheKey(options: ResolvedOptions): string {
+  return [
+    options.coplanarCosThreshold,
+    options.planeDistanceTolerance,
+    options.maxFaces,
+    options.minBoundaryVertices,
+    options.maxCircleRmsRatio,
+  ].map((value) => value.toPrecision(8)).join(':');
 }
 
 /**
@@ -693,6 +736,10 @@ export function detectPlanarFaceRegion(
   options?: PlanarFaceRegionOptions,
 ): PlanarFaceRegion | null {
   const position = geometry.getAttribute('position');
+  const maxFaces = options?.maxFaces ?? DEFAULT_MESH_FEATURE_MAX_FACES;
+  if (getGeometryFaceCount(geometry) > maxFaces) {
+    return null;
+  }
   const cached = getCachedTopology(geometry, options?.weldTolerance);
   if (!position || !cached || !Number.isInteger(faceIndex) || faceIndex < 0) {
     return null;
@@ -700,6 +747,11 @@ export function detectPlanarFaceRegion(
   const resolvedOptions = resolveOptions(cached.weldTolerance, options);
   if (!(resolvedOptions.maxFaces >= 1) || faceIndex >= cached.topology.faces.length) {
     return null;
+  }
+  const cachePrefix = optionsCacheKey(resolvedOptions);
+  const cacheKey = `${cachePrefix}:${faceIndex}`;
+  if (cached.topology.planarRegionCache.has(cacheKey)) {
+    return cached.topology.planarRegionCache.get(cacheKey) ?? null;
   }
   const faceIndices = collectCoplanarFaces(
     cached.topology,
@@ -709,6 +761,7 @@ export function detectPlanarFaceRegion(
   );
   const seedNormal = cached.topology.faces[faceIndex]?.normal;
   if (!faceIndices || !seedNormal) {
+    cached.topology.planarRegionCache.set(cacheKey, null);
     return null;
   }
   const regionGeometry = collectRegionGeometry(
@@ -718,6 +771,7 @@ export function detectPlanarFaceRegion(
     seedNormal,
   );
   if (!regionGeometry) {
+    cached.topology.planarRegionCache.set(cacheKey, null);
     return null;
   }
   const basis = buildPlaneBasis(regionGeometry.normal);
@@ -732,7 +786,7 @@ export function detectPlanarFaceRegion(
     loop.isHole = loopIndex > 0;
   });
 
-  return {
+  const region: PlanarFaceRegion = {
     faceIndices,
     triangles: regionGeometry.triangles,
     boundaryLoops: loops,
@@ -747,4 +801,8 @@ export function detectPlanarFaceRegion(
       options: resolvedOptions,
     }),
   };
+  for (const memberFace of faceIndices) {
+    cached.topology.planarRegionCache.set(`${cachePrefix}:${memberFace}`, region);
+  }
+  return region;
 }

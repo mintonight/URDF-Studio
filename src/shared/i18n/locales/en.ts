@@ -98,6 +98,7 @@ export const en: TranslationKeys = {
     'Hover shows snap origins; clicking a Link or snap point fills parent / child automatically.',
   bridgeSnapHintFreePoint: 'Hold Ctrl/Cmd to pick any point on the face.',
   bridgeSnapKindCircleCenter: 'Circle Center',
+  bridgeSnapKindCylinderAxis: 'Cylinder Axis',
   bridgeSnapKindObjectCenter: 'Object Center',
   bridgeSnapKindFaceCenter: 'Face Center',
   bridgeSnapKindVertex: 'Vertex',

@@ -362,7 +362,7 @@ async function selectFlatEndpoint(
   });
 }
 
-test('bridge create modal defaults to a compact geometry-pick workflow with advanced settings collapsed', async () => {
+test('bridge create modal defaults to a compact geometry-pick workflow with advanced settings expanded', async () => {
   const { dom, container, root } = createComponentRoot();
   useJointPickSessionStore.getState().reset();
   useSelectionStore.setState({ selection: null, interactionGuard: null });
@@ -405,17 +405,16 @@ test('bridge create modal defaults to a compact geometry-pick workflow with adva
       null,
       'geometry mode should not render link dropdowns',
     );
-    assert.equal(
+    assert.ok(
       container.querySelector('[data-bridge-row="origin"]'),
-      null,
-      'manual transforms should stay hidden until advanced settings are expanded',
+      'manual transforms should be visible by default',
     );
-    assert.ok(container.querySelector('[data-bridge-advanced="collapsed"]'));
+    assert.ok(container.querySelector('[data-bridge-advanced="expanded"]'));
     assert.equal(
       container
-        .querySelector('[data-bridge-advanced="collapsed"] > button')
+        .querySelector('[data-bridge-advanced="expanded"] button')
         ?.getAttribute('aria-expanded'),
-      'false',
+      'true',
     );
     const liveStatus = container.querySelector('[role="status"][aria-live="polite"]');
     assert.ok(liveStatus, 'geometry endpoint progress should be announced');
@@ -691,8 +690,8 @@ test('bridge create modal opens as a compact single-page editor with stacked XYZ
       container.querySelector('[data-bridge-section-panel="relation"]'),
       'relation section should be visible by default',
     );
-    assert.ok(container.querySelector('[data-bridge-advanced="collapsed"]'));
-    assert.equal(container.querySelector('[data-bridge-row="origin"]'), null);
+    assert.ok(container.querySelector('[data-bridge-advanced="expanded"]'));
+    assert.ok(container.querySelector('[data-bridge-row="origin"]'));
 
     const jointTypeSelect = findJointTypeSelect(container);
     assert.ok(jointTypeSelect, 'joint type select should render');
@@ -1518,12 +1517,7 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
 
     const nameInput = findTextInput(container);
     assert.ok(nameInput, 'name input should render');
-    assert.equal(
-      nameInput.value,
-      '',
-      'generated bridge name should stay as placeholder until edited',
-    );
-    assert.equal(nameInput.placeholder, 'Component_A-Component_B');
+    assert.equal(nameInput.value, 'Component_A-Component_B');
 
     const confirmButton = findButtonByText(container, '确认');
     assert.ok(confirmButton, 'confirm button should render');
@@ -1555,6 +1549,83 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
     });
     await destroyComponentRoot(dom, root);
     console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal keeps the editable default name in sync until customized', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const workspace = createAssemblyState();
+  const componentC = structuredClone(workspace.components.component_b!);
+  componentC.id = 'component_c';
+  componentC.name = 'Component C';
+  componentC.sourceFile = 'component_c.urdf';
+  workspace.components.component_c = componentC;
+
+  useSelectionStore.setState({ selection: null, interactionGuard: null });
+
+  try {
+    await act(async () => {
+      root.render(
+        createBridgeModalElement({
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          workspace,
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await switchEndpointInputMode(container, 'Link 列表');
+    await selectFlatEndpoint(dom, container, 'parent', 'Component A › tool_link');
+    await selectFlatEndpoint(dom, container, 'child', 'Component B › base_link');
+
+    const nameInput = findTextInput(container);
+    assert.ok(nameInput, 'name input should render');
+    assert.equal(nameInput.value, 'Component_A-Component_B');
+
+    await selectFlatEndpoint(dom, container, 'child', 'Component C › base_link');
+    assert.equal(
+      nameInput.value,
+      'Component_A-Component_C',
+      'the generated value should follow endpoint changes before manual editing',
+    );
+
+    await act(async () => {
+      setFormControlValue(dom, nameInput, 'custom_bridge');
+      await Promise.resolve();
+    });
+    await selectFlatEndpoint(dom, container, 'child', 'Component B › base_link');
+    assert.equal(
+      nameInput.value,
+      'custom_bridge',
+      'endpoint changes should not overwrite a customized name',
+    );
+
+    await act(async () => {
+      setFormControlValue(dom, nameInput, '');
+      const onBlur = getReactProps(nameInput).onBlur;
+      assert.equal(typeof onBlur, 'function', 'name input should restore auto naming on blur');
+      (onBlur as () => void)();
+      await Promise.resolve();
+    });
+    assert.equal(
+      nameInput.value,
+      'Component_A-Component_B',
+      'clearing and blurring should restore the current generated name',
+    );
+
+    await selectFlatEndpoint(dom, container, 'child', 'Component C › base_link');
+    assert.equal(
+      nameInput.value,
+      'Component_A-Component_C',
+      'clearing and blurring should resume automatic endpoint synchronization',
+    );
+  } finally {
+    useSelectionStore.setState({ selection: null, interactionGuard: null });
+    await destroyComponentRoot(dom, root);
   }
 });
 
@@ -1706,7 +1777,7 @@ test('bridge create modal increments the generated bridge name when the default 
 
     const nameInput = findTextInput(container);
     assert.ok(nameInput, 'name input should render');
-    assert.equal(nameInput.placeholder, 'Component_A-Component_B-1');
+    assert.equal(nameInput.value, 'Component_A-Component_B-1');
   } finally {
     useSelectionStore.setState({
       selection: null,

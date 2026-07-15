@@ -62,6 +62,27 @@ function buildRuntime(): { robot: THREE.Group; mesh: THREE.Mesh; orphan: THREE.M
   return { robot, mesh, orphan };
 }
 
+function buildNonIndexedRectangleRuntime(): THREE.Mesh {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(new Float32Array([
+      0, 0, 0, 2, 0, 0, 2, 2, 0,
+      0, 0, 0, 2, 2, 0, 0, 2, 0,
+    ]), 3),
+  );
+  const robot = new THREE.Group();
+  const link = new THREE.Group();
+  (link as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink = true;
+  link.name = 'comp_a_base_link';
+  link.position.set(10, 0, 0);
+  const mesh = new THREE.Mesh(geometry);
+  link.add(mesh);
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+  return mesh;
+}
+
 function findFaceIndex(
   geometry: THREE.BufferGeometry,
   predicate: (normal: THREE.Vector3, center: THREE.Vector3) => boolean,
@@ -77,7 +98,7 @@ function findFaceIndex(
   assert.fail('No matching face found');
 }
 
-function buildTransformedNonIndexedCylinderRuntime(): { mesh: THREE.Mesh; topFace: number } {
+function buildTransformedNonIndexedCylinderRuntime(): { mesh: THREE.Mesh; topFace: number; sideFace: number } {
   const robot = new THREE.Group();
   const link = new THREE.Group();
   (link as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink = true;
@@ -89,16 +110,20 @@ function buildTransformedNonIndexedCylinderRuntime(): { mesh: THREE.Mesh; topFac
     geometry,
     (normal, center) => Math.abs(normal.y) > 0.9 && center.y > 0.5,
   );
+  const sideFace = findFaceIndex(
+    geometry,
+    (normal, center) => Math.abs(normal.y) < 0.1 && center.x > 0.5,
+  );
   const mesh = new THREE.Mesh(geometry);
   mesh.scale.set(2, 3, 0.5);
   link.add(mesh);
   robot.add(link);
   robot.updateMatrixWorld(true);
-  return { mesh, topFace };
+  return { mesh, topFace, sideFace };
 }
 
 function buildOversizedPlaneRuntime(): THREE.Mesh {
-  const segmentCount = 2001;
+  const segmentCount = 25001;
   const positions: number[] = [];
   for (let segment = 0; segment <= segmentCount; segment += 1) {
     positions.push(segment, 0, 0, segment, 1, 0);
@@ -154,7 +179,7 @@ function buildSlantedScaledPlaneRuntime(): THREE.Mesh {
   return mesh;
 }
 
-function buildCylinderRuntime(): { mesh: THREE.Mesh; topFace: number } {
+function buildCylinderRuntime(): { mesh: THREE.Mesh; topFace: number; sideFace: number } {
   const robot = new THREE.Group();
   const link = new THREE.Group();
   (link as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink = true;
@@ -166,11 +191,15 @@ function buildCylinderRuntime(): { mesh: THREE.Mesh; topFace: number } {
     geometry,
     (normal, center) => Math.abs(normal.y) > 0.9 && center.y > 0.5,
   );
+  const sideFace = findFaceIndex(
+    geometry,
+    (normal, center) => Math.abs(normal.y) < 0.1 && center.x > 0.5,
+  );
   const mesh = new THREE.Mesh(geometry);
   link.add(mesh);
   robot.add(link);
   robot.updateMatrixWorld(true);
-  return { mesh, topFace };
+  return { mesh, topFace, sideFace };
 }
 
 const ASSEMBLY_STATE = {
@@ -233,6 +262,8 @@ test('resolveJointSnapFromHit maps a hit back to its component link and world fr
   assert.equal(result!.region.trianglesWorld.length, 3);
   assert.equal(result!.region.boundaryLoops.length, 1);
   assertVecNearlyEqual(result!.region.centerWorld, new THREE.Vector3(10 + 2 / 3, 2 / 3, 0));
+  assert.equal(result!.region.featureKind, 'planar');
+  assert.equal(result!.region.truncated, false);
 });
 
 test('resolveJointSnapFromHit prefers smart face candidates over raw surface hits', () => {
@@ -329,6 +360,59 @@ test('chooseSnapCandidate only activates a circular hole center near its marker'
   );
 });
 
+test('chooseSnapCandidate only activates a low-confidence polygon circle near its marker', () => {
+  const camera = buildCamera();
+  const faceCenter = candidate('faceCenter', new THREE.Vector3(0, 0, 0));
+  const polygonCenter = {
+    ...candidate('circleCenter', new THREE.Vector3(0.5, 0, 0)),
+    confidence: 0.6,
+  };
+  const options = { camera, domSize: { width: 1000, height: 1000 } };
+
+  assert.equal(
+    chooseSnapCandidate(
+      [candidate('surface', new THREE.Vector3(-0.8, 0, 0)), faceCenter, polygonCenter],
+      new THREE.Vector3(-0.8, 0, 0),
+      options,
+    ).kind,
+    'faceCenter',
+  );
+  assert.equal(
+    chooseSnapCandidate(
+      [candidate('surface', new THREE.Vector3(0.49, 0, 0)), faceCenter, polygonCenter],
+      new THREE.Vector3(0.49, 0, 0),
+      options,
+    ).kind,
+    'circleCenter',
+  );
+});
+
+test('default STL candidates use the welded logical boundary instead of the internal seam', () => {
+  const mesh = buildNonIndexedRectangleRuntime();
+  const hitPoint = new THREE.Vector3(11, 1, 0);
+  const result = resolveJointSnapFromHit(
+    { object: mesh, faceIndex: 0, point: hitPoint },
+    SCENE_PROJECTION,
+    null,
+  );
+
+  assert.ok(result);
+  assert.equal(result!.region.featureKind, 'planar');
+  assert.ok(result!.candidates.some((entry) => entry.kind === 'geometryCenter'));
+  const edge = result!.candidates.find((entry) => entry.kind === 'edgeMidpoint');
+  assert.ok(edge);
+  assert.notDeepEqual(edge!.pointWorld.toArray(), hitPoint.toArray());
+  assert.ok(
+    [
+      new THREE.Vector3(11, 0, 0),
+      new THREE.Vector3(12, 1, 0),
+      new THREE.Vector3(11, 2, 0),
+      new THREE.Vector3(10, 1, 0),
+    ]
+      .some((expected) => edge!.pointWorld.distanceTo(expected) < 1e-6),
+  );
+});
+
 test('chooseSnapCandidate can override to a free surface point', () => {
   const hitPoint = new THREE.Vector3(0, 0, 0);
   const chosen = chooseSnapCandidate(
@@ -359,6 +443,46 @@ test('resolveJointSnapFromHit adds and chooses circle center candidates', () => 
   assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(10, 1, 0));
   assert.equal(result!.chosen.id, 'circleCenter:0');
   assert.equal(result!.region.boundaryLoops[0].circle?.candidateId, 'circleCenter:0');
+});
+
+test('resolveJointSnapFromHit fits a stable cylinder axis from a side hit', () => {
+  const { mesh, sideFace } = buildCylinderRuntime();
+  const localHit = getFaceCenter(mesh.geometry, sideFace)!;
+  const hitPoint = localHit.clone().applyMatrix4(mesh.matrixWorld);
+
+  const result = resolveJointSnapFromHit(
+    { object: mesh, faceIndex: sideFace, point: hitPoint },
+    SCENE_PROJECTION,
+    null,
+  );
+
+  assert.ok(result);
+  assert.equal(result!.region.featureKind, 'cylindrical');
+  assert.equal(result!.chosen.kind, 'cylinderAxis');
+  assert.equal(result!.region.cylinderAxis?.candidateId, 'cylinderAxis');
+  assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(10, 0, 0));
+  assertVecNearlyEqual(
+    new THREE.Vector3().setFromMatrixColumn(result!.chosen.poseWorld, 2),
+    new THREE.Vector3(0, 1, 0),
+  );
+});
+
+test('cylinder axis direction remains correct under non-uniform scaling', () => {
+  const { mesh, sideFace } = buildTransformedNonIndexedCylinderRuntime();
+  const hitPoint = getFaceCenter(mesh.geometry, sideFace)!.applyMatrix4(mesh.matrixWorld);
+  const result = resolveJointSnapFromHit(
+    { object: mesh, faceIndex: sideFace, point: hitPoint },
+    SCENE_PROJECTION,
+    null,
+  );
+
+  assert.ok(result);
+  assert.equal(result!.chosen.kind, 'cylinderAxis');
+  assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(-10, -4, -3));
+  assertVecNearlyEqual(
+    new THREE.Vector3().setFromMatrixColumn(result!.chosen.poseWorld, 2),
+    new THREE.Vector3(0, 1, 0),
+  );
 });
 
 test('resolveJointSnapFromHit returns a world-space region for non-indexed geometry in negative space', () => {
@@ -430,6 +554,8 @@ test('face-budget overflow falls back only to the hit surface in the default pro
 
   assert.ok(result);
   assert.equal(result!.region.isFallback, true);
+  assert.equal(result!.region.featureKind, 'surface');
+  assert.equal(result!.region.truncated, true);
   assert.deepEqual(result!.candidates.map((entry) => entry.kind), ['surface']);
   assert.equal(result!.chosen.kind, 'surface');
   assert.equal(result!.recommended.kind, 'surface');

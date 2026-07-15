@@ -94,6 +94,7 @@ export const zh: TranslationKeys = {
   bridgeSnapHintSmart: '悬停显示可吸附原点；点击 Link 或吸附点会自动填入父侧 / 子侧',
   bridgeSnapHintFreePoint: '按住 Ctrl/Cmd 捕捉到面上任意点',
   bridgeSnapKindCircleCenter: '圆心',
+  bridgeSnapKindCylinderAxis: '圆柱轴心',
   bridgeSnapKindObjectCenter: '物体中心',
   bridgeSnapKindFaceCenter: '面中心',
   bridgeSnapKindVertex: '顶点',

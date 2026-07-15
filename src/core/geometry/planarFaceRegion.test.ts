@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
+import { detectCylinderFaceRegion } from './cylinderFaceRegion.ts';
 import { detectPlanarFaceRegion } from './planarFaceRegion.ts';
 
 function assertVecNearlyEqual(
@@ -61,6 +62,19 @@ test('detectPlanarFaceRegion tolerates STL-style seams and inconsistent triangle
   assertVecNearlyEqual(region!.center, new THREE.Vector3(2, 1, 0), 2e-6);
 });
 
+test('detectPlanarFaceRegion absorbs small STL plane noise without crossing a crease', () => {
+  const noisyPlane = geometryFromTriangles([
+    [0, 0, 0, 4, 0, 0, 4, 2, 4e-6],
+    [0, 0, 0, 4, 2, 4e-6, 0, 2, -3e-6],
+    [4, 0, 0, 5, 0, 0, 4, 2, 0.2],
+  ]);
+
+  const region = detectPlanarFaceRegion(noisyPlane, 0);
+
+  assert.ok(region);
+  assert.deepEqual(region!.faceIndices, [0, 1]);
+});
+
 test('detectPlanarFaceRegion does not merge disconnected coplanar islands', () => {
   const geometry = geometryFromTriangles([
     [-5, -2, 0, -3, -2, 0, -3, 0, 0],
@@ -102,6 +116,53 @@ test('detectPlanarFaceRegion rejects elliptical boundary loops as circle candida
 
   assert.ok(region);
   assert.equal(region!.circleCandidates.length, 0);
+});
+
+test('circle fitting marks six/seven-sided faces low-confidence and eight-sided faces high-confidence', () => {
+  const hexagon = detectPlanarFaceRegion(new THREE.CircleGeometry(1, 6).toNonIndexed(), 0);
+  const heptagon = detectPlanarFaceRegion(new THREE.CircleGeometry(1, 7).toNonIndexed(), 0);
+  const octagon = detectPlanarFaceRegion(new THREE.CircleGeometry(1, 8).toNonIndexed(), 0);
+
+  assert.ok(hexagon);
+  assert.equal(hexagon!.circleCandidates.length, 1);
+  assert.ok(hexagon!.circleCandidates[0].confidence < 0.8);
+  assert.ok(heptagon);
+  assert.equal(heptagon!.circleCandidates.length, 1);
+  assert.ok(heptagon!.circleCandidates[0].confidence < 0.85);
+  assert.ok(octagon);
+  assert.equal(octagon!.circleCandidates.length, 1);
+  assert.ok(octagon!.circleCandidates[0].confidence > 0.95);
+});
+
+test('detectCylinderFaceRegion fits a non-indexed cylinder side with mixed winding', () => {
+  const geometry = new THREE.CylinderGeometry(2, 2, 6, 16, 1, true).toNonIndexed();
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+  for (let faceIndex = 1; faceIndex < position.count / 3; faceIndex += 2) {
+    const first = new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3);
+    const second = new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 1);
+    position.setXYZ(faceIndex * 3, second.x, second.y, second.z);
+    position.setXYZ(faceIndex * 3 + 1, first.x, first.y, first.z);
+  }
+  position.needsUpdate = true;
+
+  const cylinder = detectCylinderFaceRegion(geometry, 0);
+
+  assert.ok(cylinder);
+  assert.equal(cylinder!.radialFaceCount, 16);
+  assert.ok(cylinder!.coverageRadians >= THREE.MathUtils.degToRad(300));
+  assert.ok(cylinder!.rmsRatio < 0.03);
+  assert.ok(Math.abs(cylinder!.radius - 2) < 1e-4);
+  assert.ok(Math.abs(cylinder!.height - 6) < 1e-4);
+  assert.ok(Math.abs(cylinder!.axis.y) > 0.999);
+  assertVecNearlyEqual(cylinder!.center, new THREE.Vector3(0, 0, 0), 1e-4);
+});
+
+test('detectCylinderFaceRegion rejects low-sided prisms and partial arcs', () => {
+  const hexagonal = new THREE.CylinderGeometry(1, 1, 2, 6, 1, true).toNonIndexed();
+  assert.equal(detectCylinderFaceRegion(hexagonal, 0), null);
+
+  const partial = new THREE.CylinderGeometry(1, 1, 2, 16, 1, true, 0, Math.PI).toNonIndexed();
+  assert.equal(detectCylinderFaceRegion(partial, 0), null);
 });
 
 test('detectPlanarFaceRegion returns null when the connected face budget is exceeded', () => {

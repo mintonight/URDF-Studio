@@ -21,13 +21,42 @@ interface UseBridgeCreateDraftOptions {
   defaultLimitVelocity: number;
 }
 
+function useBridgeDraftName() {
+  const [name, setName] = useState('');
+  const customizedRef = useRef(false);
+  const valueRef = useRef('');
+  const syncSuggestedName = useCallback((suggestedName: string) => {
+    if (customizedRef.current || valueRef.current === suggestedName) return;
+    valueRef.current = suggestedName;
+    setName(suggestedName);
+  }, []);
+  const handleNameChange = useCallback((value: string) => {
+    customizedRef.current = true;
+    valueRef.current = value;
+    setName(value);
+  }, []);
+  const handleNameBlur = useCallback((suggestedName: string) => {
+    if (valueRef.current.trim()) return;
+    customizedRef.current = false;
+    valueRef.current = suggestedName;
+    setName(suggestedName);
+  }, []);
+  const resetName = useCallback(() => {
+    customizedRef.current = false;
+    valueRef.current = '';
+    setName('');
+  }, []);
+  return { handleNameBlur, handleNameChange, name, resetName, syncSuggestedName };
+}
+
 export function useBridgeCreateDraft({
   defaultLimitEffort,
   defaultLimitLower,
   defaultLimitUpper,
   defaultLimitVelocity,
 }: UseBridgeCreateDraftOptions) {
-  const [name, setName] = useState('');
+  const { handleNameBlur, handleNameChange, name, resetName, syncSuggestedName } =
+    useBridgeDraftName();
   const [parentCompId, setParentCompId] = useState('');
   const [parentLinkId, setParentLinkId] = useState('');
   const [childCompId, setChildCompId] = useState('');
@@ -141,7 +170,7 @@ export function useBridgeCreateDraft({
   }, []);
 
   const resetForm = useCallback(() => {
-    setName('');
+    resetName();
     setParentCompId('');
     setParentLinkId('');
     setChildCompId('');
@@ -171,7 +200,7 @@ export function useBridgeCreateDraft({
     setPickTarget('parent');
     originDirtyRef.current = false;
     previousBridgeRelationSignatureRef.current = '';
-  }, [defaultLimitEffort, defaultLimitLower, defaultLimitUpper, defaultLimitVelocity]);
+  }, [defaultLimitEffort, defaultLimitLower, defaultLimitUpper, defaultLimitVelocity, resetName]);
 
   return {
     applyEulerRotation,
@@ -184,6 +213,8 @@ export function useBridgeCreateDraft({
     childCompId,
     childLinkId,
     endpointInputMode,
+    handleNameBlur,
+    handleNameChange,
     handleOriginXChange,
     handleOriginYChange,
     handleOriginZChange,
@@ -223,11 +254,11 @@ export function useBridgeCreateDraft({
     setLimitLower,
     setLimitUpper,
     setLimitVelocity,
-    setName,
     setParentCompId,
     setParentLinkId,
     setPickTarget,
     setRotationDisplayMode,
+    syncSuggestedName,
     yawDeg,
   };
 }

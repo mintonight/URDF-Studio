@@ -13,6 +13,9 @@ import { worldRadiusForPixels } from '../../utils/jointPickHoverProjection';
 const REGION_RENDER_ORDER = 2500;
 const MARKER_KINDS = new Set<ResolvedJointSnapCandidate['kind']>([
   'circleCenter',
+  'cylinderAxis',
+  'bboxCenter',
+  'geometryCenter',
   'faceCenter',
   'vertex',
   'edgeMidpoint',
