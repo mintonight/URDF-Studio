@@ -9,13 +9,34 @@ import {
   stripImportParamsFromUrl,
 } from '@/shared/utils/popupHandoffProtocol';
 import { getRuntimeLanguageTranslations } from '@/shared/i18n';
-import { resolveAssetDownloadEndpoint } from './assetDownloadEndpoint';
+import {
+  getAssetDownloadAuthToken,
+  resolveAssetDownloadEndpoint,
+} from './assetDownloadEndpoint';
 
 export {
   resolveAssetDownloadEndpoint,
+  setAssetDownloadAuthTokenProvider,
   setAssetDownloadEndpointResolver,
+  type AssetDownloadAuthTokenProvider,
   type AssetDownloadEndpointResolver,
 } from './assetDownloadEndpoint';
+
+/**
+ * Headers for the asset-download API request. The Bearer token is read at
+ * call time from the hosting-shell provider (`setAssetDownloadAuthTokenProvider`,
+ * mirroring the AI backend auth pattern) so the open-source core never reads
+ * `import.meta.env` directly. No provider registered → no Authorization header
+ * (BYOK / unauthenticated local dev). See asset_import_from_url.test.ts.
+ */
+export function buildAssetDownloadRequestHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getAssetDownloadAuthToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 // ---------------------------------------------------------------------------
 //  Title blink utility — draws attention to an existing tab
@@ -215,9 +236,7 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
 
       const response = await fetch(apiUrl.toString(), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: buildAssetDownloadRequestHeaders(),
         body: JSON.stringify({ assetId }),
       });
 
