@@ -462,6 +462,7 @@ test('geometry bodies and CRUD callbacks keep component ownership and object ind
     );
     assert.equal(getContextMenuItem(translations.en.deleteVisualGeometry), null);
 
+    await click(dom, getContextMenuItem(translations.en.deleteBranch), 'delete joint branch menu item');
     await openContextMenu(dom, linkRow, 'open link context menu for add child');
     await click(dom, getContextMenuItem(translations.en.addChildLink), 'add child menu item');
     await openContextMenu(dom, linkRow, 'open link context menu for add collision');
@@ -471,7 +472,10 @@ test('geometry bodies and CRUD callbacks keep component ownership and object ind
     const expectedRef = { type: 'link', componentId: 'left', entityId: 'base_link' } as const;
     assert.deepEqual(addedChildren, [expectedRef]);
     assert.deepEqual(addedCollisions, [expectedRef]);
-    assert.deepEqual(deleted, [expectedRef]);
+    assert.deepEqual(deleted, [
+      { type: 'link', componentId: 'left', entityId: 'tip_link' },
+      expectedRef,
+    ]);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

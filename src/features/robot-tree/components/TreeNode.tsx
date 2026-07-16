@@ -295,7 +295,7 @@ export const TreeNode = memo(function TreeNode({
   };
   const handleContextMenuDelete = () => {
     if (!contextMenu) return;
-    onDelete(contextMenu.ref);
+    onDelete(contextMenu.targetLinkRef);
     closeContextMenu();
   };
   const handleDeleteLinkGeometry = (subType: 'visual' | 'collision') => {
