@@ -22,6 +22,7 @@ import {
 import { resolveGazeboScriptMaterial } from './gazeboMaterialScripts';
 import {
   createSdfIncludeResolutionContext,
+  mergeSdfRobotFileContentsInto,
   type SdfIncludeResolutionContext,
 } from './sdfIncludeResolution';
 
@@ -116,7 +117,7 @@ interface ParsedSdfGraph {
 
 export interface ParseSDFOptions {
   allFileContents?: Record<string, string>;
-  availableFiles?: readonly Pick<RobotFile, 'name'>[];
+  availableFiles?: readonly Pick<RobotFile, 'name' | 'format' | 'content'>[];
   sourcePath?: string | null;
   /** SDF spec version (e.g. "1.5", "1.6"). Affects axis-frame defaults. */
   sdfVersion?: string;
@@ -129,6 +130,14 @@ interface ParseSdfModelOptions extends ParseSDFOptions {
   includeResolutionContext?: SdfIncludeResolutionContext;
   /** SDF spec version string (e.g. "1.5"). Affects axis-frame defaults. */
   sdfVersion?: string;
+  /**
+   * Overrides the model's own top-level `<pose>` when set. Per SDFormat
+   * `<include>` semantics, a `<pose>` specified on the `<include>` element
+   * overrides (replaces) the included model's `<pose>` rather than composing
+   * with it. Only the model's top-level placement is overridden; child links
+   * and nested models stay relative to the (now overridden) model frame.
+   */
+  modelPoseOverride?: ParsedPose;
 }
 
 const AXIS_IMPORT_TYPES = new Set<JointType>([
@@ -1192,14 +1201,20 @@ function parseIncludedModelGraph(
   const nextIncludeStack = new Set(includeStack);
   nextIncludeStack.add(resolvedInclude.path);
 
+  // SDFormat <include> semantics: a <pose> on the <include> element overrides
+  // (replaces) the included model's own top-level <pose> instead of composing
+  // with it. When the include specifies a pose we hand it to parseSdfModel as
+  // the model pose override; otherwise the included model keeps its own pose.
+  // parentMatrix stays the grandparent frame so the override composes once.
   const includeGraph = parseSdfModel(includeModelEl, {
     allFileContents,
     availableFiles,
     sourcePath: resolvedInclude.path,
-    parentMatrix: parentMatrix.clone().multiply(poseToMatrix(includePose.pose)),
+    parentMatrix,
     namespacePrefix: qualifyScopedName(includeName, namespacePrefix),
     includeStack: nextIncludeStack,
     includeResolutionContext,
+    ...(includePose.specified ? { modelPoseOverride: includePose } : {}),
   });
 
   if (includeGraph) {
@@ -1252,9 +1267,10 @@ function parseSdfModel(
     includeStack = new Set<string>(),
     includeResolutionContext = createSdfIncludeResolutionContext(allFileContents),
     sdfVersion,
+    modelPoseOverride,
   }: ParseSdfModelOptions = {},
 ): ParsedSdfGraph | null {
-  const modelPose = parsePoseElement(modelEl);
+  const modelPose = modelPoseOverride ?? parsePoseElement(modelEl);
   const modelMatrix = parentMatrix.clone().multiply(poseToMatrix(modelPose.pose));
   const graph: ParsedSdfGraph = {
     links: {},
@@ -1781,9 +1797,14 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
   const sdfVersion = sdfEl?.getAttribute('version') || undefined;
 
   const modelName = modelEl.getAttribute('name')?.trim() || 'imported_sdf_model';
-  const includeResolutionContext = createSdfIncludeResolutionContext(options.allFileContents ?? {});
+  const includeAllFileContents = mergeSdfRobotFileContentsInto(
+    options.allFileContents ?? {},
+    options.availableFiles ?? [],
+  );
+  const includeResolutionContext = createSdfIncludeResolutionContext(includeAllFileContents);
   const parsedGraph = parseSdfModel(modelEl, {
     ...options,
+    allFileContents: includeAllFileContents,
     sdfVersion,
     includeResolutionContext,
   });

@@ -416,6 +416,48 @@ test('parseSDF expands included models with namespaced links and include poses',
   assert.deepEqual(robot?.joints['child_box::box__root_fixed']?.origin.xyz, { x: 1, y: 2, z: 3 });
 });
 
+test('parseSDF overrides an included model own pose with the include pose per SDFormat semantics', () => {
+  // SDFormat <include><pose> overrides the included model's top-level <pose>
+  // (it does NOT compose with it). The gimbal pattern: a model file authored
+  // with a standalone spawn pose (here z=0.18) that must be replaced by the
+  // mount pose (here x=2) when included. Composing would put the base link at
+  // z=0.18; overriding puts it at z=0.
+  const robot = parseSDF(
+    `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="parent">
+    <include>
+      <pose>2 0 0 0 0 0</pose>
+      <uri>model://child</uri>
+    </include>
+  </model>
+</sdf>`,
+    {
+      sourcePath: 'parent/model.sdf',
+      allFileContents: {
+        'child/model.sdf': `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="child">
+    <pose>0 0 0.18 0 0 0</pose>
+    <link name="base">
+      <visual name="body">
+        <geometry>
+          <box>
+            <size>1 1 1</size>
+          </box>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+      },
+    },
+  );
+
+  assert.ok(robot);
+  assert.deepEqual(robot?.joints['child::base__root_fixed']?.origin.xyz, { x: 2, y: 0, z: 0 });
+});
+
 test('parseSDF lets parent joints target included model links without injecting duplicate root anchors', () => {
   const robot = parseSDF(
     `<?xml version="1.0"?>
@@ -491,6 +533,57 @@ test('parseSDF lets parent joints target included model links without injecting 
   assert.deepEqual(robot?.joints.mount?.origin.xyz, { x: 1, y: 0, z: 0 });
   assert.equal(robot?.links['gripper::base__root'], undefined);
   assert.equal(robot?.joints['gripper::base__root_fixed'], undefined);
+});
+
+test('parseSDF resolves included sibling models from availableFiles when allFileContents omits them', () => {
+  // Simulates the real import pipeline: nested `.sdf` files are robot files in
+  // `availableFiles` (not text files in `allFileContents`), so the include
+  // resolver must consult availableFiles to find `model://child_box`.
+  const robot = parseSDF(
+    `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="parent">
+    <include>
+      <name>child_box</name>
+      <pose>1 2 3 0 0 0</pose>
+      <uri>model://child_box</uri>
+    </include>
+  </model>
+</sdf>`,
+    {
+      sourcePath: 'parent/model.sdf',
+      allFileContents: {},
+      availableFiles: [
+        {
+          name: 'parent/model.sdf',
+          format: 'sdf',
+          content: '<?xml version="1.0"?><sdf version="1.7"><model name="parent"></model></sdf>',
+        },
+        {
+          name: 'child_box/model.sdf',
+          format: 'sdf',
+          content: `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="child_box">
+    <link name="box">
+      <visual name="body">
+        <geometry>
+          <box>
+            <size>1 1 1</size>
+          </box>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+        },
+      ],
+    },
+  );
+
+  assert.ok(robot, 'parseSDF returned null — sibling include was not resolved from availableFiles');
+  assert.ok(robot?.links['child_box::box']);
+  assert.deepEqual(robot?.joints['child_box::box__root_fixed']?.origin.xyz, { x: 1, y: 2, z: 3 });
 });
 
 test('parseSDF reuses one SDF include index while resolving multiple includes', () => {
