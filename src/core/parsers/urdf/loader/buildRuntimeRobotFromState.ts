@@ -225,6 +225,30 @@ function extractSubmesh(
   }
 
   if (!match) {
+    // Fall back to a fuzzy match for Collada exports where the WASM fast-mesh
+    // parser flattens nested transform-only `<node>` elements and emits the
+    // inner `<geometry name="...">` instead of the authored `<node name>`.
+    // Example: `<node name="Propeller">` wrapping `<instance_geometry url="#geom-Prop">`
+    // (where `<geometry name="Prop">`) produces a leaf named "Prop", so a
+    // request for "Propeller" should still resolve to it.  We require the
+    // candidate to share a non-trivial prefix with the requested name to
+    // avoid spurious matches.
+    const candidates: THREE.Object3D[] = [];
+    scene.traverse((child) => {
+      if (child === scene || !child.name) return;
+      if (
+        submeshName.startsWith(child.name) ||
+        child.name.startsWith(submeshName)
+      ) {
+        candidates.push(child);
+      }
+    });
+    // Prefer the longest matching name (closest to the requested name).
+    candidates.sort((a, b) => b.name.length - a.name.length);
+    match = candidates[0] ?? null;
+  }
+
+  if (!match) {
     return null;
   }
 

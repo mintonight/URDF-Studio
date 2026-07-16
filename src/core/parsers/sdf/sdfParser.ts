@@ -22,6 +22,7 @@ import {
 import { resolveGazeboScriptMaterial } from './gazeboMaterialScripts';
 import {
   createSdfIncludeResolutionContext,
+  mergeSdfRobotFileContentsInto,
   type SdfIncludeResolutionContext,
 } from './sdfIncludeResolution';
 
@@ -116,7 +117,7 @@ interface ParsedSdfGraph {
 
 export interface ParseSDFOptions {
   allFileContents?: Record<string, string>;
-  availableFiles?: readonly Pick<RobotFile, 'name'>[];
+  availableFiles?: readonly Pick<RobotFile, 'name' | 'format' | 'content'>[];
   sourcePath?: string | null;
   /** SDF spec version (e.g. "1.5", "1.6"). Affects axis-frame defaults. */
   sdfVersion?: string;
@@ -129,6 +130,14 @@ interface ParseSdfModelOptions extends ParseSDFOptions {
   includeResolutionContext?: SdfIncludeResolutionContext;
   /** SDF spec version string (e.g. "1.5"). Affects axis-frame defaults. */
   sdfVersion?: string;
+  /**
+   * Overrides the model's own top-level `<pose>` when set. Per SDFormat
+   * `<include>` semantics, a `<pose>` specified on the `<include>` element
+   * overrides (replaces) the included model's `<pose>` rather than composing
+   * with it. Only the model's top-level placement is overridden; child links
+   * and nested models stay relative to the (now overridden) model frame.
+   */
+  modelPoseOverride?: ParsedPose;
 }
 
 const AXIS_IMPORT_TYPES = new Set<JointType>([
@@ -1088,7 +1097,9 @@ function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
 
 function applyVisualToLink(link: UrdfLink, visual: ParsedSdfVisual): UrdfLink {
   const fallbackColor =
-    visual.geometry.type === GeometryType.MESH ? UNAUTHORED_VISUAL_COLOR : DEFAULT_LINK.visual.color;
+    visual.geometry.type === GeometryType.MESH
+      ? UNAUTHORED_VISUAL_COLOR
+      : DEFAULT_LINK.visual.color;
 
   return {
     ...link,
@@ -1200,14 +1211,20 @@ function parseIncludedModelGraph(
   const nextIncludeStack = new Set(includeStack);
   nextIncludeStack.add(resolvedInclude.path);
 
+  // SDFormat <include> semantics: a <pose> on the <include> element overrides
+  // (replaces) the included model's own top-level <pose> instead of composing
+  // with it. When the include specifies a pose we hand it to parseSdfModel as
+  // the model pose override; otherwise the included model keeps its own pose.
+  // parentMatrix stays the grandparent frame so the override composes once.
   const includeGraph = parseSdfModel(includeModelEl, {
     allFileContents,
     availableFiles,
     sourcePath: resolvedInclude.path,
-    parentMatrix: parentMatrix.clone().multiply(poseToMatrix(includePose.pose)),
+    parentMatrix,
     namespacePrefix: qualifyScopedName(includeName, namespacePrefix),
     includeStack: nextIncludeStack,
     includeResolutionContext,
+    ...(includePose.specified ? { modelPoseOverride: includePose } : {}),
   });
 
   if (includeGraph) {
@@ -1260,9 +1277,10 @@ function parseSdfModel(
     includeStack = new Set<string>(),
     includeResolutionContext = createSdfIncludeResolutionContext(allFileContents),
     sdfVersion,
+    modelPoseOverride,
   }: ParseSdfModelOptions = {},
 ): ParsedSdfGraph | null {
-  const modelPose = parsePoseElement(modelEl);
+  const modelPose = modelPoseOverride ?? parsePoseElement(modelEl);
   const modelMatrix = parentMatrix.clone().multiply(poseToMatrix(modelPose.pose));
   const graph: ParsedSdfGraph = {
     links: {},
@@ -1566,6 +1584,30 @@ function parseSdfModel(
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
     const mimic = parseJointMimic(axisEl, namespacePrefix);
 
+    // SDF revolute joints with no effective angle bounds describe unlimited
+    // rotation. This covers two cases the parser must treat identically:
+    //   1. no <limit> element at all, and
+    //   2. a <limit> element that omits <lower> and <upper> — e.g. youbot
+    //      wheels/casters declare <limit><effort>1.0</effort></limit> with no
+    //      angle bounds, which Gazebo reads as unlimited rotation.
+    // URDF expresses unlimited rotation via the `continuous` joint type with no
+    // limit object; convert to that so the canonical workspace validator does
+    // not reject the -Infinity / +Infinity placeholders that the limit-parsing
+    // fallback below would otherwise produce.
+    const limitContainerEl = limitEl ?? axisEl ?? jointEl;
+    const parsedLower = parseFloatSafe(
+      getFirstDirectChild(limitContainerEl, 'lower')?.textContent,
+      -Infinity,
+    );
+    const parsedUpper = parseFloatSafe(
+      getFirstDirectChild(limitContainerEl, 'upper')?.textContent,
+      Infinity,
+    );
+    const isUnlimitedRevolute =
+      jointType === JointType.REVOLUTE &&
+      (!Number.isFinite(parsedLower) || !Number.isFinite(parsedUpper));
+    const effectiveJointType = isUnlimitedRevolute ? JointType.CONTINUOUS : jointType;
+
     // Resolve the axis direction.
     // Modern SDFormat uses <xyz expressed_in="...">. Older Gazebo models use
     // <use_parent_model_frame>; keep that fallback for source compatibility.
@@ -1615,13 +1657,15 @@ function parseSdfModel(
       ...DEFAULT_JOINT,
       id: jointId,
       name: jointId,
-      type: jointType,
+      type: effectiveJointType,
       parentLinkId,
       childLinkId,
       origin,
       axis,
       limit:
-        LIMIT_IMPORT_TYPES.has(jointType) && Object.keys(limit).length > 0 ? limit : undefined,
+        LIMIT_IMPORT_TYPES.has(effectiveJointType) && Object.keys(limit).length > 0
+          ? limit
+          : undefined,
       dynamics: {
         damping: parseFloatSafe(
           getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent,
@@ -1762,9 +1806,14 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
   const sdfVersion = sdfEl?.getAttribute('version') || undefined;
 
   const modelName = modelEl.getAttribute('name')?.trim() || 'imported_sdf_model';
-  const includeResolutionContext = createSdfIncludeResolutionContext(options.allFileContents ?? {});
+  const includeAllFileContents = mergeSdfRobotFileContentsInto(
+    options.allFileContents ?? {},
+    options.availableFiles ?? [],
+  );
+  const includeResolutionContext = createSdfIncludeResolutionContext(includeAllFileContents);
   const parsedGraph = parseSdfModel(modelEl, {
     ...options,
+    allFileContents: includeAllFileContents,
     sdfVersion,
     includeResolutionContext,
   });

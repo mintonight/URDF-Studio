@@ -1450,3 +1450,87 @@ test('buildRuntimeRobotFromState logs when a mesh callback completes without an 
   );
   assert.equal(loggedErrors[0]?.[1], 'package://aliengo_description/meshes/hip.dae');
 });
+
+test('buildRuntimeRobotFromState falls back to prefix match when submesh name is missing from flattened Collada scene', async () => {
+  // Simulates the WASM fast-mesh parser output for DAE files where an authored
+  // `<node name="Propeller">` wraps an unnamed intermediate `<node>` that hosts
+  // `<instance_geometry url="#geom-Prop">` (with `<geometry name="Prop">`).
+  // The flattening emits a leaf mesh named "Prop" while the SDF requests the
+  // submesh by the authored node name "Propeller".
+  const robotState = {
+    name: 'flattened_submesh_robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'meshes/wing.dae',
+          submeshName: 'Propeller',
+          submeshCenter: false,
+        },
+      },
+    },
+    joints: {},
+  };
+
+  const manager = new THREE.LoadingManager();
+  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
+  const ready = new Promise<void>((resolve) => {
+    manager.onLoad = () => resolve();
+  });
+  const completionKey = '__build_runtime_robot_from_state_submesh_fallback_test__';
+  manager.itemStart(completionKey);
+
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args) => {
+    warnings.push(args);
+  };
+
+  try {
+    robot = await buildRuntimeRobotFromState({
+      robotName: robotState.name,
+      links: robotState.links,
+      joints: robotState.joints,
+      manager,
+      loadMeshCb: (_path, _manager, done) => {
+        // Mirror the WASM output: a flat scene whose only mesh child is named
+        // "Prop" (geometry name) rather than the authored "Propeller".
+        const scene = new THREE.Group();
+        const propMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.1, 0.1),
+          new THREE.MeshPhongMaterial({ color: new THREE.Color('#990000') }),
+        );
+        propMesh.name = 'Prop';
+        scene.add(propMesh);
+        done(scene);
+      },
+    });
+  } finally {
+    console.warn = originalConsoleWarn;
+    manager.itemEnd(completionKey);
+  }
+
+  await ready;
+
+  const baseLink = robot?.links.base_link;
+  assert.ok(baseLink, 'expected base link');
+
+  const visualGroup = baseLink.children.find(isUrdfVisualGroup);
+  assert.ok(visualGroup, 'expected visual group');
+  assert.equal(visualGroup.children.length, 1, 'expected the prefix-matched submesh to attach');
+
+  const attachedMesh = visualGroup.children[0] as THREE.Mesh;
+  assert.ok(attachedMesh.isMesh, 'expected attached mesh');
+  assert.equal(attachedMesh.name, 'Prop');
+
+  // The fuzzy fallback must not log the "Submesh not found" warning.
+  const submeshWarnings = warnings.filter((args) =>
+    String(args[0] || '').includes('Submesh "Propeller" not found'),
+  );
+  assert.equal(submeshWarnings.length, 0, 'expected no submesh-not-found warning');
+});
