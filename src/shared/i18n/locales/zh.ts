@@ -130,7 +130,7 @@ export const zh: TranslationKeys = {
   // Property Editor
   properties: '属性',
   selectLinkOrJoint: '选择连杆或关节以编辑其属性。',
-  selectLinkJointOrTendon: '选择连杆、关节或肌腱以查看属性。',
+  selectLinkJointOrTendon: '选择连杆、关节或肌腱以查看属性',
   selectedJoint: '选中关节',
   previewReadOnlyHint: '预览模式为只读。返回当前编辑模型后才能修改参数。',
   propertyEntityMissing: '选中的实体已不存在。',
@@ -500,7 +500,7 @@ export const zh: TranslationKeys = {
   jointControls: '关节控制',
   joints: '关节',
   jointsPanel: '关节面板',
-  noJointsYet: '当前还没有关节。',
+  noJointsYet: '当前还没有关节',
   viewOptions: '细节选项',
   loadingRobot: '加载机器人中...',
   loadingRobotPreparing: '正在准备场景…',
