@@ -1662,26 +1662,10 @@ function parseSdfModel(
       childLinkId,
       origin,
       axis,
-      limit: LIMIT_IMPORT_TYPES.has(jointType)
-        ? {
-            lower: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent,
-              -Infinity,
-            ),
-            upper: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent,
-              Infinity,
-            ),
-            effort: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent,
-              0,
-            ),
-            velocity: parseFloatSafe(
-              getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent,
-              0,
-            ),
-          }
-        : undefined,
+      limit:
+        LIMIT_IMPORT_TYPES.has(effectiveJointType) && Object.keys(limit).length > 0
+          ? limit
+          : undefined,
       dynamics: {
         damping: parseFloatSafe(
           getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent,

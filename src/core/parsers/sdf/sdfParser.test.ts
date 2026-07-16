@@ -921,3 +921,74 @@ test('parseSDF imports standalone Gazebo light definitions as empty placeholder 
   assert.equal(robot?.links.sun__light_anchor.visual.type, GeometryType.NONE);
   assert.equal(Object.keys(robot?.joints ?? {}).length, 0);
 });
+
+test('parseSDF converts revolute joints without <limit> into continuous joints', () => {
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="unlimited_revolute_fixture">
+    <link name="base" />
+    <link name="spin" />
+    <joint name="spin_joint" type="revolute">
+      <parent>base</parent>
+      <child>spin</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+      </axis>
+    </joint>
+    <link name="hinge" />
+    <joint name="hinge_joint" type="revolute">
+      <parent>base</parent>
+      <child>hinge</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1.5</lower>
+          <upper>1.5</upper>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+
+  // Revolute without <limit> -> continuous with no limit object.
+  assert.equal(robot?.joints.spin_joint.type, JointType.CONTINUOUS);
+  assert.equal(robot?.joints.spin_joint.limit, undefined);
+  assert.deepEqual(robot?.joints.spin_joint.axis, { x: 0, y: 0, z: 1 });
+
+  // Revolute with explicit <limit> stays revolute with finite bounds.
+  assert.equal(robot?.joints.hinge_joint.type, JointType.REVOLUTE);
+  assert.equal(robot?.joints.hinge_joint.limit?.lower, -1.5);
+  assert.equal(robot?.joints.hinge_joint.limit?.upper, 1.5);
+});
+
+test('parseSDF converts revolute joints with an effort-only <limit> into continuous joints', () => {
+  // youbot wheels/casters declare <limit><effort>1.0</effort></limit> with no
+  // angle bounds, which Gazebo reads as unlimited rotation. The parser must
+  // convert the joint to continuous (so no -Infinity/+Infinity angle bounds
+  // are emitted) while preserving the finite effort the author declared —
+  // otherwise the missing <lower>/<upper> fall back to -Infinity/+Infinity and
+  // the canonical workspace validator rejects them ("must be a finite number").
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="effort_only_limit_fixture">
+    <link name="base" />
+    <link name="wheel" />
+    <joint name="wheel_joint" type="revolute">
+      <parent>base</parent>
+      <child>wheel</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <effort>1.0</effort>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+  assert.equal(robot?.joints.wheel_joint.type, JointType.CONTINUOUS);
+  assert.deepEqual(robot?.joints.wheel_joint.limit, { effort: 1.0 });
+});
