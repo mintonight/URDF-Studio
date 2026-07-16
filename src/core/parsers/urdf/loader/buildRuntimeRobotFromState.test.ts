@@ -418,6 +418,64 @@ test('buildRuntimeRobotFromState exposes referenced joint limits in runtime moti
   assert.ok(Math.abs((joint.jointValue?.[0] ?? Number.NaN) - 0.8) <= 1e-12);
 });
 
+test('buildRuntimeRobotFromState keeps scalar joints unbounded without finite bound pairs', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'continuous_joint_robot',
+    links: {
+      base_link: { ...DEFAULT_LINK, id: 'base_link', name: 'base_link' },
+      wheel_link: { ...DEFAULT_LINK, id: 'wheel_link', name: 'wheel_link' },
+      slider_link: { ...DEFAULT_LINK, id: 'slider_link', name: 'slider_link' },
+    },
+    joints: {
+      wheel_joint: {
+        ...DEFAULT_JOINT,
+        id: 'wheel_joint',
+        name: 'wheel_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'wheel_link',
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { effort: 12, velocity: 8 },
+      },
+      slider_joint: {
+        ...DEFAULT_JOINT,
+        id: 'slider_joint',
+        name: 'slider_joint',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'wheel_link',
+        childLinkId: 'slider_link',
+        axis: { x: 1, y: 0, z: 0 },
+        limit: { velocity: 2 },
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const joint = robot.joints.wheel_joint as {
+    ignoreLimits: boolean;
+    jointValue?: number[];
+    limit: { effort?: number; velocity?: number };
+    setJointValue: (value: number) => boolean;
+  };
+  assert.equal(joint.ignoreLimits, true);
+  assert.equal(joint.limit.effort, 12);
+  assert.equal(joint.limit.velocity, 8);
+  joint.setJointValue(4);
+  assert.equal(joint.jointValue?.[0], 4);
+
+  const clonedJoint = (robot.joints.wheel_joint.clone() as typeof joint);
+  assert.equal(clonedJoint.ignoreLimits, true);
+  clonedJoint.setJointValue(5);
+  assert.equal(clonedJoint.jointValue?.[0], 5);
+
+  const sliderJoint = robot.joints.slider_joint as typeof joint;
+  assert.equal(sliderJoint.ignoreLimits, true);
+  assert.equal(sliderJoint.limit.velocity, 2);
+  sliderJoint.setJointValue(3);
+  assert.equal(sliderJoint.jointValue?.[0], 3);
+});
+
 test('buildRuntimeRobotFromState orders crossed finite limits before runtime clamping', async () => {
   const robot = await buildRuntimeRobotFromState({
     robotName: 'crossed_limit_robot',

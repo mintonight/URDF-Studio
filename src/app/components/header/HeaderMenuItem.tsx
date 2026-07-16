@@ -35,7 +35,7 @@ export function HeaderMenuItem({
       onMouseEnter={onMouseEnter}
       onFocus={onFocus}
       onTouchStart={onTouchStart}
-      className={`flex w-full items-center px-3 py-2 text-left text-xs whitespace-nowrap text-text-primary transition-colors hover:bg-element-bg focus:outline-none focus-visible:bg-element-bg focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+      className={`flex w-full items-center px-3 py-2 text-left text-xs whitespace-nowrap text-text-primary transition-colors hover:bg-element-hover focus:outline-none focus-visible:bg-element-hover focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
         shortcut ? 'justify-between gap-6' : 'gap-2.5'
       } disabled:cursor-not-allowed disabled:opacity-50 ${className}`.trim()}
     >

@@ -221,7 +221,7 @@ export function HeaderMenus({
                     }}
                   >
                     <span className="flex items-center gap-2">
-                      <span className="flex h-[18px] w-[18px] items-center justify-center">
+                      <span className="flex h-[18px] w-[18px] items-center justify-center text-system-blue">
                         {item.icon}
                       </span>
                       <span>{item.title}</span>
@@ -315,12 +315,12 @@ export function HeaderMenus({
             data-testid="source-code-open"
             variant="ghost"
             size="xs"
-	            className="whitespace-nowrap px-2.5 text-text-secondary hover:text-text-primary"
+            className="whitespace-nowrap px-2.5 text-text-secondary hover:text-text-primary"
             title={t.sourceCode}
             aria-label={t.sourceCode}
           >
             <Code className="w-3.5 h-3.5" />
-	            {showSourceText && <span className="whitespace-nowrap">{t.sourceCode}</span>}
+            {showSourceText && <span className="whitespace-nowrap">{t.sourceCode}</span>}
           </Button>
         </div>
       )}

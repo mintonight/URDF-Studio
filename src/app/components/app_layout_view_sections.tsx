@@ -339,7 +339,6 @@ function AppLayoutOverlaysSection({ overlays }: Pick<AppLayoutViewProps, 'overla
       onCloseCodeViewer={() => overlays.setIsCodeViewerOpen(false)}
       theme={overlays.theme}
       lang={overlays.lang}
-      loadingEditorLabel={overlays.labels.loadingEditor}
       isCollisionOptimizerOpen={overlays.isCollisionOptimizerOpen}
       loadingOptimizerLabel={overlays.labels.loadingOptimizer}
       collisionOptimizationSource={overlays.collisionOptimizationSource}

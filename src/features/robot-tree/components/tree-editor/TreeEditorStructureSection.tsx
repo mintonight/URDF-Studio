@@ -242,6 +242,7 @@ export function TreeEditorStructureSection({
         activeComponentId={activeComponentId}
         t={t}
         onSelect={onSelect}
+        onFocus={onFocus}
       />
     </div>
   );

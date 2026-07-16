@@ -142,7 +142,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
           ${
             isSelectedFile
               ? 'bg-element-bg dark:bg-element-hover shadow-sm ring-1 ring-inset ring-border-strong'
-              : 'hover:bg-element-bg dark:hover:bg-element-hover'
+              : 'hover:bg-element-hover'
           }`}
         style={{ paddingLeft: `${paddingLeft}px` }}
         onClick={handleClick}

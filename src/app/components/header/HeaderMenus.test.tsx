@@ -303,6 +303,12 @@ test('AI menu owns only AI assistant toolbox items without duplicating them in t
 
   assert.match(aiMenuMarkup, new RegExp(translations.en.aiInspection));
   assert.match(aiMenuMarkup, new RegExp(translations.en.aiConversation));
+  assert.equal(
+    new JSDOM(`<body>${aiMenuMarkup}</body>`).window.document.querySelectorAll(
+      'span.text-system-blue',
+    ).length,
+    2,
+  );
   assert.doesNotMatch(aiMenuMarkup, new RegExp(translations.en.collisionOptimizerDialog));
   assert.doesNotMatch(aiMenuMarkup, /Mesh Tools/);
 

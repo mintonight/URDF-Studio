@@ -35,6 +35,7 @@ import {
 } from '../utils/inspectionProfileSelection';
 
 interface InspectionSetupViewProps {
+  compact?: boolean;
   robot: RobotState;
   lang: Language;
   t: TranslationKeys;
@@ -70,7 +71,14 @@ const TARGET_PLATFORM_OPTIONS: InspectionTargetPlatform[] = [
 
 type InspectionSourceFormat = NonNullable<RobotState['inspectionContext']>['sourceFormat'];
 
-const SOURCE_FORMAT_OPTIONS: InspectionSourceFormat[] = ['urdf', 'mjcf', 'usd', 'xacro', 'sdf', 'mesh'];
+const SOURCE_FORMAT_OPTIONS: InspectionSourceFormat[] = [
+  'urdf',
+  'mjcf',
+  'usd',
+  'xacro',
+  'sdf',
+  'mesh',
+];
 
 const ROBOT_TYPE_OPTIONS: InspectionRobotType[] = [
   'generic',
@@ -81,7 +89,13 @@ const ROBOT_TYPE_OPTIONS: InspectionRobotType[] = [
   'gripper',
 ];
 
-const PROFILE_LAYER_ORDER: InspectionProfileLayer[] = ['base', 'morph', 'format', 'target', 'workflow'];
+const PROFILE_LAYER_ORDER: InspectionProfileLayer[] = [
+  'base',
+  'morph',
+  'format',
+  'target',
+  'workflow',
+];
 
 function formatPurposeLabel(purpose: NormalInspectionPurpose, t: TranslationKeys) {
   const labels: Record<NormalInspectionPurpose, string> = {
@@ -455,7 +469,9 @@ function InspectionPlanEditorDialog({
                                     {relationLabel}
                                   </div>
                                 </div>
-                                {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-system-blue" />}
+                                {isSelected && (
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-system-blue" />
+                                )}
                               </div>
                             </button>
                           );
@@ -474,6 +490,7 @@ function InspectionPlanEditorDialog({
 }
 
 export function InspectionSetupView({
+  compact = false,
   robot,
   lang,
   t,
@@ -503,7 +520,8 @@ export function InspectionSetupView({
     (profile) => (selectedProfiles[profile.id]?.size ?? 0) > 0,
   ).length;
   const focusedProfile =
-    INSPECTION_PROFILE_DEFINITIONS.find((profile) => profile.id === focusedProfileId) ?? defaultProfile;
+    INSPECTION_PROFILE_DEFINITIONS.find((profile) => profile.id === focusedProfileId) ??
+    defaultProfile;
   const focusedSelectedItems = selectedProfiles[focusedProfile.id] ?? new Set<string>();
   const focusedProfileName = lang === 'zh' ? focusedProfile.nameZh : focusedProfile.name;
   const focusedLayerName = getInspectionProfileLayerName(focusedProfile.layer, lang);
@@ -537,9 +555,8 @@ export function InspectionSetupView({
   const handleConfirmPlanEditor = (nextProfiles: SelectedInspectionProfiles) => {
     onSelectedProfilesChange(nextProfiles);
     onFocusProfile(
-      INSPECTION_PROFILE_DEFINITIONS.find(
-        (profile) => (nextProfiles[profile.id]?.size ?? 0) > 0,
-      )?.id ?? defaultProfile.id,
+      INSPECTION_PROFILE_DEFINITIONS.find((profile) => (nextProfiles[profile.id]?.size ?? 0) > 0)
+        ?.id ?? defaultProfile.id,
     );
     setIsPlanEditorOpen(false);
   };
@@ -549,7 +566,9 @@ export function InspectionSetupView({
   };
   const selectedProfileSummaryText = `${selectedProfileCount}/${INSPECTION_PROFILE_DEFINITIONS.length}`;
   const hasCurrentProfiles = currentProfileSummaries.length > 0;
-  const gridTemplateClass = hasCurrentProfiles ? 'xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.35fr)]' : 'xl:grid-cols-1';
+  const gridTemplateClass = hasCurrentProfiles
+    ? 'xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.35fr)]'
+    : 'xl:grid-cols-1';
   const currentPlanLayerCount = currentProfileSummaryGroups.length;
   const currentPlanLayerSummary = currentPlanLayerCount > 0 ? `${currentPlanLayerCount}` : '0';
   const applicabilityOverride = {
@@ -570,7 +589,7 @@ export function InspectionSetupView({
   return (
     <section
       data-inspection-review-details="true"
-      className="flex min-h-0 flex-1 flex-col gap-4"
+      className={`flex min-h-0 flex-col gap-4 ${compact ? 'flex-none' : 'flex-1'}`}
     >
       <section
         data-inspection-recognition-panel="true"
@@ -672,7 +691,11 @@ export function InspectionSetupView({
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm">
+      <section
+        className={`flex min-h-0 flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm ${
+          compact ? 'flex-none' : 'flex-1'
+        }`}
+      >
         <div className="flex flex-col gap-3 border-b border-border-black px-4 py-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -713,7 +736,7 @@ export function InspectionSetupView({
           </div>
         </div>
 
-        <div className={`grid min-h-0 flex-1 gap-3 p-4 ${gridTemplateClass}`}>
+        <div className={`grid min-h-0 gap-3 p-4 ${compact ? '' : 'flex-1'} ${gridTemplateClass}`}>
           <section
             data-inspection-current-plan="true"
             className="flex min-h-0 flex-col rounded-xl border border-border-black bg-element-bg p-3"
@@ -742,7 +765,7 @@ export function InspectionSetupView({
                 {t.inspectionPlanLayers}: {currentPlanLayerSummary}
               </span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className={`min-h-0 flex-1 pr-1 ${compact ? '' : 'overflow-y-auto'}`}>
               {hasCurrentProfiles ? (
                 <div className="space-y-3">
                   {currentProfileSummaryGroups.map(({ layer, summaries }) => (
@@ -833,7 +856,7 @@ export function InspectionSetupView({
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <div className={`min-h-0 flex-1 p-3 ${compact ? '' : 'overflow-y-auto'}`}>
               <div className="grid gap-3 lg:grid-cols-2">
                 {focusedProfile.items.map((item) => {
                   const isSelected = focusedSelectedItems.has(item.id);
@@ -859,7 +882,9 @@ export function InspectionSetupView({
                           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
                             {item.id}
                           </div>
-                          <h4 className="mt-1 text-sm font-semibold text-text-primary">{itemName}</h4>
+                          <h4 className="mt-1 text-sm font-semibold text-text-primary">
+                            {itemName}
+                          </h4>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             <span
                               className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${

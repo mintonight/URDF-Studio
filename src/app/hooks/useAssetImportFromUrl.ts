@@ -9,6 +9,13 @@ import {
   stripImportParamsFromUrl,
 } from '@/shared/utils/popupHandoffProtocol';
 import { getRuntimeLanguageTranslations } from '@/shared/i18n';
+import { resolveAssetDownloadEndpoint } from './assetDownloadEndpoint';
+
+export {
+  resolveAssetDownloadEndpoint,
+  setAssetDownloadEndpointResolver,
+  type AssetDownloadEndpointResolver,
+} from './assetDownloadEndpoint';
 
 // ---------------------------------------------------------------------------
 //  Title blink utility — draws attention to an existing tab
@@ -204,39 +211,12 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
     setState({ isImporting: true, error: null, phase: 'fetching', progress: null });
 
     try {
-      const apiUrl = new URL('/api/download-asset', remoteImportOrigin);
-
-      // ----------------------------------------------------------------------
-      // 鉴权 token —— 切勿删除！
-      //
-      // 历史教训：这段 token 逻辑曾被当作“死代码”清理（commit 173cf727），
-      // 直接导致从 BOT-World 导入资产时全部 401。恢复前请务必阅读本注释。
-      //
-      // botbase 后端的 POST /api/download-asset 由 AuthenticateToken 中间件保护
-      // （botbase/internal/middleware/middleware.go），它只接受两种凭证：
-      //   1. 查询参数 ?token=<VITE_API_TOKEN>
-      //   2. 请求头 Authorization: Bearer <VITE_API_TOKEN>
-      // 两者都缺 → 401；值不匹配 → 403。
-      //
-      // 不要加 credentials:'include'：该接口完全不读 cookie / session，仅校验
-      // 上述静态服务级 token。加了反而会让浏览器在跨域调用时强制要求响应头
-      // Access-Control-Allow-Credentials: true —— 本地 vite dev 代理没设这个头，
-      // 导致从 BOT-World handoff 导入资产时 preflight 失败（生产 nginx 有配，所以
-      // 线上不报错）。BotWorld 自己的同源调用也不带 credentials，两边保持一致。
-      //
-      // token 值由 Vite 在构建时从环境变量 VITE_API_TOKEN 注入。仓库不提交 .env
-      // 是有意为之（生产由部署环境注入），本地源码看不到值 ≠ 死代码。取值必须与
-      // botbase 后端 .env 的 VITE_API_TOKEN 一致（当前 urdf_studio_secret_token_2026）。
-      // 参考：botbase/docs/conventions.md
-      // ----------------------------------------------------------------------
-      const token = import.meta.env.VITE_API_TOKEN;
+      const apiUrl = resolveAssetDownloadEndpoint(remoteImportOrigin);
 
       const response = await fetch(apiUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // 必须保留：本接口唯一的鉴权方式，缺失则 401（见上方注释）
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ assetId }),
       });

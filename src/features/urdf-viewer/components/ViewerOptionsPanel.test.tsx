@@ -57,7 +57,9 @@ function createComponentRoot() {
 function resetSelectionStore() {
   const state = useSelectionStore.getState();
   state.setInteractionGuard(null);
-  state.setHoverFrozen(false);
+  state.interactionHoverFreezeOwners.forEach((owner) => {
+    useSelectionStore.getState().setHoverFrozen(owner, false);
+  });
   while (useSelectionStore.getState().hoverBlockCount > 0) {
     useSelectionStore.getState().endHoverBlock();
   }

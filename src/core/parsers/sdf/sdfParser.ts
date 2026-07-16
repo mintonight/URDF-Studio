@@ -188,11 +188,21 @@ function parseFloatSafe(value: string | null | undefined, fallback = 0): number 
 }
 
 function parseNumberTuple(text: string | null | undefined): number[] {
-  return (text ?? '')
-    .trim()
-    .split(/\s+/)
-    .map((value) => Number.parseFloat(value))
-    .filter((value) => Number.isFinite(value));
+  const normalized = (text ?? '').trim();
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized.split(/\s+/).map((value) => parseFloatSafe(value, 0));
+}
+
+function parseOptionalFiniteElement(parent: Element, tagName: string): number | undefined {
+  const value = getFirstDirectChild(parent, tagName)?.textContent;
+  if (value == null || value.trim() === '') {
+    return undefined;
+  }
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function parseVec3(text: string | null | undefined): Vector3 {
@@ -1570,6 +1580,7 @@ function parseSdfModel(
     const jointType = mapSdfJointType(jointEl.getAttribute('type'));
     const axisEl = getFirstDirectChild(jointEl, 'axis');
     const limitEl = getFirstDirectChild(axisEl ?? jointEl, 'limit');
+    const limitContainer = limitEl ?? jointEl;
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
     const mimic = parseJointMimic(axisEl, namespacePrefix);
 
@@ -1632,6 +1643,16 @@ function parseSdfModel(
       }
     }
 
+    const lower = parseOptionalFiniteElement(limitContainer, 'lower');
+    const upper = parseOptionalFiniteElement(limitContainer, 'upper');
+    const effort = parseOptionalFiniteElement(limitContainer, 'effort');
+    const velocity = parseOptionalFiniteElement(limitContainer, 'velocity');
+    const limit = {
+      ...(lower !== undefined ? { lower } : {}),
+      ...(upper !== undefined ? { upper } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+      ...(velocity !== undefined ? { velocity } : {}),
+    };
     const joint: UrdfJoint = {
       ...DEFAULT_JOINT,
       id: jointId,
@@ -1641,22 +1662,26 @@ function parseSdfModel(
       childLinkId,
       origin,
       axis,
-      limit: isUnlimitedRevolute
-        ? undefined
-        : LIMIT_IMPORT_TYPES.has(effectiveJointType)
-          ? {
-              lower: parsedLower,
-              upper: parsedUpper,
-              effort: parseFloatSafe(
-                getFirstDirectChild(limitContainerEl, 'effort')?.textContent,
-                0,
-              ),
-              velocity: parseFloatSafe(
-                getFirstDirectChild(limitContainerEl, 'velocity')?.textContent,
-                0,
-              ),
-            }
-          : undefined,
+      limit: LIMIT_IMPORT_TYPES.has(jointType)
+        ? {
+            lower: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent,
+              -Infinity,
+            ),
+            upper: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent,
+              Infinity,
+            ),
+            effort: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent,
+              0,
+            ),
+            velocity: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent,
+              0,
+            ),
+          }
+        : undefined,
       dynamics: {
         damping: parseFloatSafe(
           getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent,

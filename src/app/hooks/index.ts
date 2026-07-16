@@ -26,3 +26,7 @@ export { useWorkspaceModeTransitions } from './useWorkspaceModeTransitions';
 export { useLibraryFileActions } from './useLibraryFileActions';
 export { useToolItems } from './useToolItems.tsx';
 export { usePluginLaunch } from './usePluginLaunch';
+export {
+  setAssetDownloadEndpointResolver,
+  type AssetDownloadEndpointResolver,
+} from './assetDownloadEndpoint';

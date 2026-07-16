@@ -188,9 +188,9 @@ function getNormalPlanSelectedItemCount(robot: RobotState = createRobotFixture()
 
 function getSetupModeButton(container: Element, label: string): HTMLButtonElement | null {
   return (
-    Array.from(container.querySelectorAll<HTMLButtonElement>(
-      '[data-inspection-setup-mode-switcher] button',
-    )).find((button) => button.textContent?.trim() === label) ?? null
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-inspection-setup-mode-switcher] button'),
+    ).find((button) => button.textContent?.trim() === label) ?? null
   );
 }
 
@@ -1208,16 +1208,16 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
       'expected target usage dropdown to hold a recognized target value',
     );
     assert.equal(
-      (reviewDetails.querySelector<HTMLSelectElement>(
+      reviewDetails.querySelector<HTMLSelectElement>(
         '[data-inspection-recognition-select="sourceFormat"]',
-      )?.value),
+      )?.value,
       'urdf',
       'expected source format to render as a dropdown',
     );
     assert.equal(
-      (reviewDetails.querySelector<HTMLSelectElement>(
+      reviewDetails.querySelector<HTMLSelectElement>(
         '[data-inspection-recognition-select="robotType"]',
-      )?.value),
+      )?.value,
       'generic',
       'expected robot type to render as a dropdown',
     );
@@ -1228,10 +1228,7 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
     const targetProfileButton = container.querySelector<HTMLButtonElement>(
       '[data-inspection-current-plan-profile="base.physical_plausibility"]',
     );
-    assert.ok(
-      targetProfileButton,
-      'expected current plan profiles to be directly focusable',
-    );
+    assert.ok(targetProfileButton, 'expected current plan profiles to be directly focusable');
 
     await act(async () => {
       targetProfileButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -1528,11 +1525,12 @@ test('professional mode status badge toggles the inspection item selection', asy
       '[data-inspection-focused-profile-panel="true"]',
     );
     assert.ok(focusedProfilePanel, 'expected the focused profile checks panel to render');
-    const severityLabel = firstItem!.severityOnFailure === 'error'
-      ? '错误'
-      : firstItem!.severityOnFailure === 'warning'
-        ? '警告'
-        : '建议';
+    const severityLabel =
+      firstItem!.severityOnFailure === 'error'
+        ? '错误'
+        : firstItem!.severityOnFailure === 'warning'
+          ? '警告'
+          : '建议';
     assert.equal(
       focusedProfilePanel!.textContent?.includes(severityLabel),
       false,
@@ -2300,6 +2298,62 @@ test('inspection setup keeps the mode switcher visually centered in the header',
   }
 });
 
+test('compact professional setup exposes one vertical scroll viewport', async () => {
+  const dom = installDom();
+  Object.defineProperty(dom.window, 'innerWidth', { value: 613, configurable: true });
+  Object.defineProperty(dom.window, 'innerHeight', { value: 618, configurable: true });
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const compactModeSwitcher = container.querySelector<HTMLElement>(
+      '[data-inspection-setup-mode-switcher]',
+    );
+    assert.ok(compactModeSwitcher, 'expected the compact mode switcher to render');
+    assert.equal(compactModeSwitcher.className.includes('absolute'), false);
+
+    await act(async () => {
+      getSetupModeButton(container, t.inspectionAdvancedMode)?.dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true }),
+      );
+    });
+
+    const scrollViewport = container.querySelector<HTMLElement>(
+      '[data-inspection-advanced-scroll-viewport]',
+    );
+    assert.ok(scrollViewport, 'expected professional setup to render its scroll viewport');
+    assert.equal(scrollViewport.className.includes('overflow-y-auto'), true);
+    assert.equal(
+      container
+        .querySelector<HTMLElement>('[data-inspection-review-details="true"]')
+        ?.className.includes('flex-none'),
+      true,
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('inspection setup header uses the toolbox AI inspection logo', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -2409,7 +2463,10 @@ test('professional setup summary chip uses content-based width instead of stretc
     await switchInspectionSetupMode(container, dom, translations.zh.inspectionAdvancedMode);
 
     const summaryChip = container.querySelector<HTMLElement>('[data-inspection-setup-summary]');
-    assert.ok(summaryChip, 'expected the professional setup footer to render a summary chip wrapper');
+    assert.ok(
+      summaryChip,
+      'expected the professional setup footer to render a summary chip wrapper',
+    );
     assert.equal(
       summaryChip.className.includes('inline-flex'),
       true,
