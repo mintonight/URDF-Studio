@@ -4,6 +4,7 @@ import {
   COLLISION_OPTIMIZATION_DEFAULT_PRIMARY_WIDTH,
   COLLISION_OPTIMIZATION_DIVIDER_WIDTH,
   getCollisionOptimizationPrimaryWidthRange,
+  shouldStackCollisionOptimizationPanels,
 } from './collisionOptimizationSplitLayout';
 
 const KEYBOARD_RESIZE_STEP = 16;
@@ -45,6 +46,7 @@ export function CollisionOptimizationSplitPane({
   const [preferredPrimaryWidth, setPreferredPrimaryWidth] = useState(
     COLLISION_OPTIMIZATION_DEFAULT_PRIMARY_WIDTH,
   );
+  const isStacked = shouldStackCollisionOptimizationPanels(dialogWidth);
   const range = useMemo(
     () => getCollisionOptimizationPrimaryWidthRange(dialogWidth),
     [dialogWidth],
@@ -61,8 +63,11 @@ export function CollisionOptimizationSplitPane({
   };
 
   useEffect(() => {
+    if (isStacked) {
+      return;
+    }
     applyPrimaryWidth(splitPaneRef.current, separatorRef.current, primaryWidth);
-  }, [primaryWidth]);
+  }, [isStacked, primaryWidth]);
 
   const resize = usePointerResize({
     axis: 'x',
@@ -102,30 +107,38 @@ export function CollisionOptimizationSplitPane({
   return (
     <div
       ref={splitPaneRef}
-      data-collision-optimization-layout="split"
-      className="grid h-full min-h-0 min-w-0"
+      data-collision-optimization-layout={isStacked ? 'stacked' : 'split'}
+      className={
+        isStacked
+          ? 'grid h-full min-h-[36rem] min-w-0 grid-cols-1 grid-rows-2 gap-2'
+          : 'grid h-full min-h-0 min-w-0'
+      }
       style={{
-        gridTemplateColumns: `${primaryWidth}px ${COLLISION_OPTIMIZATION_DIVIDER_WIDTH}px minmax(0, 1fr)`,
+        gridTemplateColumns: isStacked
+          ? undefined
+          : `${primaryWidth}px ${COLLISION_OPTIMIZATION_DIVIDER_WIDTH}px minmax(0, 1fr)`,
       }}
     >
       {primary}
 
-      <button
-        ref={separatorRef}
-        type="button"
-        {...windowSplitterAccessibilityProps}
-        aria-label={resizeLabel}
-        aria-controls={`${primaryPanelId} ${secondaryPanelId}`}
-        data-collision-optimization-splitter="true"
-        onKeyDown={handleSeparatorKeyDown}
-        onMouseDown={resize.handleResizeStart}
-        className={`group relative z-10 h-full cursor-col-resize border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-system-blue/30 ${
-          resize.isDragging ? 'bg-system-blue/8' : ''
-        }`}
-      >
-        <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-black transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/70" />
-        <span className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-tertiary/25 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-active:bg-system-blue/60 group-active:opacity-100" />
-      </button>
+      {!isStacked ? (
+        <button
+          ref={separatorRef}
+          type="button"
+          {...windowSplitterAccessibilityProps}
+          aria-label={resizeLabel}
+          aria-controls={`${primaryPanelId} ${secondaryPanelId}`}
+          data-collision-optimization-splitter="true"
+          onKeyDown={handleSeparatorKeyDown}
+          onMouseDown={resize.handleResizeStart}
+          className={`group relative z-10 h-full cursor-col-resize border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-system-blue/30 ${
+            resize.isDragging ? 'bg-system-blue/8' : ''
+          }`}
+        >
+          <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-black transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/70" />
+          <span className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-tertiary/25 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-active:bg-system-blue/60 group-active:opacity-100" />
+        </button>
+      ) : null}
 
       {secondary}
     </div>

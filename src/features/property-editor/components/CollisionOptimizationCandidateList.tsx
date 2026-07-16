@@ -95,21 +95,21 @@ function FlowSourceChip({
     <div
       className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border px-1.25 py-0.75 text-left ${toneClass}`}
     >
-      <div className="flex h-5.5 w-5.5 items-center justify-center rounded-md border border-border-black bg-element-bg text-[6.5px] font-semibold tracking-[0.1em] text-text-secondary">
+      <div className="flex h-6 w-6 items-center justify-center rounded-md border border-border-black bg-element-bg text-[9px] font-semibold tracking-[0.08em] text-text-secondary">
         {getPrimitiveMonogram(target.geometry.type)}
       </div>
 
       <div className="min-w-0 flex items-center gap-0.75">
-        <span className="truncate text-[9px] font-semibold text-text-primary">
+        <span className="truncate text-[11px] font-semibold text-text-primary">
           {target.linkName}
         </span>
         {slotLabel ? (
-          <span className="hidden shrink-0 rounded-full border border-border-black bg-element-bg px-1.25 py-0.5 text-[6.5px] font-medium text-text-tertiary @[340px]:inline">
+          <span className="hidden shrink-0 rounded-full border border-border-black bg-element-bg px-1.5 py-0.5 text-[9px] font-medium text-text-tertiary @[340px]:inline">
             {slotLabel}
           </span>
         ) : null}
         {target.componentName ? (
-          <span className="hidden truncate text-[6.5px] text-text-tertiary @[380px]:inline">
+          <span className="hidden truncate text-[9px] text-text-tertiary @[380px]:inline">
             {labels.component}: {target.componentName}
           </span>
         ) : null}
@@ -133,7 +133,7 @@ export function CollisionOptimizationCandidateList({
 }: CollisionOptimizationCandidateListProps) {
   if (candidates.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2.5 py-4 text-center text-[10px] leading-relaxed text-text-secondary">
+      <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-3 py-4 text-center text-xs leading-relaxed text-text-secondary">
         {labels.noCandidates}
       </div>
     );
@@ -160,7 +160,7 @@ export function CollisionOptimizationCandidateList({
         return (
           <div
             key={candidateKey}
-            className={`rounded-lg border px-1.25 py-0.75 transition-colors ${toneClass}`}
+            className={`rounded-lg border px-2 py-1.5 transition-colors ${toneClass}`}
           >
             <div className="flex items-center gap-1.5">
               <Checkbox
@@ -198,7 +198,7 @@ export function CollisionOptimizationCandidateList({
                       }`}
                     >
                       {index > 0 ? (
-                        <span className="shrink-0 text-[8px] font-semibold text-text-tertiary">
+                        <span className="shrink-0 text-[11px] font-semibold text-text-tertiary">
                           +
                         </span>
                       ) : null}
@@ -210,7 +210,7 @@ export function CollisionOptimizationCandidateList({
                     </div>
                   ))}
                   {sources.length > 1 ? (
-                    <span className="shrink-0 rounded-full border border-border-black bg-element-bg px-1 py-0.5 text-[7px] font-semibold text-text-tertiary @[360px]:hidden">
+                    <span className="shrink-0 rounded-full border border-border-black bg-element-bg px-1.5 py-0.5 text-[9px] font-semibold text-text-tertiary @[360px]:hidden">
                       +{sources.length - 1}
                     </span>
                   ) : null}
@@ -221,16 +221,16 @@ export function CollisionOptimizationCandidateList({
                 <div className="min-w-0 flex-1 rounded-md border border-system-blue/20 bg-system-blue/8 px-1 py-1">
                   <div className="flex min-w-0 items-center justify-between gap-1">
                     <div className="min-w-0 flex items-center gap-1">
-                      <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-md border border-system-blue/25 bg-panel-bg px-0.75 text-[6px] font-semibold tracking-[0.08em] text-system-blue">
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-system-blue/25 bg-panel-bg px-1 text-[8px] font-semibold tracking-[0.08em] text-system-blue">
                         {getPrimitiveMonogram(effectiveType)}
                       </span>
-                      <span className="hidden truncate text-[9px] font-semibold text-text-primary @[250px]:inline">
+                      <span className="hidden truncate text-[11px] font-semibold text-text-primary @[250px]:inline">
                         {targetLabel}
                       </span>
                     </div>
 
                     <span
-                      className={`hidden shrink-0 rounded-full border px-1.25 py-0.5 text-[6px] font-medium @[390px]:inline ${
+                      className={`hidden shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium @[390px]:inline ${
                         candidate.eligible
                           ? 'border-system-blue/20 bg-panel-bg text-system-blue'
                           : 'border-border-black bg-panel-bg text-text-tertiary'

@@ -15,7 +15,10 @@ import {
   type CollisionOptimizationCandidateListLabels,
 } from './CollisionOptimizationCandidateList.tsx';
 import { CollisionOptimizationSplitPane } from './CollisionOptimizationSplitPane.tsx';
-import { getCollisionOptimizationPrimaryWidthRange } from './collisionOptimizationSplitLayout.ts';
+import {
+  getCollisionOptimizationPrimaryWidthRange,
+  shouldStackCollisionOptimizationPanels,
+} from './collisionOptimizationSplitLayout.ts';
 import {
   CollisionOptimizationStrategyPanel,
   type CollisionOptimizationStrategyPanelLabels,
@@ -146,6 +149,37 @@ test('split pane preserves usable panel widths as the dialog narrows', () => {
   assert.deepEqual(getCollisionOptimizationPrimaryWidthRange(820), { min: 200, max: 512 });
   assert.deepEqual(getCollisionOptimizationPrimaryWidthRange(560), { min: 200, max: 252 });
   assert.deepEqual(getCollisionOptimizationPrimaryWidthRange(420), { min: 200, max: 200 });
+  assert.equal(shouldStackCollisionOptimizationPanels(720), false);
+  assert.equal(shouldStackCollisionOptimizationPanels(719), true);
+});
+
+test('split pane stacks panels and removes the splitter at narrow widths', async () => {
+  const { container, dom, root } = createComponentRoot();
+
+  try {
+    await act(async () => {
+      root.render(
+        <CollisionOptimizationSplitPane
+          dialogWidth={640}
+          primary={<div id="candidate-pane">Candidates</div>}
+          primaryPanelId="candidate-pane"
+          resizeLabel="Resize candidates"
+          secondary={<div id="editor-pane">Editor</div>}
+          secondaryPanelId="editor-pane"
+        />,
+      );
+    });
+
+    assert.equal(
+      container
+        .querySelector('[data-collision-optimization-layout]')
+        ?.getAttribute('data-collision-optimization-layout'),
+      'stacked',
+    );
+    assert.equal(container.querySelector('[role="separator"]'), null);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
 });
 
 test('splitter exposes its range and supports keyboard resizing', async () => {
@@ -155,7 +189,7 @@ test('splitter exposes its range and supports keyboard resizing', async () => {
     await act(async () => {
       root.render(
         <CollisionOptimizationSplitPane
-          dialogWidth={560}
+          dialogWidth={820}
           primary={<div id="candidate-pane">Candidates</div>}
           primaryPanelId="candidate-pane"
           resizeLabel="Resize candidates"
@@ -168,8 +202,8 @@ test('splitter exposes its range and supports keyboard resizing', async () => {
     const splitter = container.querySelector<HTMLElement>('[role="separator"]');
     assert.ok(splitter, 'splitter should render');
     assert.equal(splitter.getAttribute('aria-valuemin'), '200');
-    assert.equal(splitter.getAttribute('aria-valuemax'), '252');
-    assert.equal(splitter.getAttribute('aria-valuenow'), '252');
+    assert.equal(splitter.getAttribute('aria-valuemax'), '512');
+    assert.equal(splitter.getAttribute('aria-valuenow'), '430');
 
     await act(async () => {
       splitter.dispatchEvent(
@@ -190,7 +224,7 @@ test('splitter exposes its range and supports keyboard resizing', async () => {
         new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'End' }),
       );
     });
-    assert.equal(splitter.getAttribute('aria-valuenow'), '252');
+    assert.equal(splitter.getAttribute('aria-valuenow'), '512');
   } finally {
     await destroyComponentRoot(dom, root);
   }

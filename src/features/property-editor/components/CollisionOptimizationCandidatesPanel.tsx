@@ -127,18 +127,16 @@ export function CollisionOptimizationCandidatesPanel({
     <div
       id={id}
       data-collision-optimization-panel="candidates"
-      className="@container min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg"
+      className="@container flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg"
     >
       <div className="shrink-0 border-b border-border-black bg-panel-bg px-1.75 py-1.25">
         <div className="space-y-1.25">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="min-w-0 flex flex-1 items-center gap-1.5">
-              <div className="shrink-0 text-[10px] font-semibold text-text-primary">
-                {labels.title}
-              </div>
+              <div className="shrink-0 text-xs font-semibold text-text-primary">{labels.title}</div>
               <div
                 aria-label={`${labels.eligible} ${eligibleCount}, ${labels.selectedCount} ${activeSelectionCount}`}
-                className={`inline-flex min-w-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] tabular-nums ${
+                className={`inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] tabular-nums ${
                   activeSelectionCount > 0
                     ? 'border-system-blue/20 bg-system-blue/10 text-system-blue'
                     : 'border-border-black bg-element-bg text-text-tertiary'
@@ -154,7 +152,7 @@ export function CollisionOptimizationCandidatesPanel({
               {manualMergePairs.length > 0 ? (
                 <span
                   title={labels.clearManualPairs}
-                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border-black bg-element-bg px-1.25 py-0.5 text-[9px] text-text-tertiary"
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border-black bg-element-bg px-2 py-0.5 text-[11px] text-text-tertiary"
                 >
                   <Link2 className="h-2.5 w-2.5" />
                   {manualMergePairs.length}
@@ -199,7 +197,7 @@ export function CollisionOptimizationCandidatesPanel({
               onChange={onScopeChange}
               ariaLabel={labels.title}
               className="w-full"
-              itemClassName="text-[9px] @[320px]:text-[10px]"
+              itemClassName="text-[11px]"
               options={[
                 { value: 'all', label: labels.scopeAll },
                 { value: 'mesh', label: labels.scopeMesh },
@@ -214,7 +212,7 @@ export function CollisionOptimizationCandidatesPanel({
               onChange={onViewModeChange}
               ariaLabel={`${labels.viewList} / ${labels.viewGraph}`}
               className="w-full"
-              itemClassName="text-[9px] @[320px]:text-[10px]"
+              itemClassName="text-[11px]"
               options={[
                 { value: 'list', label: labels.viewList },
                 { value: 'graph', label: labels.viewGraph },
@@ -226,20 +224,20 @@ export function CollisionOptimizationCandidatesPanel({
 
       <div className="min-h-0 flex-1 overflow-hidden p-0.75">
         {isAnalyzing ? (
-          <div className="flex h-full flex-col items-center justify-center gap-1.5 text-[10px] text-text-tertiary">
+          <div className="flex h-full flex-col items-center justify-center gap-1.5 text-xs text-text-tertiary">
             <Loader2 className="h-4.5 w-4.5 animate-spin" />
             <span>{labels.analyzing}</span>
           </div>
         ) : isSelectedScopeWithoutSelection ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2 py-3 text-center text-[9px] leading-relaxed text-text-secondary">
+            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-3 py-4 text-center text-[11px] leading-relaxed text-text-secondary">
               <MousePointerClick className="mx-auto mb-1.5 h-4.5 w-4.5 text-text-tertiary" />
               {labels.noSelectedCollision}
             </div>
           </div>
         ) : candidates.length === 0 || !analysis ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2 py-3 text-center text-[9px] leading-relaxed text-text-secondary">
+            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-3 py-4 text-center text-[11px] leading-relaxed text-text-secondary">
               {labels.noCandidates}
             </div>
           </div>

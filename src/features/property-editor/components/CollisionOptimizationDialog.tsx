@@ -112,7 +112,7 @@ function createManualMergePairKey(primaryTargetId: string, secondaryTargetId: st
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 mt-2 text-[8.5px] font-semibold tracking-[0.02em] text-text-tertiary first:mt-0">
+    <div className="mb-1.5 mt-2.5 text-[11px] font-semibold tracking-[0.02em] text-text-tertiary first:mt-0">
       {children}
     </div>
   );
@@ -150,13 +150,13 @@ function StatCard({
 
   return (
     <div
-      className={`flex w-full min-w-0 items-center justify-between gap-1.5 rounded-md border px-1.75 py-1 ${surfaceClass}`}
+      className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-2 ${surfaceClass}`}
     >
-      <div className={`flex min-w-0 items-center gap-1.25 ${accentClass}`}>
+      <div className={`flex min-w-0 items-center gap-1.5 ${accentClass}`}>
         <span className="shrink-0">{icon}</span>
-        <span className="truncate text-[8px] font-medium tracking-[0.02em]">{label}</span>
+        <span className="truncate text-[11px] font-medium tracking-[0.02em]">{label}</span>
       </div>
-      <div className={`shrink-0 text-[10px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
+      <div className={`shrink-0 text-[13px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }
@@ -172,10 +172,8 @@ function StrategyField({
 }) {
   return (
     <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-2">
-      <div className="text-[10px] font-medium leading-tight text-text-primary">{label}</div>
-      {desc ? (
-        <div className="mt-0.5 text-[9px] leading-snug text-text-tertiary">{desc}</div>
-      ) : null}
+      <div className="text-xs font-medium leading-tight text-text-primary">{label}</div>
+      {desc ? <div className="mt-1 text-[11px] leading-snug text-text-tertiary">{desc}</div> : null}
       <div className={`${desc ? 'mt-1.5' : 'mt-1'} flex flex-wrap gap-1`}>{children}</div>
     </div>
   );
@@ -306,14 +304,14 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
     }
 
     return {
-      width: Math.min(840, Math.max(800, Math.round(window.innerWidth * 0.48))),
-      height: Math.min(500, Math.max(400, Math.round(window.innerHeight * 0.52))),
+      width: Math.min(840, Math.max(480, Math.round(window.innerWidth - 24))),
+      height: Math.min(560, Math.max(400, Math.round(window.innerHeight - 120))),
     };
   }, []);
 
   const windowState = useDraggableWindow({
     defaultSize: defaultWindowSize,
-    minSize: { width: 560, height: 380 },
+    minSize: { width: 480, height: 380 },
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -1062,7 +1060,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
     }),
     [copy],
   );
-  const statsGridClass = 'grid-cols-4';
+  const statsGridClass = isDenseLayout ? 'grid-cols-2' : 'grid-cols-4';
   const settingsLayoutClass = isWideLayout
     ? 'grid grid-cols-[minmax(0,1.35fr)_minmax(280px,0.95fr)] items-start gap-2.5'
     : 'space-y-2.5';
@@ -1104,7 +1102,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
             <Sparkles className="h-3 w-3" />
           </div>
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold text-text-primary">{copy.title}</div>
+            <div className="text-[13px] font-semibold text-text-primary">{copy.title}</div>
           </div>
         </div>
       }
@@ -1149,7 +1147,9 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`min-h-0 flex-1 ${isDenseLayout ? 'overflow-y-auto' : 'overflow-hidden'}`}
+          >
             <CollisionOptimizationSplitPane
               dialogWidth={dialogWidth}
               primaryPanelId="collision-optimization-candidates-panel"
@@ -1199,7 +1199,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                   className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg"
                 >
                   <div className="shrink-0 border-b border-border-black bg-panel-bg px-2 py-1.5">
-                    <div className="text-[10px] font-semibold text-text-primary">
+                    <div className="text-xs font-semibold text-text-primary">
                       {copy.panelSettings}
                     </div>
                   </div>
@@ -1243,10 +1243,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                         className="flex w-full items-center justify-between rounded-lg border border-border-black bg-element-bg px-2 py-1.5 text-left transition-colors hover:border-border-strong hover:bg-element-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                       >
                         <div>
-                          <div className="text-[10px] font-semibold text-text-primary">
+                          <div className="text-xs font-semibold text-text-primary">
                             {copy.defaultStrategies}
                           </div>
-                          <div className="mt-0.5 text-[9px] text-text-tertiary">
+                          <div className="mt-1 text-[11px] text-text-tertiary">
                             {showDefaultStrategies
                               ? copy.hideDefaultStrategies
                               : copy.showDefaultStrategies}
@@ -1333,10 +1333,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                           className={`rounded-lg border border-border-black bg-panel-bg px-2 py-2 gap-2 ${isDenseLayout ? 'flex flex-col' : 'flex items-start justify-between'}`}
                         >
                           <div className="min-w-0">
-                            <div className="text-[10px] font-medium leading-tight text-text-primary">
+                            <div className="text-xs font-medium leading-tight text-text-primary">
                               {copy.avoidSiblingOverlap}
                             </div>
-                            <div className="mt-0.5 text-[9px] leading-relaxed text-text-tertiary">
+                            <div className="mt-1 text-[11px] leading-relaxed text-text-tertiary">
                               {copy.avoidSiblingOverlapDesc}
                             </div>
                           </div>
@@ -1356,7 +1356,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                             className={`grid gap-1.5 ${isDenseLayout ? 'grid-cols-1' : 'grid-cols-2'}`}
                           >
                             <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
-                              <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
+                              <div className="text-[11px] font-medium tracking-[0.02em] text-text-tertiary">
                                 {copy.warningBefore}
                               </div>
                               <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
@@ -1364,7 +1364,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                               </div>
                             </div>
                             <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
-                              <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
+                              <div className="text-[11px] font-medium tracking-[0.02em] text-text-tertiary">
                                 {copy.warningAfter}
                               </div>
                               <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
@@ -1387,7 +1387,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
         className={`shrink-0 gap-2 border-t border-border-black bg-element-bg px-2.5 py-2 ${isCompactLayout ? 'flex flex-wrap items-center' : 'flex items-center'}`}
       >
         <div
-          className={`flex items-center gap-1.25 text-[9px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
+          className={`flex items-center gap-1.25 text-[11px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
         >
           <RefreshCw className="h-3 w-3" />
           <span>{footerLabel}</span>
