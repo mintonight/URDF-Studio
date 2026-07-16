@@ -362,7 +362,7 @@ export const TreeNode = memo(function TreeNode({
   const hasGeometry = hasVisual || hasCollision;
   const isLinkVisible = link.visible !== false;
   const linkConnectorHighlighted =
-    isLinkSelected || isLinkHovered || isLinkAttentionHighlighted;
+    isLinkSelected || isLinkAttentionHighlighted;
   const selectedLinkActionClass =
     'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
 
@@ -425,7 +425,7 @@ export const TreeNode = memo(function TreeNode({
         onMouseLeave={readOnly ? undefined : clearCanonicalHover}
       >
         <div
-          className={getTreeConnectorElbowClass(selected || hovered || attention)}
+          className={getTreeConnectorElbowClass(selected || attention)}
           style={getTreeConnectorElbowStyle(12)}
         />
         <div
@@ -490,7 +490,7 @@ export const TreeNode = memo(function TreeNode({
     );
     const JointTypeIcon = getJointTypeIcon(joint.type);
     const jointTypeLabel = getJointTypeLabel(joint.type, t);
-    const branchHighlighted = selected || hovered || attention
+    const branchHighlighted = selected || attention
       || selectionTargets(selection, childLinkRef);
 
     return (
@@ -532,7 +532,7 @@ export const TreeNode = memo(function TreeNode({
           onMouseLeave={readOnly ? undefined : clearCanonicalHover}
         >
           <div
-            className={getTreeConnectorElbowClass(selected || hovered || attention)}
+            className={getTreeConnectorElbowClass(selected || attention)}
             style={getTreeConnectorElbowStyle(5)}
           />
           <div

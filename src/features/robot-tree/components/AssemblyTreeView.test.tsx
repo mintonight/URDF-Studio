@@ -229,6 +229,8 @@ test('multi-component and bridge rows retain the legacy polished presentation', 
   assert.ok(componentRow, 'component row');
   assert.match(componentRow.className, /\brounded-md\b/);
   assert.match(componentRow.className, /\btransition-all\b/);
+  assert.match(componentRow.className, /\bhover:bg-element-hover\/80\b/);
+  assert.doesNotMatch(componentRow.className, /\bhover:bg-system-blue\/10\b/);
   assert.ok(
     componentRow.querySelector(`[title="${translations.en.bridgedComponentLockedHint}"]`),
     'bridged component should keep its connected-lock status icon',
@@ -250,6 +252,10 @@ test('link, joint, and geometry rows keep legacy icons, connectors, visibility, 
       t: translations.zh,
     })),
   );
+  const dom = new JSDOM(markup);
+  const document = dom.window.document;
+  const linkRow = document.querySelector('[data-testid="tree-link-left-base_link"] > div');
+  const jointRow = document.querySelector('[data-testid="tree-joint-left-hinge"]');
 
   assert.match(markup, /data-testid="tree-connector-rail-left-base_link"/);
   assert.match(markup, /lucide-shapes/);
@@ -262,6 +268,13 @@ test('link, joint, and geometry rows keep legacy icons, connectors, visibility, 
   assert.match(markup, /aria-label="toggle-link-visibility-left-base_link"/);
   assert.match(markup, /aria-label="toggle-geometry-visibility-left-base_link-visual-0"/);
   assert.match(markup, /aria-label="toggle-geometry-visibility-left-base_link-collision-0"/);
+  assert.ok(linkRow, 'link row');
+  assert.ok(jointRow, 'joint row');
+  assert.match(linkRow.className, /\bhover:bg-element-hover\/80\b/);
+  assert.match(jointRow.className, /\bhover:bg-element-hover\/80\b/);
+  assert.doesNotMatch(linkRow.className, /\bhover:bg-system-blue\/10\b/);
+  assert.doesNotMatch(jointRow.className, /\bhover:bg-system-blue\/10\b/);
+  dom.window.close();
 });
 
 test('legacy visibility controls keep canonical component ownership', async () => {
