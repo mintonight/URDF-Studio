@@ -4,9 +4,12 @@
  */
 export {
   getAiBackendAuthToken,
+  getAssetDownloadAuthToken,
   resolveAssetDownloadEndpoint,
   setAiBackendAuthTokenProvider,
+  setAssetDownloadAuthTokenProvider,
   setAssetDownloadEndpointResolver,
   type AiBackendAuthTokenProvider,
+  type AssetDownloadAuthTokenProvider,
   type AssetDownloadEndpointResolver,
 } from './shared/hostIntegrationState';

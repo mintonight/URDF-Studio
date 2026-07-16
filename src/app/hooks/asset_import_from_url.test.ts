@@ -5,11 +5,13 @@ import {
   assertRemoteImportBlobWithinLimits,
   assertRemoteImportContentLengthWithinLimits,
   assertRemoteImportFileListWithinLimits,
+  buildAssetDownloadRequestHeaders,
   resolveAllowedRemoteImportOrigin,
   type FileDownloadInfo,
 } from './useAssetImportFromUrl.ts';
 import {
   resolveAssetDownloadEndpoint,
+  setAssetDownloadAuthTokenProvider,
   setAssetDownloadEndpointResolver,
 } from './assetDownloadEndpoint.ts';
 import {
@@ -57,6 +59,33 @@ test('asset import never embeds a Vite service credential in browser code', asyn
     readFile(new URL('./useAssetImportFromUrl.ts', import.meta.url), 'utf8'),
   );
   assert.doesNotMatch(source, /VITE_API_TOKEN|BOTBASE_API_TOKEN/);
+});
+
+test('asset download request headers carry a shell-provided Bearer token', () => {
+  // Arrange: hosting shell registers a service-token provider
+  setAssetDownloadAuthTokenProvider(() => 'service-token-from-shell');
+  try {
+    // Act
+    const headers = buildAssetDownloadRequestHeaders();
+
+    // Assert: token read at call time, surfaced as a Bearer header
+    assert.equal(headers.Authorization, 'Bearer service-token-from-shell');
+    assert.equal(headers['Content-Type'], 'application/json');
+  } finally {
+    setAssetDownloadAuthTokenProvider(null);
+  }
+});
+
+test('asset download request headers omit Authorization when no provider is registered', () => {
+  // Arrange: no hosting shell → BYOK / unauthenticated local dev
+  setAssetDownloadAuthTokenProvider(null);
+
+  // Act
+  const headers = buildAssetDownloadRequestHeaders();
+
+  // Assert: never an "Authorization: Bearer undefined" leak
+  assert.equal(Object.hasOwn(headers, 'Authorization'), false);
+  assert.equal(headers['Content-Type'], 'application/json');
 });
 
 test('remote import file list rejects excessive file counts before download', () => {
