@@ -913,10 +913,13 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   paintOperation: string;
   paintOperationPaint: string;
   paintOperationErase: string;
+  paintOperationEraseActive: string;
+  paintEraseHint: string;
   paintUnsupportedRobotOnly: string;
   paintStatusReady: string;
   paintStatusApplied: string;
   paintStatusRemoved: string;
+  paintStatusNothingToRestore: string;
   paintErrorVisualMeshOnly: string;
   paintErrorMultiMaterial: string;
   paintErrorFaceUnavailable: string;

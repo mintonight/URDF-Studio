@@ -230,9 +230,12 @@ function createPaletteMaterial({
   }
 
   if (parsedColor && (nextMaterial as THREE.MeshStandardMaterial).color?.isColor) {
-    (nextMaterial as THREE.MeshStandardMaterial).color.copy(parsedColor.color);
+    const colorMaterial = nextMaterial as THREE.MeshStandardMaterial;
+    colorMaterial.color.copy(parsedColor.color);
+    colorMaterial.toneMapped = false;
+    colorMaterial.userData.originalColor = parsedColor.color.clone();
     if (slotIndex > 0) {
-      (nextMaterial as THREE.MeshStandardMaterial).map = null;
+      colorMaterial.map = null;
     }
   }
 

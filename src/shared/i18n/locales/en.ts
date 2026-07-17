@@ -990,18 +990,23 @@ export const en: TranslationKeys = {
   paintTool: 'Paint',
   paintColor: 'Paint Color',
   paintToolHint:
-    'Paint edits visual surfaces through the same face or face-island material workflow.',
+    'How to use: choose Paint or Restore Original, then click the model. Selection Scope controls the affected area.',
   paintSelectionScope: 'Selection Scope',
-  paintSelectionFace: 'Face',
-  paintSelectionIsland: 'Island',
-  paintOperation: 'Edit Mode',
+  paintSelectionFace: 'Triangle',
+  paintSelectionIsland: 'Connected Surface',
+  paintOperation: 'Operation',
   paintOperationPaint: 'Paint',
-  paintOperationErase: 'Erase',
+  paintOperationErase: 'Restore Original',
+  paintOperationEraseActive: 'Active · Click Model',
+  paintEraseHint:
+    'The restore tool is active. Click a painted surface on the model to restore its original material using the current selection scope.',
   paintUnsupportedRobotOnly:
     'Paint mode currently only works on the RobotModel mesh canvas in Editor. USD and offscreen stages are not supported.',
   paintStatusReady: 'Ready to paint the clicked visual surface.',
   paintStatusApplied: 'Paint applied to the selected visual surface.',
   paintStatusRemoved: 'Paint removed from the selected visual surfaces.',
+  paintStatusNothingToRestore:
+    'This surface has no paint to restore. Paint it first, or click an area that is still painted.',
   paintErrorVisualMeshOnly: 'Paint only supports visual geometry with selectable faces.',
   paintErrorMultiMaterial:
     'Paint does not yet support editing built-in multi-material targets that were not authored by the paint tool.',

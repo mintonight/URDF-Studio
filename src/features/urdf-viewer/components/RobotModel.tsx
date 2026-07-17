@@ -188,6 +188,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     paintColor = '#ff6c0a',
     paintSelectionScope = 'island',
     paintOperation = 'paint',
+    paintInteractionRef,
     onPaintStatusChange,
     onJointChange,
     onJointChangeCommit,
@@ -654,6 +655,10 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
 
     const handlePaintFace = useCallback(
       async ({ linkId, objectIndex, mesh, faceIndex }: ViewerPaintFaceHit) => {
+        const activePaintColor = paintInteractionRef?.current.color ?? paintColor;
+        const activePaintOperation = paintInteractionRef?.current.operation ?? paintOperation;
+        const activePaintSelectionScope =
+          paintInteractionRef?.current.selectionScope ?? paintSelectionScope;
         if (isMeshPreview) {
           onPaintStatusChange?.({
             tone: 'error',
@@ -713,7 +718,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         const selectedFaceIndices = resolveMeshFaceSelection(
           mesh.geometry,
           faceIndex,
-          paintSelectionScope,
+          activePaintSelectionScope,
         );
         if (selectedFaceIndices.length === 0) {
           onPaintStatusChange?.({
@@ -725,24 +730,40 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
 
         const meshRoot = resolveRuntimeMeshRootWithinVisual(mesh);
         const meshKey = resolveRuntimeMeshMaterialGroupKey(mesh, meshRoot);
-        const baseMaterial = visualGeometry.authoredMaterials?.[0] ?? {
-          name: `paint_base_${objectIndex}`,
-          color: resolvedMaterial.color ?? undefined,
+        const runtimeBaseMaterial = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        const runtimeMaterialState = runtimeBaseMaterial as {
+          color?: { isColor?: boolean; getHexString?: () => string };
+          userData?: {
+            originalColor?: { isColor?: boolean; getHexString?: () => string };
+          };
+        };
+        const runtimeBaseColor =
+          runtimeMaterialState.userData?.originalColor?.isColor
+            ? runtimeMaterialState.userData.originalColor
+            : runtimeMaterialState.color;
+        const baseMaterial = {
+          name: visualGeometry.authoredMaterials?.[0]?.name ?? `paint_base_${objectIndex}`,
+          color:
+            runtimeBaseColor?.isColor && runtimeBaseColor.getHexString
+              ? `#${runtimeBaseColor.getHexString()}`
+              : (resolvedMaterial.color ?? undefined),
           colorRgba: resolvedMaterial.colorRgba ?? undefined,
           opacity: resolvedMaterial.opacity ?? undefined,
           texture: resolvedMaterial.texture ?? undefined,
         };
+        const paintEdit = applyMeshMaterialPaintEdit({
+          geometry: visualGeometry,
+          meshKey,
+          triangleCount,
+          selectedFaceIndices,
+          paintColor: activePaintColor,
+          erase: activePaintOperation === 'erase',
+          baseMaterial,
+          materialNamePrefix: `paint_${linkId}_${objectIndex}`,
+        });
+        const { changed, ...geometryPatch } = paintEdit;
         const nextLink = updateVisualGeometryByObjectIndex(link, objectIndex, {
-          ...applyMeshMaterialPaintEdit({
-            geometry: visualGeometry,
-            meshKey,
-            triangleCount,
-            selectedFaceIndices,
-            paintColor,
-            erase: paintOperation === 'erase',
-            baseMaterial,
-            materialNamePrefix: `paint_${linkId}_${objectIndex}`,
-          }),
+          ...geometryPatch,
           color: undefined,
         });
         if (!onUpdate) {
@@ -752,10 +773,17 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
           });
           return;
         }
+        if (activePaintOperation === 'erase' && !changed) {
+          onPaintStatusChange?.({
+            tone: 'info',
+            message: t.paintStatusNothingToRestore,
+          });
+          return;
+        }
         onUpdate('link', link.id, nextLink);
         onPaintStatusChange?.({
           tone: 'success',
-          message: paintOperation === 'erase' ? t.paintStatusRemoved : t.paintStatusApplied,
+          message: activePaintOperation === 'erase' ? t.paintStatusRemoved : t.paintStatusApplied,
         });
       },
       [
@@ -764,6 +792,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         onPaintStatusChange,
         onUpdate,
         paintColor,
+        paintInteractionRef,
         paintOperation,
         paintSelectionScope,
         effectiveRobotLinks,

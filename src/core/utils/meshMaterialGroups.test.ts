@@ -51,6 +51,11 @@ test('applyVisualMeshMaterialGroupsToObject restores geometry groups and materia
   assert.equal(materials.length, 2);
   const paintedMaterial = materials[1] as THREE.MeshStandardMaterial;
   assert.equal(paintedMaterial.color.getHexString(), '33aa44');
+  assert.equal(paintedMaterial.toneMapped, false);
+  assert.equal(
+    (paintedMaterial.userData.originalColor as THREE.Color).getHexString(),
+    '33aa44',
+  );
   assert.ok(Math.abs(paintedMaterial.opacity - 0.45) <= 1e-6);
   assert.equal(paintedMaterial.transparent, true);
   assert.ok(Math.abs(paintedMaterial.roughness - 0.2) <= 1e-6);

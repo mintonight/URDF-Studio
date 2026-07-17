@@ -297,6 +297,11 @@ export interface ApplyMeshMaterialPaintEditOptions {
   materialNamePrefix?: string;
 }
 
+export interface MeshMaterialPaintEditResult
+  extends Pick<UrdfVisual, 'authoredMaterials' | 'meshMaterialGroups'> {
+  changed: boolean;
+}
+
 export function applyMeshMaterialPaintEdit({
   geometry,
   meshKey,
@@ -306,23 +311,23 @@ export function applyMeshMaterialPaintEdit({
   erase = false,
   baseMaterial,
   materialNamePrefix = 'paint_slot',
-}: ApplyMeshMaterialPaintEditOptions): Pick<
-  UrdfVisual,
-  'authoredMaterials' | 'meshMaterialGroups'
-> {
+}: ApplyMeshMaterialPaintEditOptions): MeshMaterialPaintEditResult {
   const normalizedMeshKey = normalizeMeshKey(meshKey);
   if (!normalizedMeshKey || triangleCount <= 0) {
     return {
       authoredMaterials: normalizeGeometryAuthoredMaterials(geometry),
       meshMaterialGroups: getGeometryMeshMaterialGroups(geometry),
+      changed: false,
     };
   }
 
   const existingGroups = getGeometryMeshMaterialGroups(geometry);
   const authoredMaterials = normalizeGeometryAuthoredMaterials(geometry);
+  const normalizedBaseMaterial = normalizeAuthoredMaterialEntry(baseMaterial);
   const baseMaterialEntry =
-    normalizeAuthoredMaterialEntry(authoredMaterials[0]) ??
-    normalizeAuthoredMaterialEntry(baseMaterial) ??
+    (existingGroups.length > 0
+      ? normalizeAuthoredMaterialEntry(authoredMaterials[0]) ?? normalizedBaseMaterial
+      : normalizedBaseMaterial ?? normalizeAuthoredMaterialEntry(authoredMaterials[0])) ??
     normalizeAuthoredMaterialEntry({ color: geometry.color });
   const nextAuthoredMaterials = [
     baseMaterialEntry ?? {},
@@ -340,6 +345,7 @@ export function applyMeshMaterialPaintEdit({
     triangleCount,
     getGeometryMeshMaterialGroupsForMesh(geometry, normalizedMeshKey),
   );
+  const previousAssignments = currentAssignments.slice();
   let targetMaterialIndex = 0;
 
   if (!erase) {
@@ -388,5 +394,8 @@ export function applyMeshMaterialPaintEdit({
           ? [compactedMaterials[0]]
           : undefined,
     meshMaterialGroups: compactedGroups.length > 0 ? compactedGroups : undefined,
+    changed: currentAssignments.some(
+      (materialIndex, faceIndex) => materialIndex !== previousAssignments[faceIndex],
+    ),
   };
 }
