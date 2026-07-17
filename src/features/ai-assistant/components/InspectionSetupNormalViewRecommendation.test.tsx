@@ -64,18 +64,15 @@ test('normal setup view shows the profile recommendation card', async () => {
     await act(async () => {
       root.render(
         <InspectionSetupNormalView
-          lang="en"
           t={translations.en}
-          plan={plan}
+          automaticPlan={plan}
           override={{}}
           onOverrideChange={() => {}}
         />,
       )
     })
 
-    const card = container.querySelector<HTMLElement>(
-      '[data-inspection-profile-recommendation-card]',
-    )
+    const card = container.querySelector<HTMLElement>('[data-inspection-recognition-panel="true"]')
     assert.ok(card, 'expected the recommendation card to render')
     assert.match(
       card.className,
@@ -85,7 +82,19 @@ test('normal setup view shows the profile recommendation card', async () => {
     assert.match(card.textContent ?? '', /Recommended Plan/)
     assert.match(card.textContent ?? '', /URDF/)
     assert.match(card.textContent ?? '', /Inspection Purpose/)
-    assert.match(card.textContent ?? '', /Adjust Scope/)
+    const selects = Array.from(card.querySelectorAll('select'))
+    assert.equal(selects.length, 4)
+    assert.equal(
+      selects.every((select) => select.value === ''),
+      true,
+      'automatic recommendation should remain selected until the user adds an override',
+    )
+    assert.match(card.textContent ?? '', /PurposeAuto/)
+    assert.equal(
+      card.querySelectorAll('[data-inspection-recognition-auto]').length,
+      4,
+    )
+    assert.equal(selects[0]?.selectedOptions[0]?.textContent, 'Basic Health')
   } finally {
     await act(async () => {
       root.unmount()
