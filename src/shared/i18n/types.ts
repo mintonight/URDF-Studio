@@ -14,6 +14,7 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   aiMenu: string;
   aiInspection: string;
   aiConversation: string;
+  feedback: string;
   file: string;
   import: string;
   importFolder: string;

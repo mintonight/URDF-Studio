@@ -314,7 +314,7 @@ export function HeaderMenus({
             onPointerDown={onPrefetchCodeViewer}
             data-testid="source-code-open"
             variant="ghost"
-            size="xs"
+            size="sm"
             className="whitespace-nowrap px-2.5 text-text-secondary hover:text-text-primary"
             title={t.sourceCode}
             aria-label={t.sourceCode}

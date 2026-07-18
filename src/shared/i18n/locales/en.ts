@@ -15,6 +15,7 @@ export const en: TranslationKeys = {
   aiMenu: 'AI',
   aiInspection: 'AI Inspection',
   aiConversation: 'AI Conversation',
+  feedback: 'Feedback',
   file: 'File',
   import: 'Import',
   importFolder: 'Import Folder',

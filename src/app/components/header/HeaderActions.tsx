@@ -1,4 +1,12 @@
-import { Camera, Languages, Moon, Monitor, Settings, Sun } from 'lucide-react';
+import {
+  Camera,
+  Languages,
+  MessageCircleQuestionMark,
+  Moon,
+  Monitor,
+  Settings,
+  Sun,
+} from 'lucide-react';
 import { Button, IconButton } from '@/shared/components/ui';
 import type { Theme } from '@/types';
 import type {
@@ -8,6 +16,9 @@ import type {
   HeaderMenuKey,
 } from './types';
 import { HeaderOverflowMenu } from './HeaderOverflowMenu';
+
+export const FEEDBACK_FORM_URL =
+  'https://enkeebot.feishu.cn/share/base/form/shrcnok1dXPePgAxuu2qnXiVxYf';
 
 interface HeaderActionsProps {
   responsive: HeaderResponsiveLayout;
@@ -194,6 +205,21 @@ function SettingsButton({
   );
 }
 
+function FeedbackButton({ label }: { label: string }) {
+  return (
+    <a
+      href={FEEDBACK_FORM_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-text-secondary transition-all duration-200 hover:bg-element-hover hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+      title={label}
+      aria-label={label}
+    >
+      <MessageCircleQuestionMark className="h-4 w-4" />
+    </a>
+  );
+}
+
 export function HeaderActions({
   responsive,
   lang,
@@ -246,6 +272,7 @@ export function HeaderActions({
         setTheme={setTheme}
         label={t.toggleTheme}
       />
+      <FeedbackButton label={t.feedback} />
       <HeaderDivider show={showThemeInline || showDesktopOverflow} />
 
       {showDesktopOverflow && (

@@ -15,6 +15,7 @@ export const zh: TranslationKeys = {
   aiMenu: 'AI',
   aiInspection: 'AI审阅',
   aiConversation: 'AI 对话',
+  feedback: '反馈',
   file: '文件',
   import: '导入',
   importFolder: '导入文件夹',
