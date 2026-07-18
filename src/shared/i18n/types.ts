@@ -96,6 +96,12 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   add: string;
   bridgedComponent: string;
   bridgedComponentLockedHint: string;
+  lockEditing: string;
+  unlockEditing: string;
+  editingLockedByComponent: string;
+  editingLockedByAncestor: string;
+  editingLockedBadge: string;
+  editingLockedMessage: string;
   bridgeLimitRangeInvalid: string;
   bridgeNonFixedCycleUnsupported: string;
   bridgeTabRelation: string;

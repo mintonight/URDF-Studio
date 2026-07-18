@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { Suspense } from 'react';
 
 import { AppLayoutOverlays } from './AppLayoutOverlays';
 import { FileDropOverlay } from './FileDropOverlay';
@@ -10,11 +10,9 @@ import type { AppLayoutViewProps } from './app_layout_view_types';
 import { WorkspaceSidebars } from './workspace/WorkspaceSidebars';
 import { WorkspaceViewerLayer } from './workspace/WorkspaceViewerLayer';
 import { resolveDocumentLoadingOverlayTargetFileName } from '../utils/documentLoadProgress';
+import { SnapshotDialog } from '../utils/overlayLoaders';
 import { ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
-
-const SnapshotDialog = lazy(() =>
-  import('./SnapshotDialog').then((m) => ({ default: m.SnapshotDialog })),
-);
+import { isWorkspaceSelectionEditorLocked } from '@/core/robot';
 
 interface AppLayoutViewContentProps extends AppLayoutViewProps {
   shouldSuppressDocumentLoadingOverlay: boolean;
@@ -100,15 +98,18 @@ function AppLayoutHeaderSection({
       onImportFile={() => importInputs.importInputRef.current?.click()}
       onImportFolder={() => importInputs.importFolderInputRef.current?.click()}
       onOpenExport={header.onOpenExport}
+      onPrefetchExport={header.onPrefetchExport}
       onExportProject={header.onExportProject}
       isExportingProject={header.isExportingProject}
       toolboxItems={header.toolboxItems}
       onOpenCodeViewer={header.handleOpenCodeViewer}
       onPrefetchCodeViewer={header.handlePrefetchCodeViewer}
       onOpenSettings={header.onOpenSettings}
+      onPrefetchSettings={header.onPrefetchSettings}
       quickAction={header.headerQuickAction}
       secondaryAction={header.headerSecondaryAction}
       onSnapshot={header.handleSnapshot}
+      onPrefetchSnapshot={header.handlePrefetchSnapshot}
       viewConfig={header.viewConfig}
       viewAvailability={{ jointPanel: true }}
       setViewConfig={header.setViewConfig}
@@ -209,6 +210,10 @@ function WorkspaceSidebarsSection({
   workspaceChrome,
   sidebars,
 }: Pick<AppLayoutViewProps, 'workspaceChrome' | 'sidebars'>) {
+  const selectionEditorLocked = isWorkspaceSelectionEditorLocked(
+    sidebars.workspace,
+    sidebars.selection,
+  );
   return (
     <WorkspaceSidebars
       leftSidebarClassName={workspaceChrome.classNames.leftSidebarLayer}
@@ -243,6 +248,7 @@ function WorkspaceSidebarsSection({
         onDeleteAllLibraryFiles: sidebars.handleDeleteAllLibraryFiles,
         onExportLibraryFile: sidebars.handleExportLibraryFile,
         onCreateBridge: sidebars.handleCreateBridge,
+        onPrefetchCreateBridge: sidebars.handlePrefetchCreateBridge,
         isReadOnly: sidebars.isPreviewingWorkspaceSource,
         showJointPanel: sidebars.viewConfig.showJointPanel,
         showStructureGraph: sidebars.viewConfig.showStructureGraph,
@@ -281,6 +287,11 @@ function WorkspaceSidebarsSection({
         onToggle: sidebars.onToggleRightSidebar,
         readOnlyMessage: sidebars.isPreviewingWorkspaceSource
           ? sidebars.t.previewReadOnlyHint
+          : selectionEditorLocked
+            ? sidebars.t.editingLockedMessage
+            : undefined,
+        readOnlyBadge: !sidebars.isPreviewingWorkspaceSource && selectionEditorLocked
+          ? sidebars.t.editingLockedBadge
           : undefined,
         jointTypeLocked: sidebars.selection?.entity.type === 'bridge',
         sourceFilePath: sidebars.viewerSourceFilePath,
@@ -336,6 +347,7 @@ function AppLayoutOverlaysSection({ overlays }: Pick<AppLayoutViewProps, 'overla
       isCodeViewerOpen={overlays.isCodeViewerOpen}
       sourceCodeDocuments={overlays.sourceCodeEditorDocuments}
       autoApplyEnabled={overlays.sourceCodeAutoApply}
+      loadingSourceCodeEditorLabel={overlays.labels.loadingSourceCodeEditor}
       onCloseCodeViewer={() => overlays.setIsCodeViewerOpen(false)}
       theme={overlays.theme}
       lang={overlays.lang}

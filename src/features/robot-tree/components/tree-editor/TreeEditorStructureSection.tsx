@@ -49,6 +49,7 @@ interface TreeEditorStructureSectionProps {
   onDelete: (ref: EntityRef) => void;
   onUpdate: (ref: EntityRef, patch: WorkspacePropertyPatch) => void;
   onCreateBridge?: () => void;
+  onPrefetchCreateBridge?: () => void;
   isReadOnly?: boolean;
   onCloseStructureGraph?: () => void;
 }
@@ -77,6 +78,7 @@ export function TreeEditorStructureSection({
   onDelete,
   onUpdate,
   onCreateBridge,
+  onPrefetchCreateBridge,
   isReadOnly = false,
   onCloseStructureGraph,
 }: TreeEditorStructureSectionProps) {
@@ -224,6 +226,7 @@ export function TreeEditorStructureSection({
             onDelete={onDelete}
             onUpdate={onUpdate}
             onCreateBridge={onCreateBridge}
+            onPrefetchCreateBridge={onPrefetchCreateBridge}
             showAssemblyRoot={false}
             mode={mode}
             t={t}

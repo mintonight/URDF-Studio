@@ -26,7 +26,9 @@ interface HeaderActionsProps {
   onOpenCodeViewer: () => void;
   onPrefetchCodeViewer: () => void;
   onSnapshot: () => void;
+  onPrefetchSnapshot: () => void;
   onOpenSettings: () => void;
+  onPrefetchSettings: () => void;
   t: HeaderTranslations;
 }
 
@@ -62,10 +64,12 @@ function InlineActionButton({ action, show, showLabel }: InlineActionButtonProps
 function SnapshotButton({
   show,
   onSnapshot,
+  onPrefetchSnapshot,
   label,
 }: {
   show: boolean;
   onSnapshot: () => void;
+  onPrefetchSnapshot: () => void;
   label: string;
 }) {
   if (!show) {
@@ -76,6 +80,9 @@ function SnapshotButton({
     <IconButton
       type="button"
       onClick={onSnapshot}
+      onPointerEnter={onPrefetchSnapshot}
+      onPointerDown={onPrefetchSnapshot}
+      onFocus={onPrefetchSnapshot}
       variant="ghost"
       size="md"
       className="hidden h-7 w-7 sm:flex"
@@ -170,10 +177,12 @@ function HeaderDivider({ show }: { show: boolean }) {
 function SettingsButton({
   show,
   onOpenSettings,
+  onPrefetchSettings,
   label,
 }: {
   show: boolean;
   onOpenSettings: () => void;
+  onPrefetchSettings: () => void;
   label: string;
 }) {
   if (!show) {
@@ -184,6 +193,9 @@ function SettingsButton({
     <IconButton
       type="button"
       onClick={onOpenSettings}
+      onPointerEnter={onPrefetchSettings}
+      onPointerDown={onPrefetchSettings}
+      onFocus={onPrefetchSettings}
       variant="ghost"
       size="md"
       className="hidden h-7 w-7 sm:flex"
@@ -211,7 +223,9 @@ export function HeaderActions({
   onOpenCodeViewer,
   onPrefetchCodeViewer,
   onSnapshot,
+  onPrefetchSnapshot,
   onOpenSettings,
+  onPrefetchSettings,
   t,
 }: HeaderActionsProps) {
   const {
@@ -233,7 +247,12 @@ export function HeaderActions({
         show={showQuickActionInline}
         showLabel={showQuickActionLabel}
       />
-      <SnapshotButton show={showSnapshotInline} onSnapshot={onSnapshot} label={t.snapshot} />
+      <SnapshotButton
+        show={showSnapshotInline}
+        onSnapshot={onSnapshot}
+        onPrefetchSnapshot={onPrefetchSnapshot}
+        label={t.snapshot}
+      />
       <LanguageButton
         show={showLanguageInline}
         lang={lang}
@@ -266,7 +285,9 @@ export function HeaderActions({
           onOpenCodeViewer={onOpenCodeViewer}
           onPrefetchCodeViewer={onPrefetchCodeViewer}
           onSnapshot={onSnapshot}
+          onPrefetchSnapshot={onPrefetchSnapshot}
           onOpenSettings={onOpenSettings}
+          onPrefetchSettings={onPrefetchSettings}
           t={t}
           showQuickAction={Boolean(quickAction) && !showQuickActionInline}
           showSourceCode={!responsive.showSourceInline}
@@ -285,7 +306,12 @@ export function HeaderActions({
         showLabel={showSecondaryActionLabel}
       />
 
-      <SettingsButton show={showSettingsInline} onOpenSettings={onOpenSettings} label={t.settings} />
+      <SettingsButton
+        show={showSettingsInline}
+        onOpenSettings={onOpenSettings}
+        onPrefetchSettings={onPrefetchSettings}
+        label={t.settings}
+      />
 
       <HeaderOverflowMenu
         className="sm:hidden"
@@ -304,7 +330,9 @@ export function HeaderActions({
         onOpenCodeViewer={onOpenCodeViewer}
         onPrefetchCodeViewer={onPrefetchCodeViewer}
         onSnapshot={onSnapshot}
+        onPrefetchSnapshot={onPrefetchSnapshot}
         onOpenSettings={onOpenSettings}
+        onPrefetchSettings={onPrefetchSettings}
         t={t}
         showQuickAction={Boolean(quickAction)}
         showSourceCode

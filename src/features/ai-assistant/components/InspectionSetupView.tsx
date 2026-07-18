@@ -27,7 +27,6 @@ import {
 } from '../utils/inspectionProfileSelection';
 
 interface InspectionSetupViewProps {
-  compact?: boolean;
   robot: RobotState;
   lang: Language;
   t: TranslationKeys;
@@ -321,7 +320,6 @@ function InspectionPlanEditorDialog({
 }
 
 export function InspectionSetupView({
-  compact = false,
   robot,
   lang,
   t,
@@ -388,14 +386,10 @@ export function InspectionSetupView({
   return (
     <section
       data-inspection-review-details="true"
-      className={`flex min-h-0 flex-col gap-4 ${
-        compact ? 'flex-none' : 'flex-none xl:flex-1'
-      }`}
+      className="flex flex-none flex-col gap-4"
     >
       <section
-        className={`flex min-h-0 flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm ${
-          compact ? 'flex-none' : 'flex-none xl:flex-1'
-        }`}
+        className="flex flex-none flex-col rounded-2xl border border-border-black bg-panel-bg shadow-sm"
       >
         <div className="flex flex-col gap-3 border-b border-border-black px-4 py-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
@@ -437,7 +431,7 @@ export function InspectionSetupView({
           </div>
         </div>
 
-        <div className={`min-h-0 p-4 ${compact ? '' : 'xl:flex-1'}`}>
+        <div className="p-4">
           <section
             data-inspection-current-plan="true"
             className="flex min-h-0 flex-col rounded-xl border border-border-black bg-element-bg p-3"
@@ -466,7 +460,7 @@ export function InspectionSetupView({
                 {t.inspectionPlanLayers}: {currentPlanLayerSummary}
               </span>
             </div>
-            <div className={`min-h-0 flex-1 pr-1 ${compact ? '' : 'xl:overflow-y-auto'}`}>
+            <div className="pr-1">
               {hasCurrentProfiles ? (
                 <div className="space-y-3">
                   {currentProfileSummaryGroups.map(({ layer, summaries }) => (

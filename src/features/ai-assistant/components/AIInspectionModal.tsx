@@ -19,6 +19,7 @@ import {
   type InspectionRunContext,
 } from '../utils/inspectionRunContext';
 import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
+import { isInspectionItemApplicable } from '../utils/inspectionApplicability';
 import {
   buildNormalInspectionPlan,
   type NormalInspectionPlanOverride,
@@ -50,7 +51,6 @@ import {
   type InspectionSetupMode,
   type ReportScrollTarget,
   type RetestingItemState,
-  type SetupItemScrollTarget,
 } from './inspectionModalState';
 
 interface AIInspectionModalProps {
@@ -179,16 +179,6 @@ export function AIInspectionModal({
     [assemblyWorkflowContext, normalPlanOverride, robot],
   );
   const recommendedProfiles = normalInspectionPlan.selectedProfiles;
-  const normalInspectionPlanKey = useMemo(
-    () =>
-      normalInspectionPlan.includedProfileIds
-        .map(
-          (profileId) =>
-            `${profileId}:${normalInspectionPlan.selectedProfiles[profileId]?.size ?? 0}`,
-        )
-        .join('\u0000'),
-    [normalInspectionPlan],
-  );
   const normalInspectionPlanSelectionKey = useMemo(
     () =>
       normalInspectionPlan.includedProfileIds
@@ -258,8 +248,6 @@ export function AIInspectionModal({
   );
   const [pendingReportScrollTarget, setPendingReportScrollTarget] =
     useState<ReportScrollTarget | null>(null);
-  const [pendingSetupItemScrollTarget, setPendingSetupItemScrollTarget] =
-    useState<SetupItemScrollTarget | null>(null);
   const inspectionSidebarReadOnly = Boolean(inspectionProgress || inspectionReport);
 
   const isMountedRef = useRef(false);
@@ -286,26 +274,14 @@ export function AIInspectionModal({
   }, []);
 
   useEffect(() => {
-    const selectionSyncKey = `${inspectionSetupMode}:${normalInspectionPlanSelectionKey}`;
-    if (lastInspectionSetupSelectionSyncKeyRef.current === selectionSyncKey) {
+    if (
+      lastInspectionSetupSelectionSyncKeyRef.current === normalInspectionPlanSelectionKey
+    ) {
       return;
     }
 
-    lastInspectionSetupSelectionSyncKeyRef.current = selectionSyncKey;
-
-    if (inspectionSetupMode === 'normal') {
-      setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
-      setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
-      setFocusedProfileId(
-        normalInspectionPlan.includedProfileIds[0] ??
-          recommendedProfileIds[0] ??
-          INSPECTION_PROFILE_DEFINITIONS[0]?.id ??
-          '',
-      );
-      return;
-    }
-
-    setExpandedProfiles(new Set());
+    lastInspectionSetupSelectionSyncKeyRef.current = normalInspectionPlanSelectionKey;
+    setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
     setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
     setFocusedProfileId(
       normalInspectionPlan.includedProfileIds[0] ??
@@ -314,10 +290,8 @@ export function AIInspectionModal({
         '',
     );
   }, [
-    inspectionSetupMode,
     normalInspectionPlan.includedProfileIds,
     normalInspectionPlan.selectedProfiles,
-    normalInspectionPlanKey,
     normalInspectionPlanSelectionKey,
     recommendedProfileIds,
   ]);
@@ -577,39 +551,6 @@ export function AIInspectionModal({
     };
   }, [expandedProfiles, inspectionReport, pendingReportScrollTarget, scrollToReportAnchor]);
 
-  useEffect(() => {
-    if (
-      !pendingSetupItemScrollTarget ||
-      inspectionProgress ||
-      inspectionReport ||
-      inspectionSetupMode !== 'advanced'
-    ) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const target = reportScrollViewportRef.current?.querySelector<HTMLElement>(
-        `[data-inspection-setup-item-anchor="${pendingSetupItemScrollTarget.profileId}:${pendingSetupItemScrollTarget.itemId}"]`,
-      );
-
-      if (!target) {
-        return;
-      }
-
-      target.scrollIntoView?.({
-        behavior: 'smooth',
-        block: 'start',
-        inline: 'nearest',
-      });
-      target.focus({ preventScroll: true });
-      setPendingSetupItemScrollTarget(null);
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [inspectionProgress, inspectionReport, inspectionSetupMode, pendingSetupItemScrollTarget]);
-
   const handleDownloadPDF = () => {
     return exportInspectionReportPdf({
       inspectionReport,
@@ -671,6 +612,36 @@ export function AIInspectionModal({
     });
   }, []);
 
+  const handleToggleSelectedProfile = useCallback((profileId: string) => {
+    const profile = INSPECTION_PROFILE_DEFINITIONS.find(
+      (candidate) => candidate.id === profileId,
+    );
+    if (!profile) {
+      return;
+    }
+
+    setSelectedProfiles((current) => {
+      const nextItems =
+        (current[profileId]?.size ?? 0) > 0
+          ? []
+          : profile.items.filter(
+              (item) =>
+                isInspectionItemApplicable(robot, profileId, item.id, {
+                  sourceFormat: normalPlanOverride.sourceFormat,
+                  robotTypes: normalPlanOverride.robotType
+                    ? [normalPlanOverride.robotType]
+                    : undefined,
+                }) === 'applicable',
+            );
+
+      return {
+        ...current,
+        [profileId]: new Set(nextItems.map((item) => item.id)),
+      };
+    });
+    setFocusedProfileId(profileId);
+  }, [normalPlanOverride.robotType, normalPlanOverride.sourceFormat, robot]);
+
   const handleRestoreRecommendation = useCallback(() => {
     setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
     setSelectedProfiles(cloneSelectedInspectionProfiles(recommendedProfiles));
@@ -724,6 +695,9 @@ export function AIInspectionModal({
       <DraggableWindow
         window={windowState}
         onClose={handleClose}
+        role="dialog"
+        ariaLabel={t.aiInspection}
+        ariaModal={false}
         title={
           isSetupView ? (
             <div className="flex min-w-0 items-center gap-3">
@@ -832,15 +806,11 @@ export function AIInspectionModal({
                   <div
                     ref={reportScrollViewportRef}
                     data-inspection-advanced-scroll-viewport
-                    className={`flex min-h-0 min-w-0 flex-1 flex-col bg-app-bg dark:bg-panel-bg ${
-                      isCompactLayout
-                        ? 'overflow-y-auto'
-                        : 'overflow-y-auto xl:overflow-hidden'
-                    }`}
+                    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                   >
                     <div
-                      className={`flex min-h-0 flex-col gap-4 ${
-                        isCompactLayout ? 'flex-none p-3' : 'flex-none p-6 xl:flex-1'
+                      className={`flex flex-none flex-col gap-4 ${
+                        isCompactLayout ? 'p-3' : 'p-6'
                       }`}
                     >
                       {inspectionCancellationNotice && (
@@ -851,7 +821,6 @@ export function AIInspectionModal({
                         />
                       )}
                       <InspectionSetupView
-                        compact={isCompactLayout}
                         robot={robot}
                         lang={lang}
                         t={t}
@@ -882,10 +851,16 @@ export function AIInspectionModal({
                         </div>
                       )}
                       <InspectionSetupNormalView
+                        lang={lang}
                         t={t}
                         automaticPlan={automaticInspectionPlan}
                         override={normalPlanOverride}
+                        selectedProfiles={selectedProfiles}
+                        recommendedProfiles={recommendedProfiles}
                         onOverrideChange={setNormalPlanOverride}
+                        onToggleProfile={handleToggleSelectedProfile}
+                        onToggleItem={handleToggleSelectedItem}
+                        onRestoreRecommendation={handleRestoreRecommendation}
                       />
                     </div>
                   </div>
