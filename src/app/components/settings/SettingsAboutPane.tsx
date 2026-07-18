@@ -86,6 +86,38 @@ export function SettingsAboutPane({ t }: SettingsAboutPaneProps) {
         </div>
         <div className="space-y-1.5">
           <AboutLinkCard
+            href="https://botworld.enkeebot.com/"
+            icon={
+              <img
+                src="/logos/botworld-logo.png"
+                alt="BotWorld"
+                width={20}
+                height={20}
+                loading="eager"
+                decoding="async"
+                className="h-full w-full rounded-[inherit] object-contain p-1"
+              />
+            }
+            title="BotWorld"
+            description="一站式机器人资产平台"
+          />
+          <AboutLinkCard
+            href="https://motion.enkeebot.com/"
+            icon={
+              <img
+                src="/logos/motion-studio-logo.png"
+                alt="Motion Studio"
+                width={20}
+                height={20}
+                loading="eager"
+                decoding="async"
+                className="h-full w-full rounded-[inherit] object-contain p-1"
+              />
+            }
+            title="Motion Studio"
+            description="面向多款机器人的动捕数据处理与动作重定向 Web 工作台"
+          />
+          <AboutLinkCard
             href="https://github.com/OpenLegged/URDF-Studio"
             icon={<GitHubMark className="h-4.5 w-4.5" />}
             title="GitHub"
