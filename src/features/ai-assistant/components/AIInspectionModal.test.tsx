@@ -1177,6 +1177,21 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
       reviewDetails.querySelector('[data-inspection-current-plan="true"]'),
       'expected professional mode to show the editable current plan',
     );
+    const currentPlanViewport = reviewDetails.querySelector<HTMLElement>(
+      '[data-inspection-current-plan-viewport="true"]',
+    );
+    const currentPlan = reviewDetails.querySelector<HTMLElement>(
+      '[data-inspection-current-plan="true"]',
+    );
+    const currentPlanScroll = reviewDetails.querySelector<HTMLElement>(
+      '[data-inspection-current-plan-scroll="true"]',
+    );
+    assert.ok(currentPlanViewport, 'expected the current plan viewport to be height constrained');
+    assert.ok(currentPlan, 'expected the current plan panel to render');
+    assert.ok(currentPlanScroll, 'expected the current plan list to expose its own scroll area');
+    assert.equal(currentPlanViewport.className.includes('overflow-hidden'), true);
+    assert.equal(currentPlan.className.includes('flex-1'), true);
+    assert.equal(currentPlanScroll.className.includes('xl:overflow-y-auto'), true);
     assert.equal(
       reviewDetails.querySelector('[data-inspection-recommendation-baseline="true"]'),
       null,
@@ -1212,6 +1227,23 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
     assert.ok(
       reviewDetails.querySelector('[data-inspection-current-plan-profile-details]'),
       'expected profile checks to expand directly inside the current plan',
+    );
+    const profileToggles = reviewDetails.querySelectorAll<HTMLButtonElement>(
+      '[data-inspection-current-plan-profile-toggle]',
+    );
+    assert.ok(profileToggles.length >= 2, 'expected at least two current-plan profiles');
+    await act(async () => {
+      profileToggles[1]!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(
+      reviewDetails.querySelectorAll('[data-inspection-current-plan-profile-details]').length,
+      2,
+      'expected opening another profile to preserve the first expanded profile',
+    );
+    assert.equal(
+      profileToggle!.getAttribute('aria-expanded'),
+      'true',
+      'expected the first profile to remain expanded',
     );
     assert.ok(
       container.querySelector('[data-inspection-current-plan-profile="morph.quadruped"]'),
@@ -2365,6 +2397,11 @@ test('professional setup summary chip uses content-based width instead of stretc
       summaryChip.className.includes('w-fit'),
       true,
       'expected the professional setup summary chip to stop expanding toward the footer actions',
+    );
+    assert.equal(
+      summaryChip.textContent?.includes(translations.zh.inspectionMaxPossibleScore),
+      false,
+      'expected the professional setup summary to omit the theoretical maximum score',
     );
   } finally {
     await act(async () => {

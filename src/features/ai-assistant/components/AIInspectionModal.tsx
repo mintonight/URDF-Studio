@@ -275,7 +275,6 @@ export function AIInspectionModal({
   const selectedCoveragePercentage = Math.round(
     (selectedProfileCount / Math.max(INSPECTION_PROFILE_DEFINITIONS.length, 1)) * 100,
   );
-  const maxPossibleScore = totalSelectedCount * 10;
   const reportRobot = inspectionRobotSnapshot ?? robot;
 
   const clearInspectionTimer = useCallback(() => {
@@ -710,8 +709,7 @@ export function AIInspectionModal({
     `${t.inspectionRunDetails}${t.inspectionRunDetailsSeparator}` +
     `${t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))} | ` +
     `${t.inspectionSelectedCategories}: ${selectedProfileCount} | ` +
-    `${t.inspectionWeightedCoverage}: ${selectedCoveragePercentage}% | ` +
-    `${t.inspectionMaxPossibleScore}: ${maxPossibleScore}`;
+    `${t.inspectionWeightedCoverage}: ${selectedCoveragePercentage}%`;
 
   if (!isOpen) {
     return null;

@@ -335,7 +335,7 @@ export function InspectionSetupView({
   onRestoreProfileRecommendation,
 }: InspectionSetupViewProps) {
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
-  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+  const [expandedProfileIds, setExpandedProfileIds] = useState<Set<string>>(() => new Set());
   const defaultProfile = INSPECTION_PROFILE_DEFINITIONS[0];
   if (!defaultProfile) {
     return null;
@@ -437,10 +437,13 @@ export function InspectionSetupView({
           </div>
         </div>
 
-        <div className={`min-h-0 p-4 ${compact ? '' : 'xl:flex-1'}`}>
+        <div
+          data-inspection-current-plan-viewport="true"
+          className={`flex min-h-0 flex-col overflow-hidden p-4 ${compact ? '' : 'xl:flex-1'}`}
+        >
           <section
             data-inspection-current-plan="true"
-            className="flex min-h-0 flex-col rounded-xl border border-border-black bg-element-bg p-3"
+            className="flex min-h-0 flex-1 flex-col rounded-xl border border-border-black bg-element-bg p-3"
           >
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
@@ -466,7 +469,10 @@ export function InspectionSetupView({
                 {t.inspectionPlanLayers}: {currentPlanLayerSummary}
               </span>
             </div>
-            <div className={`min-h-0 flex-1 pr-1 ${compact ? '' : 'xl:overflow-y-auto'}`}>
+            <div
+              data-inspection-current-plan-scroll="true"
+              className={`min-h-0 flex-1 pr-1 ${compact ? '' : 'xl:overflow-y-auto'}`}
+            >
               {hasCurrentProfiles ? (
                 <div className="space-y-3">
                   {currentProfileSummaryGroups.map(({ layer, summaries }) => (
@@ -489,7 +495,7 @@ export function InspectionSetupView({
                             summary.relation === 'partial' ||
                             summary.relation === 'user_added' ||
                             summary.relation === 'user_removed';
-                          const isExpanded = expandedProfileId === summary.profileId;
+                          const isExpanded = expandedProfileIds.has(summary.profileId);
                           const profile = INSPECTION_PROFILE_DEFINITIONS.find(
                             (candidate) => candidate.id === summary.profileId,
                           );
@@ -513,9 +519,16 @@ export function InspectionSetupView({
                                 data-inspection-current-plan-profile-toggle={summary.profileId}
                                 aria-expanded={isExpanded}
                                 onClick={() => {
-                                  const nextProfileId = isExpanded ? null : summary.profileId;
-                                  setExpandedProfileId(nextProfileId);
-                                  if (nextProfileId) onFocusProfile(nextProfileId);
+                                  setExpandedProfileIds((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(summary.profileId)) {
+                                      next.delete(summary.profileId);
+                                    } else {
+                                      next.add(summary.profileId);
+                                    }
+                                    return next;
+                                  });
+                                  if (!isExpanded) onFocusProfile(summary.profileId);
                                 }}
                                 className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-system-blue/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-system-blue/30"
                               >
