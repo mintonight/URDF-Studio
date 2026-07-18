@@ -1,4 +1,5 @@
 import type { UrdfVisual, UrdfVisualMaterial, UrdfVisualMeshMaterialGroup } from '@/types';
+import { normalizeAuthoredMaterialEntry } from './visualMaterials';
 
 function normalizeMaterialValue(value?: string | null): string | undefined {
   const trimmed = String(value || '').trim();
@@ -12,44 +13,6 @@ function normalizeMeshKey(candidate: unknown): string | null {
 
   const trimmed = candidate.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeAuthoredMaterialEntry(
-  material: UrdfVisualMaterial | null | undefined,
-): UrdfVisualMaterial | null {
-  if (!material) {
-    return null;
-  }
-
-  const name = normalizeMaterialValue(material.name);
-  const color = normalizeMaterialValue(material.color);
-  const colorRgba =
-    Array.isArray(material.colorRgba) &&
-    material.colorRgba.length === 4 &&
-    material.colorRgba.every((value) => Number.isFinite(value))
-      ? ([
-          Number(material.colorRgba[0]),
-          Number(material.colorRgba[1]),
-          Number(material.colorRgba[2]),
-          Number(material.colorRgba[3]),
-        ] as [number, number, number, number])
-      : undefined;
-  const texture = normalizeMaterialValue(material.texture);
-  const opacity = Number.isFinite(material.opacity)
-    ? Math.min(1, Math.max(0, Number(material.opacity)))
-    : undefined;
-
-  if (!name && !color && !colorRgba && !texture && opacity === undefined) {
-    return null;
-  }
-
-  return {
-    ...(name ? { name } : {}),
-    ...(color ? { color } : {}),
-    ...(colorRgba ? { colorRgba } : {}),
-    ...(texture ? { texture } : {}),
-    ...(opacity !== undefined ? { opacity } : {}),
-  };
 }
 
 function normalizeMeshMaterialGroup(
@@ -324,10 +287,15 @@ export function applyMeshMaterialPaintEdit({
   const existingGroups = getGeometryMeshMaterialGroups(geometry);
   const authoredMaterials = normalizeGeometryAuthoredMaterials(geometry);
   const normalizedBaseMaterial = normalizeAuthoredMaterialEntry(baseMaterial);
+  const authoredBaseMaterial = normalizeAuthoredMaterialEntry(authoredMaterials[0]);
+  const firstPaintBaseMaterial = normalizeAuthoredMaterialEntry({
+    ...(authoredBaseMaterial ?? {}),
+    ...(normalizedBaseMaterial ?? {}),
+  });
   const baseMaterialEntry =
     (existingGroups.length > 0
-      ? normalizeAuthoredMaterialEntry(authoredMaterials[0]) ?? normalizedBaseMaterial
-      : normalizedBaseMaterial ?? normalizeAuthoredMaterialEntry(authoredMaterials[0])) ??
+      ? authoredBaseMaterial ?? normalizedBaseMaterial
+      : firstPaintBaseMaterial ?? normalizedBaseMaterial ?? authoredBaseMaterial) ??
     normalizeAuthoredMaterialEntry({ color: geometry.color });
   const nextAuthoredMaterials = [
     baseMaterialEntry ?? {},

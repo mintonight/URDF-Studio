@@ -673,7 +673,6 @@ export function TreeStructureGraphDialog({
   isOpen,
   onClose,
   workspace,
-  activeComponentId,
   t,
   onSelect,
   onFocus,
@@ -731,7 +730,7 @@ export function TreeStructureGraphDialog({
     }
 
     return buildAssemblyRootNodes(workspace, t);
-  }, [activeComponentId, t, workspace]);
+  }, [t, workspace]);
 
   const layout = useMemo(() => layoutGraph(rootNodes), [rootNodes]);
   const layoutKey = useMemo(() => getGraphLayoutKey(layout), [layout]);

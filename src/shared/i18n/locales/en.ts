@@ -112,6 +112,13 @@ export const en: TranslationKeys = {
   bridgedComponent: 'Connected',
   bridgedComponentLockedHint:
     'This component is already part of a bridge and cannot move independently.',
+  lockEditing: 'Lock editing',
+  unlockEditing: 'Unlock editing',
+  editingLockedByComponent: 'Editing is locked by the component',
+  editingLockedByAncestor: 'Editing is locked by a parent link',
+  editingLockedBadge: 'Locked',
+  editingLockedMessage:
+    'This item is locked. Unlock it in the scene tree before editing or moving it.',
   bridgeLimitRangeInvalid: 'Lower limit must be less than or equal to upper limit.',
   bridgeNonFixedCycleUnsupported:
     'Cycle-closing bridges only support fixed joints. Use a fixed bridge for closed-loop conversion.',
@@ -1010,7 +1017,7 @@ export const en: TranslationKeys = {
     'This surface has no paint to restore. Paint it first, or click an area that is still painted.',
   paintErrorVisualMeshOnly: 'Paint only supports visual geometry with selectable faces.',
   paintErrorMultiMaterial:
-    'Paint does not yet support editing built-in multi-material targets that were not authored by the paint tool.',
+    'Paint cannot safely edit this visual because it contains built-in material slots or child meshes with different base materials.',
   paintErrorFaceUnavailable: 'Could not resolve the clicked visual face.',
   paintErrorSelectionUnavailable:
     'Could not resolve a valid face selection from the clicked visual.',

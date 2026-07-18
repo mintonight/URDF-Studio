@@ -265,6 +265,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
                 <button
                   key={option.id}
                   type="button"
+                  data-paint-operation={option.id}
                   disabled={!supported}
                   aria-pressed={active}
                   onClick={() => onPaintOperationChange(option.id)}

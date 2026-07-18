@@ -107,6 +107,12 @@ export const zh: TranslationKeys = {
   add: '添加',
   bridgedComponent: '已拼接',
   bridgedComponentLockedHint: '该组件已参与拼接，暂时不能单独移动。',
+  lockEditing: '锁定编辑',
+  unlockEditing: '解锁编辑',
+  editingLockedByComponent: '编辑已由所属组件锁定',
+  editingLockedByAncestor: '编辑已由上级 Link 锁定',
+  editingLockedBadge: '已锁定',
+  editingLockedMessage: '该对象已锁定，请先在场景集合中解锁后再编辑或移动。',
   bridgeLimitRangeInvalid: '下限必须小于或等于上限',
   bridgeNonFixedCycleUnsupported: '成环桥接仅支持 fixed 关节，请改用 fixed bridge 生成闭环约束',
   bridgeTabRelation: '关系',
@@ -973,7 +979,7 @@ export const zh: TranslationKeys = {
   paintStatusNothingToRestore: '这个表面没有可恢复的涂色。请先上色，或点击仍带有涂色的区域。',
   paintErrorVisualMeshOnly: '涂色仅支持可解析面的可视化几何体。',
   paintErrorMultiMaterial:
-    '当前目标自带多材质槽且不是 paint 工具生成的分组，暂时还不支持直接编辑。',
+    '当前可视化包含自带材质槽，或子网格使用不同的基础材质，无法安全涂色。',
   paintErrorFaceUnavailable: '无法解析当前点击的可视化面。',
   paintErrorSelectionUnavailable: '无法从当前点击结果解析出有效的可视化面选择。',
 

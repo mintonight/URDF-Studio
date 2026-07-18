@@ -48,6 +48,10 @@ import {
   type TreeNodeContextMenuTarget,
 } from './tree-node/TreeNodeContextMenu';
 import { stripTreeDisplayNamePrefix } from './tree-node/treeDisplayNames';
+import {
+  LinkEditorLockButton,
+  type InheritedEditorLockSource,
+} from './tree_lock_controls';
 
 type LinkRef = Extract<EntityRef, { type: 'link' }>;
 type JointRef = Extract<EntityRef, { type: 'joint' }>;
@@ -86,6 +90,7 @@ export interface TreeNodeProps {
   readOnly?: boolean;
   ancestorLinkIds?: ReadonlySet<string>;
   componentDisplayNamePrefix?: string;
+  inheritedEditorLockSource?: InheritedEditorLockSource;
 }
 
 function buildChildJointsByParent(robot: RobotData): Record<string, UrdfJoint[]> {
@@ -153,6 +158,7 @@ export const TreeNode = memo(function TreeNode({
   readOnly = false,
   ancestorLinkIds = EMPTY_ANCESTOR_LINK_IDS,
   componentDisplayNamePrefix,
+  inheritedEditorLockSource,
 }: TreeNodeProps) {
   const selection = useSelectionStore((state) => state.selection);
   const hoveredSelection = useSelectionStore((state) => state.hoveredSelection);
@@ -361,6 +367,13 @@ export const TreeNode = memo(function TreeNode({
   const hasCollision = collisionEntries.length > 0;
   const hasGeometry = hasVisual || hasCollision;
   const isLinkVisible = link.visible !== false;
+  const isLinkEditorLocked =
+    inheritedEditorLockSource !== undefined || link.editorLocked === true;
+  const childInheritedEditorLockSource = inheritedEditorLockSource === 'component'
+    ? 'component'
+    : isLinkEditorLocked
+      ? 'ancestor'
+      : undefined;
   const linkConnectorHighlighted =
     isLinkSelected || isLinkAttentionHighlighted;
   const selectedLinkActionClass =
@@ -446,7 +459,7 @@ export const TreeNode = memo(function TreeNode({
           )}
         </div>
         <span className="min-w-0 flex-1 truncate text-[10px] font-medium">{label}</span>
-        {!readOnly ? (
+        {!readOnly && !isLinkEditorLocked ? (
           <button
             type="button"
             aria-label={`toggle-geometry-visibility-${componentId}-${linkId}-${subType}-${entry.objectIndex}`}
@@ -475,6 +488,7 @@ export const TreeNode = memo(function TreeNode({
     const attention = selectionTargets(attentionSelection, jointRef)
       || selectionTargets(attentionSelection, childLinkRef);
     const childLink = robot.links[joint.childLinkId];
+    const isJointEditorLocked = isLinkEditorLocked || childLink?.editorLocked === true;
     const childDisplayName = childLink
       ? stripTreeDisplayNamePrefix(
           sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(childLink) : childLink.name,
@@ -513,14 +527,14 @@ export const TreeNode = memo(function TreeNode({
                 event,
                 () => dispatchSelection({ entity: jointRef }),
               )}
-          onDoubleClick={readOnly
+          onDoubleClick={readOnly || isJointEditorLocked
             ? undefined
             : (event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 beginRename(jointRef, joint.name);
               }}
-          onContextMenu={readOnly
+          onContextMenu={readOnly || isJointEditorLocked
             ? undefined
             : (event) => openContextMenu(
                 event,
@@ -592,6 +606,7 @@ export const TreeNode = memo(function TreeNode({
               readOnly={readOnly}
               ancestorLinkIds={nextAncestors}
               componentDisplayNamePrefix={componentDisplayNamePrefix}
+              inheritedEditorLockSource={childInheritedEditorLockSource}
             />
           </div>
         ) : null}
@@ -627,9 +642,14 @@ export const TreeNode = memo(function TreeNode({
               () => dispatchSelection({ entity: linkRef }),
             )}
         onDoubleClick={readOnly ? undefined : () => focus(linkRef)}
-        onContextMenu={readOnly
+        onContextMenu={readOnly || isLinkEditorLocked
           ? undefined
-          : (event) => openContextMenu(event, linkRef, linkRef, link.name)}
+          : (event) => openContextMenu(
+              event,
+              linkRef,
+              linkRef,
+              link.name,
+            )}
         onMouseEnter={readOnly ? undefined : () => dispatchHover({ entity: linkRef })}
         onMouseLeave={readOnly ? undefined : clearCanonicalHover}
       >
@@ -720,27 +740,38 @@ export const TreeNode = memo(function TreeNode({
             </button>
           ) : null}
           {!readOnly ? (
-            <button
-              type="button"
-              aria-label={`toggle-link-visibility-${componentId}-${linkId}`}
-              className={`h-5 w-5 rounded p-1 transition-colors ${
-                isLinkSelected
-                  ? selectedLinkActionClass
-                  : 'text-text-tertiary hover:bg-system-blue/10 hover:text-text-primary dark:hover:bg-system-blue/20'
-              }`}
-              title={isLinkVisible ? t.hide : t.show}
-              onClick={(event) => {
-                event.stopPropagation();
-                onUpdate(linkRef, { visible: !isLinkVisible });
-              }}
-            >
-              {isLinkVisible ? <Eye size={12} /> : <EyeOff size={12} />}
-            </button>
+            <>
+              <button
+                type="button"
+                aria-label={`toggle-link-visibility-${componentId}-${linkId}`}
+                className={`h-5 w-5 rounded p-1 transition-colors ${
+                  isLinkSelected
+                    ? selectedLinkActionClass
+                    : 'text-text-tertiary hover:bg-system-blue/10 hover:text-text-primary dark:hover:bg-system-blue/20'
+                }`}
+                title={isLinkVisible ? t.hide : t.show}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onUpdate(linkRef, { visible: !isLinkVisible });
+                }}
+              >
+                {isLinkVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+              </button>
+              <LinkEditorLockButton
+                ariaLabel={`toggle-link-editor-lock-${componentId}-${linkId}`}
+                editorLocked={isLinkEditorLocked}
+                inheritedSource={inheritedEditorLockSource}
+                selected={isLinkSelected}
+                selectedActionClass={selectedLinkActionClass}
+                t={t}
+                onToggle={() => onUpdate(linkRef, { editorLocked: !link.editorLocked })}
+              />
+            </>
           ) : null}
         </div>
       </div>
 
-      {!readOnly && mode === 'editor' ? (
+      {!readOnly && !isLinkEditorLocked && mode === 'editor' ? (
         <TreeNodeContextMenu
           target={contextMenu}
           t={t}
@@ -762,7 +793,7 @@ export const TreeNode = memo(function TreeNode({
             <>
               {visualEntries.map((entry) => renderGeometryRow('visual', entry))}
               {collisionEntries.map((entry) => renderGeometryRow('collision', entry))}
-              {!readOnly && mode === 'editor' ? (
+              {!readOnly && !isLinkEditorLocked && mode === 'editor' ? (
                 <button
                   type="button"
                   aria-label={`add-collision-${componentId}-${linkId}`}

@@ -17,11 +17,6 @@ export interface ReportScrollTarget {
   anchorId: string;
 }
 
-export interface SetupItemScrollTarget {
-  profileId: string;
-  itemId: string;
-}
-
 export type InspectionSetupMode = 'normal' | 'advanced';
 
 export const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();

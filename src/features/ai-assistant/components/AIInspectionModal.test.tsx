@@ -232,6 +232,11 @@ test('transparent AI inspection backdrop does not intercept pointer events', asy
       true,
       'transparent backdrop should not block interactions with the workspace',
     );
+    const dialog = container.querySelector<HTMLElement>(
+      `[role="dialog"][aria-label="${translations.zh.aiInspection}"]`,
+    );
+    assert.ok(dialog, 'expected the inspection window to expose a stable dialog landmark');
+    assert.equal(dialog.getAttribute('aria-modal'), 'false');
   } finally {
     await act(async () => {
       root.unmount();
@@ -1186,12 +1191,12 @@ test('inspection setup starts in normal mode and keeps selection in sync with pr
     const currentPlanScroll = reviewDetails.querySelector<HTMLElement>(
       '[data-inspection-current-plan-scroll="true"]',
     );
-    assert.ok(currentPlanViewport, 'expected the current plan viewport to be height constrained');
+    assert.ok(currentPlanViewport, 'expected the current plan viewport to render');
     assert.ok(currentPlan, 'expected the current plan panel to render');
-    assert.ok(currentPlanScroll, 'expected the current plan list to expose its own scroll area');
-    assert.equal(currentPlanViewport.className.includes('overflow-hidden'), true);
-    assert.equal(currentPlan.className.includes('flex-1'), true);
-    assert.equal(currentPlanScroll.className.includes('xl:overflow-y-auto'), true);
+    assert.ok(currentPlanScroll, 'expected the current plan list container to render');
+    assert.equal(currentPlanViewport.className.includes('overflow-hidden'), false);
+    assert.equal(currentPlan.className.includes('flex-1'), false);
+    assert.equal(currentPlanScroll.className.includes('xl:overflow-y-auto'), false);
     assert.equal(
       reviewDetails.querySelector('[data-inspection-recommendation-baseline="true"]'),
       null,
@@ -1722,7 +1727,7 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
   }
 });
 
-test('inspection setup normal mode uses the editable recognition panel layout', async () => {
+test('inspection setup normal mode exposes concise category and item editing', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -1758,14 +1763,155 @@ test('inspection setup normal mode uses the editable recognition panel layout', 
       recommendationCard.querySelector('[data-inspection-recognition-grid="true"]'),
       'expected normal mode to expose the editable recognition grid',
     );
-    assert.equal(
+    assert.ok(
+      container.querySelector('[data-inspection-normal-check-editor="true"]'),
+      'expected normal mode to render its direct check editor',
+    );
+    assert.ok(
       container.querySelector('[data-inspection-normal-profile-row]'),
-      null,
-      'expected the simplified normal mode to omit professional item rows',
+      'expected the simplified normal mode to expose editable inspection categories',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-normal-item]'),
+      'expected the initially expanded category to expose direct item toggles',
     );
     assert.ok(
       container.querySelector('[data-inspection-normal-footer-summary]'),
       'expected selected-check counts to remain visible in the footer',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('normal and professional modes share manual selection until the recommendation changes', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const robot = createRobotFixture();
+  const plan = buildNormalInspectionPlan({ robot });
+  const profile = INSPECTION_PROFILE_DEFINITIONS.find(
+    (candidate) => (plan.selectedProfiles[candidate.id]?.size ?? 0) > 1,
+  );
+  assert.ok(profile, 'expected a recommended category with multiple checks');
+  const itemId = Array.from(plan.selectedProfiles[profile.id] ?? [])[0];
+  assert.ok(itemId, 'expected a recommended check in the selected category');
+  const t = translations.zh;
+
+  const getNormalItem = () =>
+    container.querySelector<HTMLButtonElement>(
+      `[data-inspection-normal-item="${profile.id}:${itemId}"]`,
+    );
+  const exposeNormalItems = async () => {
+    if (getNormalItem()) {
+      return;
+    }
+
+    const expandButton = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-normal-profile-expand="${profile.id}"]`,
+    );
+    assert.ok(expandButton, 'expected the normal category expander to render');
+    await act(async () => {
+      expandButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={robot}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    await exposeNormalItems();
+    const normalItem = getNormalItem();
+    assert.ok(normalItem, 'expected normal mode to expose the selected check');
+    assert.equal(normalItem.getAttribute('aria-pressed'), 'true');
+
+    await act(async () => {
+      normalItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(getNormalItem()?.getAttribute('aria-pressed'), 'false');
+    assert.equal(
+      container.querySelector<HTMLButtonElement>(
+        '[data-inspection-normal-restore-recommendation]',
+      )?.disabled,
+      false,
+      'expected a manual item edit to enable restoring the recommendation',
+    );
+
+    await switchInspectionSetupMode(container, dom, t.inspectionAdvancedMode);
+    const professionalProfileToggle = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-current-plan-profile-toggle="${profile.id}"]`,
+    );
+    assert.ok(professionalProfileToggle, 'expected the edited category in professional mode');
+    await act(async () => {
+      professionalProfileToggle.dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true }),
+      );
+    });
+    assert.equal(
+      container
+        .querySelector<HTMLButtonElement>(
+          `[data-inspection-setup-item-badge="${profile.id}:${itemId}"]`,
+        )
+        ?.getAttribute('aria-pressed'),
+      'false',
+      'expected professional mode to retain the normal-mode item edit',
+    );
+
+    await switchInspectionSetupMode(container, dom, t.inspectionNormalMode);
+    await exposeNormalItems();
+    assert.equal(
+      getNormalItem()?.getAttribute('aria-pressed'),
+      'false',
+      'expected a professional/normal round trip not to restore the recommendation',
+    );
+
+    const restoreButton = container.querySelector<HTMLButtonElement>(
+      '[data-inspection-normal-restore-recommendation]',
+    );
+    assert.ok(restoreButton, 'expected the normal restore action to render');
+    await act(async () => {
+      restoreButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(getNormalItem()?.getAttribute('aria-pressed'), 'true');
+
+    const profileToggle = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-normal-profile-toggle="${profile.id}"]`,
+    );
+    assert.ok(profileToggle, 'expected normal mode to expose the category toggle');
+    await act(async () => {
+      profileToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(profileToggle.getAttribute('aria-pressed'), 'false');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-inspection-normal-restore-recommendation]')
+        ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(
+      container
+        .querySelector<HTMLButtonElement>(
+          `[data-inspection-normal-profile-toggle="${profile.id}"]`,
+        )
+        ?.getAttribute('aria-pressed'),
+      'true',
+      'expected restore recommendation to recover a removed category',
     );
   } finally {
     await act(async () => {
@@ -2224,10 +2370,10 @@ test('compact professional setup exposes one vertical scroll viewport', async ()
   }
 });
 
-test('professional setup keeps a vertical scroll viewport below the xl breakpoint', async () => {
+test('wide short professional setup keeps one vertical scroll viewport', async () => {
   const dom = installDom();
-  Object.defineProperty(dom.window, 'innerWidth', { value: 1181, configurable: true });
-  Object.defineProperty(dom.window, 'innerHeight', { value: 898, configurable: true });
+  Object.defineProperty(dom.window, 'innerWidth', { value: 1400, configurable: true });
+  Object.defineProperty(dom.window, 'innerHeight', { value: 500, configurable: true });
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
@@ -2264,9 +2410,16 @@ test('professional setup keeps a vertical scroll viewport below the xl breakpoin
     assert.ok(scrollViewport, 'expected professional setup to render its scroll viewport');
     assert.ok(reviewDetails, 'expected professional setup to render review details');
     assert.equal(scrollViewport.className.includes('overflow-y-auto'), true);
-    assert.equal(scrollViewport.className.includes('xl:overflow-hidden'), true);
+    assert.equal(scrollViewport.className.includes('xl:overflow-hidden'), false);
     assert.equal(reviewDetails.className.includes('flex-none'), true);
-    assert.equal(reviewDetails.className.includes('xl:flex-1'), true);
+    assert.equal(reviewDetails.className.includes('xl:flex-1'), false);
+    assert.equal(
+      Array.from(reviewDetails.querySelectorAll<HTMLElement>('[class]')).some((element) =>
+        element.getAttribute('class')?.includes('xl:overflow-y-auto'),
+      ),
+      false,
+      'expected the professional content not to introduce a nested xl scroll container',
+    );
   } finally {
     await act(async () => {
       root.unmount();

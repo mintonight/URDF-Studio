@@ -52,8 +52,6 @@ samp {
   --font-scale: 1;
   --font-language-scale: 1;
   --font-effective-scale: calc(var(--font-scale) * var(--font-language-scale));
-  --theme-transition-duration: 180ms;
-  --theme-transition-easing: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* Surfaces (light) */
   --ui-bg: #f8f9fa;
@@ -221,33 +219,6 @@ html[data-lang='zh'] {
   --ui-scrollbar-thumb-hover: #64748b;
 
   color-scheme: dark;
-}
-
-html.theme-switching,
-html.theme-switching *,
-html.theme-switching *::before,
-html.theme-switching *::after {
-  transition:
-    background-color var(--theme-transition-duration) var(--theme-transition-easing),
-    border-color var(--theme-transition-duration) var(--theme-transition-easing),
-    box-shadow var(--theme-transition-duration) var(--theme-transition-easing),
-    caret-color var(--theme-transition-duration) var(--theme-transition-easing),
-    color var(--theme-transition-duration) var(--theme-transition-easing),
-    fill var(--theme-transition-duration) var(--theme-transition-easing),
-    filter var(--theme-transition-duration) var(--theme-transition-easing),
-    outline-color var(--theme-transition-duration) var(--theme-transition-easing),
-    scrollbar-color var(--theme-transition-duration) var(--theme-transition-easing),
-    stroke var(--theme-transition-duration) var(--theme-transition-easing),
-    text-decoration-color var(--theme-transition-duration) var(--theme-transition-easing) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html.theme-switching,
-  html.theme-switching *,
-  html.theme-switching *::before,
-  html.theme-switching *::after {
-    transition-duration: 1ms !important;
-  }
 }
 
 /* High-contrast adaptation */
