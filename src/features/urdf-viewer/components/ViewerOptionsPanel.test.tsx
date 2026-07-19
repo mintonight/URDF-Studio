@@ -309,7 +309,7 @@ test('ViewerOptionsPanel uses a slightly smaller corner radius', async () => {
   dom.window.close();
 });
 
-test('ViewerOptionsPanel uses a shorter header bar', async () => {
+test('ViewerOptionsPanel uses the shared floating window header bar', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root, false);
@@ -318,7 +318,7 @@ test('ViewerOptionsPanel uses a shorter header bar', async () => {
     '.urdf-options-panel > div > div:first-child',
   );
   assert.ok(header, 'viewer options panel header should render');
-  assert.match(header.className, /!py-1/);
+  assert.match(header.className, /\bh-10\b/);
   assert.match(header.className, /!px-1\.5/);
 
   await act(async () => {

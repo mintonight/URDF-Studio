@@ -258,7 +258,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
           onClose={() => setShowOptionsPanel && setShowOptionsPanel(false)}
           showDragGrip={false}
           onMouseDown={onMouseDown}
-          className="!gap-1.5 !px-1.5 !py-1"
+          className="!gap-1.5 !px-1.5"
           expandText={t.expand}
           collapseText={t.collapse}
           closeText={t.close}
