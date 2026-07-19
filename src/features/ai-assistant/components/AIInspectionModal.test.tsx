@@ -245,6 +245,66 @@ test('transparent AI inspection backdrop does not intercept pointer events', asy
   }
 });
 
+test('AIInspectionModal can be resized below the viewport', async () => {
+  const dom = installDom();
+  Object.defineProperty(dom.window, 'innerWidth', { value: 900, configurable: true });
+  Object.defineProperty(dom.window, 'innerHeight', { value: 600, configurable: true });
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const dialog = container.querySelector<HTMLElement>(
+      `[role="dialog"][aria-label="${translations.zh.aiInspection}"]`,
+    );
+    const bottomResizeHandle = dialog?.querySelector<HTMLButtonElement>(
+      '.resize-edge-bottom.resize-edge-visual-bottom',
+    );
+    assert.ok(dialog, 'expected the AI inspection dialog to render');
+    assert.ok(bottomResizeHandle, 'expected the bottom resize handle to render');
+
+    await act(async () => {
+      bottomResizeHandle.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', { bubbles: true, clientY: 568 }),
+      );
+    });
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mousemove', { bubbles: true, clientY: 800 }),
+      );
+    });
+
+    assert.ok(
+      Number.parseFloat(dialog.style.height) > dom.window.innerHeight,
+      'dragging the bottom edge should allow the inspection window to extend below the viewport',
+    );
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('AIInspectionModal moves to the front when activated', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -2454,15 +2514,32 @@ test('inspection setup header uses the toolbox AI inspection logo', async () => 
       '[data-inspection-setup-header-logo]',
     );
     assert.ok(setupHeaderLogo, 'expected the setup header logo wrapper to render');
+    assert.match(setupHeaderLogo.className, /\bh-7\b/);
+    assert.match(setupHeaderLogo.className, /\bw-7\b/);
     assert.ok(
       setupHeaderLogo.querySelector('svg.lucide-scan-search'),
       'expected the setup header logo to match the toolbox AI inspection ScanSearch icon',
+    );
+    assert.match(
+      setupHeaderLogo.querySelector('svg.lucide-scan-search')?.getAttribute('class') ?? '',
+      /\bh-4\b/,
     );
     assert.equal(
       setupHeaderLogo.querySelector('svg.lucide-bot'),
       null,
       'expected the setup header logo to stop rendering the Bot icon',
     );
+    const dialog = container.querySelector<HTMLElement>(
+      `[role="dialog"][aria-label="${translations.zh.aiInspection}"]`,
+    );
+    assert.ok(dialog, 'expected the inspection dialog to render');
+    assert.match(dialog.className, /\brounded-lg\b/);
+    const header = dialog.querySelector<HTMLElement>(':scope > [role="toolbar"]');
+    assert.ok(header, 'expected the inspection header to render');
+    assert.match(header.className, /\bh-10\b/);
+    const title = header.querySelector('h1');
+    assert.ok(title, 'expected the inspection title to render');
+    assert.equal(title.className.includes('text-[13px]'), true);
   } finally {
     await act(async () => {
       root.unmount();

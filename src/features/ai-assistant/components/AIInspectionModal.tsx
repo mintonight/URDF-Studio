@@ -5,7 +5,12 @@ import type { Language, TranslationKeys } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { isIdentityAssemblyTransform } from '@/core/robot/assemblyTransforms';
-import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import {
+  DraggableWindow,
+  FLOATING_WINDOW_HEADER_HEIGHT_CLASS,
+  FLOATING_WINDOW_RADIUS_CLASS,
+  FLOATING_WINDOW_TITLE_CLASS,
+} from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { CLOSE_BUTTON_DANGER_TERTIARY_CLASS } from '@/shared/components/ui/closeButtonStyles';
 import { Dialog } from '@/shared/components/ui/Dialog';
@@ -212,7 +217,7 @@ export function AIInspectionModal({
     viewportMinSize: { width: 360, height: 320 },
     centerOnMount: true,
     enableMinimize: true,
-    clampResizeToViewport: true,
+    clampResizeToViewport: false,
     dragBounds: {
       allowNegativeX: true,
       minVisibleWidth: 100,
@@ -698,22 +703,22 @@ export function AIInspectionModal({
         ariaModal={false}
         title={
           isSetupView ? (
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
               <div
                 data-inspection-setup-header-logo
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-black bg-panel-bg text-system-blue shadow-sm dark:bg-element-bg"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border-black bg-panel-bg text-system-blue shadow-sm dark:bg-element-bg"
               >
-                <ScanSearch className="h-[18px] w-[18px]" />
+                <ScanSearch className="h-4 w-4" />
               </div>
-              <h1 className="text-sm font-semibold text-text-primary">{t.aiInspection}</h1>
+              <h1 className={FLOATING_WINDOW_TITLE_CLASS}>{t.aiInspection}</h1>
             </div>
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <div className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-system-blue dark:bg-element-bg dark:text-system-blue">
-                  <ScanSearch className="w-4 h-4" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-border-black bg-panel-bg text-system-blue dark:bg-element-bg dark:text-system-blue">
+                  <ScanSearch className="h-4 w-4" />
                 </div>
-                <h1 className="text-sm font-semibold text-text-primary">{t.aiInspection}</h1>
+                <h1 className={FLOATING_WINDOW_TITLE_CLASS}>{t.aiInspection}</h1>
               </div>
 
               {inspectionReport && !isMinimized && (
@@ -733,10 +738,10 @@ export function AIInspectionModal({
             </>
           )
         }
-        className="flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl select-none dark:bg-panel-bg"
+        className={`flex flex-col overflow-hidden ${FLOATING_WINDOW_RADIUS_CLASS} border border-border-black bg-panel-bg text-text-primary shadow-xl select-none dark:bg-panel-bg`}
         zIndex={inspectionWindowLayer.zIndex}
         onActivate={inspectionWindowLayer.onActivate}
-        headerClassName="relative h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
+        headerClassName={`relative ${FLOATING_WINDOW_HEADER_HEIGHT_CLASS} shrink-0 border-b border-border-black flex items-center justify-between px-4 bg-element-bg`}
         headerLeftClassName={isSetupView ? 'flex min-w-0 items-center' : 'flex items-center gap-3'}
         headerRightClassName={
           isSetupView ? 'flex shrink-0 items-center gap-1 ml-auto' : 'flex items-center gap-1'
