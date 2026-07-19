@@ -3,11 +3,6 @@ import { ArrowRight } from 'lucide-react';
 
 import type { TranslationKeys } from '@/shared/i18n';
 
-const APP_VERSION =
-  typeof __APP_VERSION__ === 'string' && __APP_VERSION__.trim().length > 0
-    ? __APP_VERSION__
-    : 'dev';
-
 interface SettingsAboutPaneProps {
   t: TranslationKeys;
 }
@@ -65,14 +60,9 @@ export function SettingsAboutPane({ t }: SettingsAboutPaneProps) {
             className="h-10 w-10 shrink-0 object-contain"
           />
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
-                URDF Studio
-              </h3>
-              <div className="inline-flex h-6 items-center rounded-[6px] border border-border-black bg-settings-muted/70 px-2 text-[10.5px] font-medium text-text-secondary">
-                {t.version}: v{APP_VERSION}
-              </div>
-            </div>
+            <h3 className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
+              URDF Studio
+            </h3>
             <p className="mt-1 max-w-[30rem] line-clamp-2 text-[11.5px] leading-5 text-text-secondary">
               {t.aboutDescription}
             </p>
