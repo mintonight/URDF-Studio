@@ -448,6 +448,7 @@ interface OptionsPanelHeaderProps {
   closeText?: string;
   additionalControls?: ReactNode;
   className?: string;
+  titleClassName?: string;
 }
 
 export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
@@ -463,6 +464,7 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
   closeText = 'Close',
   additionalControls,
   className = '',
+  titleClassName = '',
 }) => {
   return (
     <div
@@ -479,7 +481,9 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
             <DragGripIcon className="w-3.5 h-3.5" />
           </span>
         ) : null}
-        <span className={`truncate whitespace-nowrap leading-4 ${FLOATING_WINDOW_TITLE_CLASS}`}>
+        <span
+          className={`truncate whitespace-nowrap leading-4 ${FLOATING_WINDOW_TITLE_CLASS} ${titleClassName}`}
+        >
           {title}
         </span>
       </div>
