@@ -204,6 +204,29 @@ export const TreeNode = memo(function TreeNode({
     setGeometryExpanded(showGeometryDetailsByDefault);
   }, [showGeometryDetailsByDefault]);
 
+  // When the canvas selects a link inside this subtree, auto-expand so the target row mounts and
+  // can be scrolled into view. Driven by attentionSelection (pulse) so tree-internal clicks don't
+  // fight the user's own collapse/expand actions.
+  const isAncestorOfSelectedLink = useMemo(() => {
+    const target = attentionSelection?.entity;
+    if (!target || target.type !== 'link' || target.componentId !== componentId) return false;
+    if (target.entityId === linkId) return false;
+    let cursor = target.entityId;
+    while (cursor) {
+      const parentJoint = Object.values(robot.joints).find((joint) => joint.childLinkId === cursor);
+      if (!parentJoint) break;
+      cursor = parentJoint.parentLinkId;
+      if (cursor === linkId) return true;
+    }
+    return false;
+  }, [attentionSelection, componentId, linkId, robot.joints]);
+
+  useEffect(() => {
+    if (isAncestorOfSelectedLink && !expanded) {
+      setExpanded(true);
+    }
+  }, [isAncestorOfSelectedLink, expanded]);
+
   useEffect(() => {
     if (!contextMenu) return;
     const closeMenu = () => setContextMenu(null);

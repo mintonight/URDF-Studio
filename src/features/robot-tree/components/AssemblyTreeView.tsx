@@ -257,6 +257,19 @@ export const AssemblyTreeView = memo(function AssemblyTreeView({
       : new Set([...current, components[0].id]));
   }, [components, simplified]);
 
+  // When the canvas selects an entity inside a collapsed component, expand that component so the
+  // target row mounts and can be scrolled into view. Driven by attentionSelection (pulse) so
+  // tree-internal clicks don't fight the user's own collapse/expand actions.
+  useEffect(() => {
+    const target = attentionSelection?.entity;
+    if (!target || !('componentId' in target)) return;
+    const targetComponentId = target.componentId;
+    if (!workspace.components[targetComponentId]) return;
+    setExpandedComponents((current) => current.has(targetComponentId)
+      ? current
+      : new Set([...current, targetComponentId]));
+  }, [attentionSelection, workspace.components]);
+
   useEffect(() => {
     if (!editing) return;
     const frame = window.requestAnimationFrame(() => {
