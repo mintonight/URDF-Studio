@@ -367,8 +367,6 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   restore: string;
   inspectionNormalMode: string;
   inspectionAdvancedMode: string;
-  inspectionConfigureChecks: string;
-  inspectionConfigureChecksDescription: string;
   inspectionSelectedChecksLabel: string;
   inspectionSelectAll: string;
   inspectionClearAll: string;

@@ -1787,7 +1787,7 @@ test('inspection setup normal mode adjustment keeps the generated plan runnable'
   }
 });
 
-test('inspection setup normal mode exposes concise category and item editing', async () => {
+test('inspection setup normal mode renders only the recognition panel without direct check editing', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -1820,24 +1820,18 @@ test('inspection setup normal mode exposes concise category and item editing', a
       'expected the recommendation card to render the recommendation icon',
     );
     assert.ok(
-      recommendationCard.querySelector('[data-inspection-recognition-grid="true"]'),
+      container.querySelector('[data-inspection-recognition-grid="true"]'),
       'expected normal mode to expose the editable recognition grid',
     );
-    assert.ok(
+    assert.equal(
       container.querySelector('[data-inspection-normal-check-editor="true"]'),
-      'expected normal mode to render its direct check editor',
+      null,
+      'normal mode no longer renders the direct check editor (move selection to professional mode)',
     );
-    assert.ok(
-      container.querySelector('[data-inspection-normal-profile-row]'),
-      'expected the simplified normal mode to expose editable inspection categories',
-    );
-    assert.ok(
+    assert.equal(
       container.querySelector('[data-inspection-normal-item]'),
-      'expected the initially expanded category to expose direct item toggles',
-    );
-    assert.ok(
-      container.querySelector('[data-inspection-normal-footer-summary]'),
-      'expected selected-check counts to remain visible in the footer',
+      null,
+      'normal mode no longer exposes per-item toggles',
     );
   } finally {
     await act(async () => {
@@ -1847,7 +1841,7 @@ test('inspection setup normal mode exposes concise category and item editing', a
   }
 });
 
-test('normal and professional modes share manual selection until the recommendation changes', async () => {
+test('inspection selection is edited in professional mode and persists across mode switches', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -1864,23 +1858,10 @@ test('normal and professional modes share manual selection until the recommendat
   assert.ok(itemId, 'expected a recommended check in the selected category');
   const t = translations.zh;
 
-  const getNormalItem = () =>
+  const getProfessionalItemBadge = () =>
     container.querySelector<HTMLButtonElement>(
-      `[data-inspection-normal-item="${profile.id}:${itemId}"]`,
+      `[data-inspection-setup-item-badge="${profile.id}:${itemId}"]`,
     );
-  const exposeNormalItems = async () => {
-    if (getNormalItem()) {
-      return;
-    }
-
-    const expandButton = container.querySelector<HTMLButtonElement>(
-      `[data-inspection-normal-profile-expand="${profile.id}"]`,
-    );
-    assert.ok(expandButton, 'expected the normal category expander to render');
-    await act(async () => {
-      expandButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-  };
 
   try {
     await act(async () => {
@@ -1896,32 +1877,72 @@ test('normal and professional modes share manual selection until the recommendat
       );
     });
 
-    await exposeNormalItems();
-    const normalItem = getNormalItem();
-    assert.ok(normalItem, 'expected normal mode to expose the selected check');
-    assert.equal(normalItem.getAttribute('aria-pressed'), 'true');
-
-    await act(async () => {
-      normalItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(getNormalItem()?.getAttribute('aria-pressed'), 'false');
+    // Normal mode no longer exposes direct per-item toggles; selection editing lives in professional mode only.
     assert.equal(
-      container.querySelector<HTMLButtonElement>(
-        '[data-inspection-normal-restore-recommendation]',
-      )?.disabled,
-      false,
-      'expected a manual item edit to enable restoring the recommendation',
+      container.querySelector('[data-inspection-normal-item]'),
+      null,
+      'normal mode must not expose per-item toggles anymore',
     );
 
     await switchInspectionSetupMode(container, dom, t.inspectionAdvancedMode);
+
+    // Professional mode collapses profile details by default; expand the target profile to reach its item toggles.
     const professionalProfileToggle = container.querySelector<HTMLButtonElement>(
       `[data-inspection-current-plan-profile-toggle="${profile.id}"]`,
     );
-    assert.ok(professionalProfileToggle, 'expected the edited category in professional mode');
+    assert.ok(professionalProfileToggle, 'expected the target category to render in professional mode');
     await act(async () => {
       professionalProfileToggle.dispatchEvent(
         new dom.window.MouseEvent('click', { bubbles: true }),
       );
+    });
+    assert.equal(
+      professionalProfileToggle.getAttribute('aria-expanded'),
+      'true',
+      'clicking the professional profile toggle should expand its details',
+    );
+
+    await act(async () => {
+      getProfessionalItemBadge()?.dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true }),
+      );
+    });
+    assert.equal(
+      getProfessionalItemBadge()?.getAttribute('aria-pressed'),
+      'false',
+      'professional mode should toggle the recommended item off',
+    );
+
+    // Switching back to normal mode must not silently restore the recommendation.
+    await switchInspectionSetupMode(container, dom, t.inspectionNormalMode);
+    assert.equal(
+      container.querySelector('[data-inspection-normal-item]'),
+      null,
+      'normal mode still hides per-item toggles after a professional edit',
+    );
+
+    await switchInspectionSetupMode(container, dom, t.inspectionAdvancedMode);
+    // The professional view collapses profile details on remount; expand the target profile again to reach its restore action.
+    const professionalProfileToggleAgain = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-current-plan-profile-toggle="${profile.id}"]`,
+    );
+    assert.ok(
+      professionalProfileToggleAgain,
+      'expected the target category to remain visible in professional mode after the edit',
+    );
+    if (professionalProfileToggleAgain.getAttribute('aria-expanded') !== 'true') {
+      await act(async () => {
+        professionalProfileToggleAgain.dispatchEvent(
+          new dom.window.MouseEvent('click', { bubbles: true }),
+        );
+      });
+    }
+    const restoreProfileButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent === t.inspectionRestoreProfileRecommendation);
+    assert.ok(restoreProfileButton, 'expected professional mode to expose the per-profile restore');
+    await act(async () => {
+      restoreProfileButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
     assert.equal(
       container
@@ -1929,49 +1950,8 @@ test('normal and professional modes share manual selection until the recommendat
           `[data-inspection-setup-item-badge="${profile.id}:${itemId}"]`,
         )
         ?.getAttribute('aria-pressed'),
-      'false',
-      'expected professional mode to retain the normal-mode item edit',
-    );
-
-    await switchInspectionSetupMode(container, dom, t.inspectionNormalMode);
-    await exposeNormalItems();
-    assert.equal(
-      getNormalItem()?.getAttribute('aria-pressed'),
-      'false',
-      'expected a professional/normal round trip not to restore the recommendation',
-    );
-
-    const restoreButton = container.querySelector<HTMLButtonElement>(
-      '[data-inspection-normal-restore-recommendation]',
-    );
-    assert.ok(restoreButton, 'expected the normal restore action to render');
-    await act(async () => {
-      restoreButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(getNormalItem()?.getAttribute('aria-pressed'), 'true');
-
-    const profileToggle = container.querySelector<HTMLButtonElement>(
-      `[data-inspection-normal-profile-toggle="${profile.id}"]`,
-    );
-    assert.ok(profileToggle, 'expected normal mode to expose the category toggle');
-    await act(async () => {
-      profileToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(profileToggle.getAttribute('aria-pressed'), 'false');
-
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>('[data-inspection-normal-restore-recommendation]')
-        ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(
-      container
-        .querySelector<HTMLButtonElement>(
-          `[data-inspection-normal-profile-toggle="${profile.id}"]`,
-        )
-        ?.getAttribute('aria-pressed'),
       'true',
-      'expected restore recommendation to recover a removed category',
+      'expected the per-profile restore to recover the removed item',
     );
   } finally {
     await act(async () => {

@@ -381,9 +381,6 @@ export const zh: TranslationKeys = {
   restore: '还原',
   inspectionNormalMode: '常规模式',
   inspectionAdvancedMode: '专业模式',
-  inspectionConfigureChecks: '配置检查项目',
-  inspectionConfigureChecksDescription:
-    '常规模式仅保留勾选操作；如需查看权重、影响程度和完整评分口径，请切换到专业模式。',
   inspectionSelectedChecksLabel: '已选择检查项',
   inspectionSelectAll: '全选全部',
   inspectionClearAll: '清空全部',

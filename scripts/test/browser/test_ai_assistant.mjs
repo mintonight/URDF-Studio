@@ -85,58 +85,73 @@ async function main() {
       'AI Inspection remains fully inside a 1400x500 viewport',
     );
 
-    // ── 2. Edit one normal-mode check and verify mode round-trip persistence ──
-    const itemKey = await page.evaluate(() => {
-      const expandedGroup = document.querySelector('[data-inspection-normal-profile-items]');
-      const items = Array.from(
-        expandedGroup?.querySelectorAll('[data-inspection-normal-item][aria-pressed="true"]') ?? [],
-      );
-      return items.length > 1 ? items[0]?.getAttribute('data-inspection-normal-item') ?? null : null;
-    });
-    assert(suite, Boolean(itemKey), 'normal mode exposes direct editable checks');
-    if (!itemKey) {
-      throw new Error('Normal inspection setup did not expose a multi-item recommended category');
-    }
-
-    const normalItemSelector = `[data-inspection-normal-item="${itemKey}"]`;
-    await page.click(normalItemSelector);
-    await page.waitForFunction(
-      (selector) => document.querySelector(selector)?.getAttribute('aria-pressed') === 'false',
-      {},
-      normalItemSelector,
+    // ── 2. Normal mode hides direct check editing; selection is owned by professional mode ──
+    const normalEditorPresent = await page.evaluate(() =>
+      Boolean(document.querySelector('[data-inspection-normal-check-editor="true"]')),
+    );
+    assert(
+      suite,
+      !normalEditorPresent,
+      'normal mode no longer renders the direct check editor (editing lives in professional mode)',
+    );
+    const normalItemPresent = await page.evaluate(() =>
+      Boolean(document.querySelector('[data-inspection-normal-item]')),
+    );
+    assert(
+      suite,
+      !normalItemPresent,
+      'normal mode no longer exposes per-item toggles',
     );
 
     await clickButtonByText(page, INSPECTION_DIALOG_SELECTOR, '^(Professional Mode|专业模式)$');
     await page.waitForSelector('[data-inspection-advanced-scroll-viewport]', { visible: true });
 
+    // Find a recommended profile with multiple items, expand it, and toggle one item off.
+    const itemKey = await page.evaluate(() => {
+      const profileToggles = Array.from(
+        document.querySelectorAll('[data-inspection-current-plan-profile-toggle]'),
+      );
+      for (const toggle of profileToggles) {
+        const profileId = toggle.getAttribute('data-inspection-current-plan-profile-toggle');
+        const selectedBadge = document.querySelector(
+          `[data-inspection-setup-item-badge^="${profileId}:"][aria-pressed="true"]`,
+        );
+        if (selectedBadge) {
+          return selectedBadge.getAttribute('data-inspection-setup-item-badge');
+        }
+      }
+      return null;
+    });
+    assert(suite, Boolean(itemKey), 'professional mode exposes editable per-item toggles');
+    if (!itemKey) {
+      throw new Error('Professional inspection setup did not expose an editable item badge');
+    }
+
     const [profileId] = itemKey.split(':');
     const professionalProfileSelector =
       `[data-inspection-current-plan-profile-toggle="${profileId}"]`;
     await page.waitForSelector(professionalProfileSelector, { visible: true });
+    // Expand the profile details (the toggle only folds/unfolds, it does not change selection).
     await page.click(professionalProfileSelector);
-    const professionalItemSelector =
-      `[data-inspection-setup-item-badge="${itemKey}"]`;
+
+    const professionalItemSelector = `[data-inspection-setup-item-badge="${itemKey}"]`;
     await page.waitForSelector(professionalItemSelector, { visible: true });
-    const professionalSelection = await page.evaluate(
-      (selector) => document.querySelector(selector)?.getAttribute('aria-pressed') ?? null,
+    await page.click(professionalItemSelector);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector)?.getAttribute('aria-pressed') === 'false',
+      {},
       professionalItemSelector,
     );
-    assert(
-      suite,
-      professionalSelection === 'false',
-      'professional mode preserves the manual normal-mode selection',
-    );
 
+    // Switching back to normal mode must not silently restore the recommendation.
     await clickButtonByText(page, INSPECTION_DIALOG_SELECTOR, '^(Normal Mode|常规模式)$');
-    await page.waitForSelector(normalItemSelector, { visible: true });
-    const roundTripSelection = await page.evaluate(
-      (selector) => document.querySelector(selector)?.getAttribute('aria-pressed') ?? null,
-      normalItemSelector,
+    const normalStillHidden = await page.evaluate(() =>
+      Boolean(document.querySelector('[data-inspection-normal-item]')),
     );
     assert(
       suite,
-      roundTripSelection === 'false',
-      'normal/professional mode round trip does not restore the recommendation',
+      !normalStillHidden,
+      'normal mode keeps hiding per-item toggles after a professional edit',
     );
 
     // ── 3. Verify the professional setup owns the only wide/short scroll viewport ──

@@ -400,9 +400,6 @@ export const en: TranslationKeys = {
   restore: 'Restore',
   inspectionNormalMode: 'Normal Mode',
   inspectionAdvancedMode: 'Professional Mode',
-  inspectionConfigureChecks: 'Configure Inspection Checks',
-  inspectionConfigureChecksDescription:
-    'Normal mode keeps setup focused on selection only. Switch to professional mode to review weights, impact labels, and detailed scoring guidance.',
   inspectionSelectedChecksLabel: 'Selected Checks',
   inspectionSelectAll: 'Select All',
   inspectionClearAll: 'Clear All',

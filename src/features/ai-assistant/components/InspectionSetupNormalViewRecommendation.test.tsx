@@ -64,16 +64,10 @@ test('normal setup view shows the profile recommendation card', async () => {
     await act(async () => {
       root.render(
         <InspectionSetupNormalView
-          lang="en"
           t={translations.en}
           automaticPlan={plan}
           override={{}}
-          selectedProfiles={plan.selectedProfiles}
-          recommendedProfiles={plan.selectedProfiles}
           onOverrideChange={() => {}}
-          onToggleProfile={() => {}}
-          onToggleItem={() => {}}
-          onRestoreRecommendation={() => {}}
         />,
       )
     })
@@ -102,31 +96,32 @@ test('normal setup view shows the profile recommendation card', async () => {
     )
     assert.equal(selects[0]?.selectedOptions[0]?.textContent, 'Basic Health')
 
-    const replacementSelection = {
-      'format.mjcf': new Set(['mjcf_root_model']),
-    }
+    // The check editor / profile rows used to live here too; they have moved entirely to professional mode.
+    assert.equal(
+      container.querySelector('[data-inspection-normal-check-editor="true"]'),
+      null,
+      'normal mode should not render the direct check editor anymore',
+    )
+    assert.equal(
+      container.querySelector('[data-inspection-normal-profile-row]'),
+      null,
+      'normal mode should not render profile rows anymore',
+    )
+
     await act(async () => {
       root.render(
         <InspectionSetupNormalView
-          lang="en"
           t={translations.en}
           automaticPlan={plan}
           override={{ sourceFormat: 'mjcf' }}
-          selectedProfiles={replacementSelection}
-          recommendedProfiles={replacementSelection}
           onOverrideChange={() => {}}
-          onToggleProfile={() => {}}
-          onToggleItem={() => {}}
-          onRestoreRecommendation={() => {}}
         />,
       )
     })
     assert.equal(
-      container
-        .querySelector('[data-inspection-normal-profile-expand="format.mjcf"]')
-        ?.getAttribute('aria-expanded'),
-      'true',
-      'the first visible category should expand when the recommendation changes',
+      container.querySelector('[data-inspection-normal-check-editor="true"]'),
+      null,
+      'normal mode should still hide the check editor after the recommendation changes',
     )
   } finally {
     await act(async () => {

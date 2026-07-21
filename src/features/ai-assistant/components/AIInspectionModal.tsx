@@ -24,7 +24,6 @@ import {
   type InspectionRunContext,
 } from '../utils/inspectionRunContext';
 import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
-import { isInspectionItemApplicable } from '../utils/inspectionApplicability';
 import {
   buildNormalInspectionPlan,
   type NormalInspectionPlanOverride,
@@ -616,36 +615,6 @@ export function AIInspectionModal({
     });
   }, []);
 
-  const handleToggleSelectedProfile = useCallback((profileId: string) => {
-    const profile = INSPECTION_PROFILE_DEFINITIONS.find(
-      (candidate) => candidate.id === profileId,
-    );
-    if (!profile) {
-      return;
-    }
-
-    setSelectedProfiles((current) => {
-      const nextItems =
-        (current[profileId]?.size ?? 0) > 0
-          ? []
-          : profile.items.filter(
-              (item) =>
-                isInspectionItemApplicable(robot, profileId, item.id, {
-                  sourceFormat: normalPlanOverride.sourceFormat,
-                  robotTypes: normalPlanOverride.robotType
-                    ? [normalPlanOverride.robotType]
-                    : undefined,
-                }) === 'applicable',
-            );
-
-      return {
-        ...current,
-        [profileId]: new Set(nextItems.map((item) => item.id)),
-      };
-    });
-    setFocusedProfileId(profileId);
-  }, [normalPlanOverride.robotType, normalPlanOverride.sourceFormat, robot]);
-
   const handleRestoreRecommendation = useCallback(() => {
     setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
     setSelectedProfiles(cloneSelectedInspectionProfiles(recommendedProfiles));
@@ -854,16 +823,10 @@ export function AIInspectionModal({
                         </div>
                       )}
                       <InspectionSetupNormalView
-                        lang={lang}
                         t={t}
                         automaticPlan={automaticInspectionPlan}
                         override={normalPlanOverride}
-                        selectedProfiles={selectedProfiles}
-                        recommendedProfiles={recommendedProfiles}
                         onOverrideChange={setNormalPlanOverride}
-                        onToggleProfile={handleToggleSelectedProfile}
-                        onToggleItem={handleToggleSelectedItem}
-                        onRestoreRecommendation={handleRestoreRecommendation}
                       />
                     </div>
                   </div>
