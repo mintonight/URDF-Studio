@@ -628,6 +628,7 @@ export function AppLayout({
         lang,
         theme,
         viewConfig,
+        onNotify: showToast,
       }}
       sidebars={{
         workspace,

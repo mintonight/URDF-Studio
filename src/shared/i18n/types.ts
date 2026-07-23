@@ -507,6 +507,7 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   trajectoryEditing: string;
   featureInDevelopment: string;
   transformMode: string;
+  visualTransformDisabledWithCollisions: string;
   translateMode: string;
   rotateMode: string;
   universalMode: string;

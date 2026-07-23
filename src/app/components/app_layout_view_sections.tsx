@@ -193,6 +193,7 @@ function WorkspaceViewerSection({
         viewerReloadKey: viewer.viewerReloadKey,
         documentLoadState: viewer.documentLoadLifecycleState,
         gizmoMargin: workspaceChrome.overlayGizmoMargin,
+        onNotify: viewer.onNotify,
       }}
       documentLoadingOverlayLang={viewer.lang}
       documentLoadingOverlayTargetFileName={resolveDocumentLoadingOverlayTargetFileName({
