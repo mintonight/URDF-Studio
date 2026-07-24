@@ -266,7 +266,7 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
       <div className="@container space-y-2.5">
         {(supportsFullLimit || supportsEffortVelocityLimit) && (
           <CollapsibleSection title={t.limits} storageKey="limits">
-            <div className="grid grid-cols-1 gap-2 @[480px]:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 @[320px]:grid-cols-2">
               {supportsFullLimit && (
                 <>
                   <InlineInputGroup
