@@ -685,6 +685,15 @@ body {
   min-height: 56px;
 }
 
+.urdf-toolbar-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.urdf-toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .dark .custom-scrollbar {
   scrollbar-color: var(--ui-scrollbar-thumb) transparent;
 }
