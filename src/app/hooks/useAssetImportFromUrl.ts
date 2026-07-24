@@ -9,10 +9,7 @@ import {
   stripImportParamsFromUrl,
 } from '@/shared/utils/popupHandoffProtocol';
 import { getRuntimeLanguageTranslations } from '@/shared/i18n';
-import {
-  getAssetDownloadAuthToken,
-  resolveAssetDownloadEndpoint,
-} from './assetDownloadEndpoint';
+import { getAssetDownloadAuthToken, resolveAssetDownloadEndpoint } from './assetDownloadEndpoint';
 
 export {
   resolveAssetDownloadEndpoint,
@@ -380,7 +377,9 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
 
       try {
         const collUrl = new URL(`/api/collections/${encodeURIComponent(slug)}`, remoteImportOrigin);
-        const collRes = await fetch(collUrl.toString());
+        const collRes = await fetch(collUrl.toString(), {
+          headers: buildAssetDownloadRequestHeaders(),
+        });
         if (!collRes.ok) throw new Error(`Collection fetch failed: ${collRes.status}`);
         const collJson = await collRes.json();
         const assetIds: string[] = collJson?.data?.assetIds ?? [];
